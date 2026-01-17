@@ -185,8 +185,7 @@ jobs:
       contents: write
     environment:
       name: PyPI
-      # When publishing to real PyPI, update this URL:
-      # url: https://pypi.org/p/fastmcp-extensions/
+      url: https://pypi.org/p/fastmcp-extensions/
     env:
       VERSION: ${{ needs.build.outputs.VERSION || needs.download_release_assets.outputs.VERSION }}
       IS_PRERELEASE: ${{ needs.build.outputs.IS_PRERELEASE || 'false' }}
