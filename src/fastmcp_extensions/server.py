@@ -364,7 +364,7 @@ def mcp_server(
         if mcp_modules:
             config.advertised_properties["mcp_modules"] = mcp_modules
 
-    app._mcp_server_config = config  # type: ignore[attr-defined]
+    app.x_mcp_server_config = config  # type: ignore[attr-defined]
 
     return app
 
@@ -387,5 +387,5 @@ def resolve_config(app: FastMCP, name: str) -> str:
         KeyError: If the config argument name is not registered.
         ValueError: If the config is required but no value can be resolved.
     """
-    config: MCPServerConfig = app._mcp_server_config  # type: ignore[attr-defined]
+    config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
     return config.resolve_config(name)

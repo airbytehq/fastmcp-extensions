@@ -26,15 +26,15 @@ def test_mcp_server_returns_fastmcp_instance() -> None:
 def test_mcp_server_has_config_attached() -> None:
     """Test that mcp_server() attaches config to the app."""
     app = mcp_server("test-server")
-    assert hasattr(app, "_mcp_server_config")
-    assert isinstance(app._mcp_server_config, MCPServerConfig)
+    assert hasattr(app, "x_mcp_server_config")
+    assert isinstance(app.x_mcp_server_config, MCPServerConfig)
 
 
 @pytest.mark.unit
 def test_mcp_server_config_stores_name() -> None:
     """Test that the config stores the server name."""
     app = mcp_server("my-test-server")
-    config: MCPServerConfig = app._mcp_server_config
+    config: MCPServerConfig = app.x_mcp_server_config
     assert config.name == "my-test-server"
 
 
@@ -46,7 +46,7 @@ def test_mcp_server_config_stores_advertised_properties() -> None:
         "docs_url": "https://example.com/docs",
     }
     app = mcp_server("test-server", advertised_properties=props)
-    config: MCPServerConfig = app._mcp_server_config
+    config: MCPServerConfig = app.x_mcp_server_config
     assert config.advertised_properties == props
 
 
@@ -63,7 +63,7 @@ def test_mcp_server_config_stores_config_args() -> None:
         ),
     ]
     app = mcp_server("test-server", server_config_args=config_args)
-    config: MCPServerConfig = app._mcp_server_config
+    config: MCPServerConfig = app.x_mcp_server_config
     assert len(config.config_args) == 1
     assert config.config_args[0].name == "api_key"
 
