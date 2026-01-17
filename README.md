@@ -4,7 +4,7 @@ Unofficial extension library for FastMCP 2.0 with patterns, practices, and utili
 
 ## Features
 
-- MCP Server Factory: `mcp_server()` helper that creates FastMCP instances with built-in server info resources and credential resolution
+- MCP Server Factory: `mcp_server()` helper that creates FastMCP instances with built-in server info resources, MCP asset discovery (optional), and credential resolution
 - MCP Annotation Constants: Standard annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) following the FastMCP 2.2.7+ specification
 - Deferred Registration Decorators: `@mcp_tool`, `@mcp_prompt`, `@mcp_resource` decorators for organizing tools by domain with automatic domain detection
 - Registration Utilities: Functions to register tools, prompts, and resources with a FastMCP app, filtered by domain
@@ -35,8 +35,8 @@ from fastmcp_extensions import mcp_server, MCPServerConfigArg
 
 app = mcp_server(
     name="my-mcp-server",
+    package_name="my-package",
     advertised_properties={
-        "package_name": "my-package",
         "docs_url": "https://github.com/org/repo",
         "release_history_url": "https://github.com/org/repo/releases",
     },
@@ -166,7 +166,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Server Factory
 
-- `mcp_server(name, advertised_properties, auto_discover_assets, server_config_args, **fastmcp_kwargs)` - Create a FastMCP instance with built-in server info resource
+- `mcp_server(name, package_name, advertised_properties, auto_discover_assets, server_config_args, **fastmcp_kwargs)` - Create a FastMCP instance with built-in server info resource
 - `MCPServerConfigArg(name, http_header_key, env_var, default, required, sensitive)` - Configuration for credential resolution
 - `resolve_config(app, name)` - Resolve a credential from HTTP headers or environment variables
 

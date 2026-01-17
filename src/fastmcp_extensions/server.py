@@ -9,7 +9,9 @@ resolution.
 from __future__ import annotations
 
 import importlib.metadata as md
+import inspect
 import os
+import pkgutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -53,6 +55,7 @@ class MCPServerConfig:
     """
 
     name: str
+    package_name: str | None = None
     advertised_properties: dict[str, Any] = field(default_factory=dict)
     config_args: list[MCPServerConfigArg] = field(default_factory=list)
     _config_args_by_name: dict[str, MCPServerConfigArg] = field(
@@ -219,14 +222,12 @@ def _create_server_info_resource(
             "git_sha": _get_git_sha(),
         }
 
-        package_name = config.advertised_properties.get("package_name")
-        if package_name:
-            info["package_name"] = package_name
-            info["version"] = _get_package_version(package_name)
+        if config.package_name:
+            info["package_name"] = config.package_name
+            info["version"] = _get_package_version(config.package_name)
 
         for key, value in config.advertised_properties.items():
-            if key != "package_name":
-                info[key] = value
+            info[key] = value
 
         return info
 
@@ -234,18 +235,65 @@ def _create_server_info_resource(
 def _discover_mcp_module_names() -> list[str]:
     """Auto-discover MCP module names from sibling non-private modules.
 
-    This is a placeholder implementation. In practice, this would inspect
-    the calling package's structure to find MCP modules.
+    This function inspects the calling package's structure to find non-private
+    modules that could contain MCP assets (tools, resources, prompts).
+
+    The discovery walks up the call stack to find the first frame that is not
+    in this module, then discovers all non-private submodules of that package.
 
     Returns:
-        List of discovered MCP module names.
+        List of discovered MCP module names (excluding private modules starting with '_').
     """
-    return []
+    # Get the caller's frame (skip this function and mcp_server)
+    frame = inspect.currentframe()
+    if frame is None:
+        return []
+
+    caller_frame = frame.f_back
+    if caller_frame is None:
+        return []
+
+    # Walk up the stack to find a frame outside this module
+    while caller_frame is not None:
+        caller_module = caller_frame.f_globals.get("__name__", "")
+        if caller_module != __name__:
+            break
+        caller_frame = caller_frame.f_back
+
+    if caller_frame is None:
+        return []
+
+    caller_module = caller_frame.f_globals.get("__name__", "")
+    if not caller_module:
+        return []
+
+    # Get the package name (parent of the module)
+    package_name = (
+        caller_module.rsplit(".", 1)[0] if "." in caller_module else caller_module
+    )
+
+    # Try to get the package path
+    try:
+        package = __import__(package_name, fromlist=[""])
+        package_path = getattr(package, "__path__", None)
+        if package_path is None:
+            return []
+    except ImportError:
+        return []
+
+    # Discover all non-private submodules
+    module_names: list[str] = []
+    for module_info in pkgutil.iter_modules(package_path):
+        if not module_info.name.startswith("_"):
+            module_names.append(module_info.name)
+
+    return sorted(module_names)
 
 
 def mcp_server(
     name: str,
     *,
+    package_name: str | None = None,
     advertised_properties: dict[str, Any] | None = None,
     auto_discover_assets: bool | Callable[[], list[str]] = False,
     server_config_args: list[MCPServerConfigArg] | None = None,
@@ -261,9 +309,9 @@ def mcp_server(
 
     Args:
         name: The name of the MCP server.
+        package_name: The Python package name (enables version detection in server info).
         advertised_properties: Custom properties to include in server info.
             Common properties include:
-            - package_name: The Python package name (enables version detection)
             - docs_url: URL to documentation
             - release_history_url: URL to release history
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
@@ -280,8 +328,8 @@ def mcp_server(
 
         app = mcp_server(
             name="my-mcp-server",
+            package_name="my-package",
             advertised_properties={
-                "package_name": "my-package",
                 "docs_url": "https://github.com/org/repo",
             },
             server_config_args=[
@@ -300,6 +348,7 @@ def mcp_server(
 
     config = MCPServerConfig(
         name=name,
+        package_name=package_name,
         advertised_properties=advertised_properties or {},
         config_args=server_config_args or [],
     )
