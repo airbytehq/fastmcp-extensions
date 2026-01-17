@@ -231,14 +231,14 @@ def _create_server_info_resource(
         return info
 
 
-def _discover_domains_from_modules() -> list[str]:
-    """Auto-discover domains from sibling non-private modules.
+def _discover_mcp_module_names() -> list[str]:
+    """Auto-discover MCP module names from sibling non-private modules.
 
     This is a placeholder implementation. In practice, this would inspect
-    the calling package's structure to find domain modules.
+    the calling package's structure to find MCP modules.
 
     Returns:
-        List of discovered domain names.
+        List of discovered MCP module names.
     """
     return []
 
@@ -257,7 +257,7 @@ def mcp_server(
     built-in, including:
     - Automatic server info resource registration
     - HTTP header credential resolution
-    - Optional domain auto-discovery
+    - Optional MCP module auto-discovery
 
     Args:
         name: The name of the MCP server.
@@ -266,8 +266,8 @@ def mcp_server(
             - package_name: The Python package name (enables version detection)
             - docs_url: URL to documentation
             - release_history_url: URL to release history
-        auto_discover_assets: If True, auto-detect domains from sibling modules.
-            Can also be a callable that returns a list of domain names.
+        auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
+            Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
@@ -308,12 +308,12 @@ def mcp_server(
 
     if auto_discover_assets:
         if callable(auto_discover_assets):
-            domains = auto_discover_assets()
+            mcp_modules = auto_discover_assets()
         else:
-            domains = _discover_domains_from_modules()
+            mcp_modules = _discover_mcp_module_names()
 
-        if domains:
-            config.advertised_properties["domains"] = domains
+        if mcp_modules:
+            config.advertised_properties["mcp_modules"] = mcp_modules
 
     app._mcp_server_config = config  # type: ignore[attr-defined]
 
