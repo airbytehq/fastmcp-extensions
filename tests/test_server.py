@@ -193,7 +193,9 @@ def test_resolve_config_required_missing_raises_value_error() -> None:
     ]
     app = mcp_server("test-server", server_config_args=config_args)
 
-    mock_headers = patch("fastmcp_extensions.server.get_http_headers", return_value=None)
+    mock_headers = patch(
+        "fastmcp_extensions.server.get_http_headers", return_value=None
+    )
     with mock_headers, pytest.raises(ValueError, match="Required config"):
         resolve_config(app, "api_key")
 
