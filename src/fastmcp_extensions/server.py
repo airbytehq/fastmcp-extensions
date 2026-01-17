@@ -40,6 +40,9 @@ class MCPServerConfigArg:
             parsing values like "Bearer <token>" from Authorization headers.
             The function receives the raw value and returns the normalized value,
             or None if the value should be treated as not found (triggering fallback).
+            The function may also raise an exception for invalid input validation.
+            When raising exceptions, avoid including the raw value in error messages
+            as it may contain sensitive credentials.
     """
 
     name: str
