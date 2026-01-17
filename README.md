@@ -1,177 +1,192 @@
-# Awesome Python Template
+# FastMCP Extensions
 
-A modern Python project template with best practices and cutting-edge tooling.
+Unofficial extension library for FastMCP 2.0 with patterns, practices, and utilities for building MCP servers.
 
-## 🚀 Features
+## Features
 
-- **🔄 Automated releases** with Release Drafter and semantic versioning
-- **📦 uv** for fast, reliable package management
-- **🏗️ Source layout** with `src/{library-name}` structure
-- **🧪 pytest** for comprehensive testing
-- **🎨 ruff** for lightning-fast linting and formatting
-- **🔍 deptry** for dependency analysis and unused dependency detection
-- **⚡ PoeThePoet** for task automation
-- **🤖 GitHub Actions** with PR welcome messages and slash command support
-- **📋 Dedicated config files** instead of cramming everything into pyproject.toml
+- MCP Annotation Constants: Standard annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) following the FastMCP 2.2.7+ specification
+- Deferred Registration Decorators: `@mcp_tool`, `@mcp_prompt`, `@mcp_resource` decorators for organizing tools by domain with automatic domain detection
+- Registration Utilities: Functions to register tools, prompts, and resources with a FastMCP app, filtered by domain
+- Tool Testing Utilities: Helpers for testing MCP tools directly with JSON arguments (stdio and HTTP transports)
+- Tool List Measurement: Utilities for measuring tool list size to track context truncation issues
+- Prompt Helpers: Generic `get_prompt_text` helper for agents that cannot access prompt assets directly
 
-## 🛠️ Quick Start
+## Installation
 
-1. **Clone and setup:**
-   ```bash
-   git clone <your-repo>
-   cd <your-repo>
-   uv sync --extra dev
-   ```
-
-2. **Run tasks with poe:**
-   ```bash
-   # List all available tasks
-   uv run poe
-
-   # Run tests
-   uv run poe test
-
-   # Format and lint code
-   uv run poe format
-   uv run poe lint
-
-   # Run all checks
-   uv run poe check
-   ```
-
-## 📋 Available Tasks
-
-### Core Development
-- `poe test` - Run all tests
-- `poe test-fast` - Run tests with fast exit on first failure  
-- `poe test-cov` - Run tests with coverage reporting
-- `poe lint` - Check code style and quality
-- `poe format` - Format code with ruff
-- `poe format-check` - Check if code is properly formatted
-- `poe deps` - Check for unused and missing dependencies
-
-### Convenience Tasks  
-- `poe check` - Run format check, linting, dependency check, and tests
-- `poe fix` - Auto-format and fix linting issues
-- `poe pre-commit` - Run pre-commit style checks
-
-### Build & Install
-- `poe install` - Install with development dependencies
-- `poe install-prod` - Install production dependencies only
-- `poe build` - Build the package
-
-### Utilities
-- `poe clean` - Clean up build artifacts and cache
-- `poe version` - Show package version
-- `poe docs` - Generate documentation (placeholder)
-- `poe typecheck` - Run type checking (placeholder)
-- `poe security` - Run security checks (placeholder)
-
-## 🤖 GitHub Integration
-
-### PR Welcome Messages
-When you open a pull request, you'll automatically get a welcome message with helpful commands.
-
-### Slash Commands
-Use `/poe <task-name>` in PR comments to run tasks:
-
-- `/poe test` - Run tests
-- `/poe lint` - Check code quality
-- `/poe format` - Format code
-- `/poe check` - Run all checks
-
-**Note**: For security reasons, slash commands run against the base repository code, not the PR changes. This ensures that untrusted code cannot be executed in a privileged environment.
-
-## 📁 Project Structure
-
-```
-awesome-python-template/
-├── src/
-│   └── awesome_python_template/    # Main source code
-│       ├── __init__.py
-│       └── py.typed
-├── tests/                          # Test files
-│   ├── __init__.py
-│   └── test_awesome_python_template.py
-├── .github/
-│   └── workflows/                  # GitHub Actions
-│       ├── pr-welcome.yml
-│       └── slash-command-dispatch.yml
-├── pyproject.toml                  # Project metadata and minimal config
-├── ruff.toml                       # Ruff configuration
-├── pytest.ini                     # Pytest configuration
-├── poe_tasks.toml                  # PoeThePoet task definitions (reference)
-├── uv.lock                         # Dependency lock file
-└── README.md                       # This file
-```
-
-## 🔧 Configuration Files
-
-This template uses **dedicated configuration files** for each tool:
-
-- **`ruff.toml`** - Ruff linting and formatting configuration
-- **`pytest.ini`** - Pytest testing configuration  
-- **`pyproject.toml`** - Minimal project metadata and poe tasks
-- **`poe_tasks.toml`** - Reference copy of task definitions
-
-## 🧪 Testing
-
-Tests are organized with pytest markers:
-- `@pytest.mark.unit` - Unit tests
-- `@pytest.mark.integration` - Integration tests
-
-Run specific test types:
 ```bash
-uv run poe test-unit        # Unit tests only
-uv run poe test-integration # Integration tests only
+pip install fastmcp-extensions
 ```
 
-## 📦 Dependencies
+Or with uv:
 
-Development dependencies are defined in `pyproject.toml`:
-- **pytest** - Testing framework
-- **pytest-cov** - Coverage reporting
-- **ruff** - Linting and formatting
-- **deptry** - Dependency analysis
-- **poethepoet** - Task runner
+```bash
+uv add fastmcp-extensions
+```
 
-### Dependency Analysis
+## Quick Start
 
-This template includes `deptry` for detecting unused and missing dependencies. To ignore false positives, search for "deptry" in the repository and update the configuration in `pyproject.toml`:
+### Using Annotation Constants
+
+```python
+from fastmcp_extensions import (
+    READ_ONLY_HINT,
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+)
+
+# Use in tool annotations
+annotations = {
+    READ_ONLY_HINT: True,
+    IDEMPOTENT_HINT: True,
+}
+```
+
+### Using Deferred Registration
+
+```python
+from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, mcp_resource, register_mcp_tools, register_mcp_resources
+
+# Define tools with the decorator (domain auto-detected from filename)
+@mcp_tool(read_only=True, idempotent=True)
+def list_items() -> list[str]:
+    """List all available items."""
+    return ["item1", "item2"]
+
+@mcp_resource("myserver://version", "Server version", "application/json")
+def get_version() -> dict:
+    """Get server version info."""
+    return {"version": "1.0.0"}
+
+# Register with FastMCP app
+app = FastMCP("my-server")
+register_mcp_tools(app)
+register_mcp_resources(app)
+```
+
+### Measuring Tool List Size
+
+```python
+import asyncio
+from fastmcp_extensions.measurement import measure_tool_list_detailed
+
+async def check_tool_size():
+    measurement = await measure_tool_list_detailed(app, server_name="my-server")
+    print(measurement)
+    # Output:
+    # MCP Server: my-server
+    # Tool count: 10
+    # Total characters: 5,432
+    # Average chars per tool: 543
+
+asyncio.run(check_tool_size())
+```
+
+### Testing Tools
+
+```python
+from fastmcp_extensions.testing import call_mcp_tool, run_tool_test
+import asyncio
+
+# Call a tool programmatically
+result = asyncio.run(call_mcp_tool(app, "list_items", {}))
+
+# Or use the CLI helper
+run_tool_test(app, "list_items", '{}')
+```
+
+### Getting Prompt Text
+
+```python
+from fastmcp_extensions.prompts import get_prompt_text
+import asyncio
+
+# Get prompt text for agents that can't access prompts directly
+text = asyncio.run(get_prompt_text(app, "my_prompt", {"arg": "value"}))
+```
+
+## Poe Tasks for MCP Servers
+
+This library provides template scripts for common MCP development tasks. Copy these to your project and customize:
+
+- `bin/test_mcp_tool.py` - Test tools with JSON arguments via stdio
+- `bin/test_mcp_tool_http.py` - Test tools over HTTP transport
+- `bin/measure_mcp_tool_list.py` - Measure tool list size
+
+Add to your `poe_tasks.toml`:
 
 ```toml
-[tool.deptry]
-# To ignore specific error codes globally:
-ignore = ["DEP004"]  # Example: ignore misplaced dev dependencies
+[tool.poe.tasks.mcp-tool-test]
+help = "Test MCP tools directly with JSON arguments"
+cmd = "python bin/test_mcp_tool.py"
 
-# To ignore specific packages, use CLI options in poe tasks:
-# poe deps --per-rule-ignores DEP002=package-name
+[tool.poe.tasks.mcp-tool-test-http]
+help = "Test MCP tools over HTTP transport"
+cmd = "python bin/test_mcp_tool_http.py"
+
+[tool.poe.tasks.mcp-measure-tools]
+help = "Measure the size of the MCP tool list output"
+cmd = "python bin/measure_mcp_tool_list.py"
 ```
 
-## 🎯 Best Practices
+## API Reference
 
-This template follows modern Python best practices:
+### Annotations
 
-1. **Source layout** - Code in `src/` directory
-2. **Dependency management** - uv for fast, reliable installs
-3. **Code quality** - Ruff for consistent formatting and linting
-4. **Testing** - Comprehensive pytest setup with coverage
-5. **Task automation** - PoeThePoet for development workflows
-6. **CI/CD** - GitHub Actions with PR automation
-7. **Configuration** - Dedicated files for each tool
+| Constant | Description | FastMCP Default |
+|----------|-------------|-----------------|
+| `READ_ONLY_HINT` | Tool only reads data | `False` |
+| `DESTRUCTIVE_HINT` | Tool modifies/deletes data | `True` |
+| `IDEMPOTENT_HINT` | Repeated calls have same effect | `False` |
+| `OPEN_WORLD_HINT` | Tool interacts with external systems | `True` |
 
-## 🔄 Development Workflow
+### Decorators
 
-1. Make your changes
-2. Run `uv run poe fix` to auto-format and fix linting
-3. Run `uv run poe test` to ensure tests pass
-4. Push your changes
-5. Use `/poe <task>` commands in PR comments as needed
+- `@mcp_tool(domain, read_only, destructive, idempotent, open_world, extra_help_text)` - Tag a tool for deferred registration
+- `@mcp_prompt(name, description, domain)` - Tag a prompt for deferred registration
+- `@mcp_resource(uri, description, mime_type, domain)` - Tag a resource for deferred registration
 
-## 🤝 Contributing
+### Registration Functions
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and development guidelines.
+- `register_mcp_tools(app, domain, exclude_args)` - Register tools with FastMCP app
+- `register_mcp_prompts(app, domain)` - Register prompts with FastMCP app
+- `register_mcp_resources(app, domain)` - Register resources with FastMCP app
 
-## 📄 License
+### Testing Utilities
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- `call_mcp_tool(app, tool_name, args)` - Call a tool asynchronously
+- `list_mcp_tools(app)` - List all available tools
+- `run_tool_test(app, tool_name, json_args)` - Run a tool test with JSON args
+- `run_http_tool_test(http_server_command, port, tool_name, args, env)` - Test over HTTP
+
+### Measurement Utilities
+
+- `measure_tool_list(app)` - Get (tool_count, total_chars) tuple
+- `measure_tool_list_detailed(app, server_name)` - Get detailed measurement
+- `get_tool_details(app)` - Get per-tool size breakdown
+
+### Prompt Utilities
+
+- `get_prompt_text(app, prompt_name, arguments)` - Get prompt text content
+- `list_prompts(app)` - List all available prompts
+
+## Development
+
+```bash
+# Install dependencies
+uv sync --extra dev
+
+# Run tests
+uv run poe test
+
+# Format and lint
+uv run poe fix
+
+# Run all checks
+uv run poe check
+```
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
