@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""MCP tool list measurement utilities.
+"""MCP server description and measurement utilities.
 
 This module provides utilities for measuring the size of MCP tool lists,
 which is useful for tracking context truncation issues when AI agents call list_tools.
@@ -8,9 +8,9 @@ Usage:
     Create a module in your MCP server project that can be called with -m syntax:
 
     ```python
-    # my_mcp_server/measure_tools.py
+    # my_mcp_server/describe.py
     from my_mcp_server.server import app
-    from fastmcp_extensions.utils.measurement import run_measurement
+    from fastmcp_extensions.utils.describe_server import run_measurement
 
     if __name__ == "__main__":
         run_measurement(app, server_name="my-mcp-server")
@@ -18,12 +18,12 @@ Usage:
 
     Then add a poe task:
     ```toml
-    [tool.poe.tasks.mcp-measure-tools]
-    cmd = "python -m my_mcp_server.measure_tools"
-    help = "Measure MCP tool list size"
+    [tool.poe.tasks.mcp-describe-server]
+    cmd = "python -m my_mcp_server.describe"
+    help = "Describe MCP server tool list"
     ```
 
-    Run with: `poe mcp-measure-tools`
+    Run with: `poe mcp-describe-server`
 
 Output includes:
     - Tool count

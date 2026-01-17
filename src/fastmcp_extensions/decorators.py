@@ -42,19 +42,19 @@ def _get_caller_file_stem() -> str:
     return "unknown"
 
 
-def _normalize_domain(domain: str) -> str:
-    """Normalize a domain string to its simple form.
+def _normalize_mcp_module(mcp_module: str) -> str:
+    """Normalize an mcp_module string to its simple form.
 
     Handles both file stems (e.g., "github") and module names
     (e.g., "my_package.mcp.github") by extracting the last segment.
 
     Args:
-        domain: A domain string, either a simple name or a dotted module path.
+        mcp_module: An mcp_module string, either a simple name or a dotted module path.
 
     Returns:
-        The normalized domain (last segment of a dotted path, or the input if no dots).
+        The normalized mcp_module (last segment of a dotted path, or the input if no dots).
     """
-    return domain.rsplit(".", 1)[-1]
+    return mcp_module.rsplit(".", 1)[-1]
 
 
 def mcp_tool(
@@ -70,8 +70,8 @@ def mcp_tool(
     This decorator stores the annotations on the function for later use during
     deferred registration. It does not register the tool immediately.
 
-    The domain is automatically derived from the file stem of the module where
-    the tool is defined (e.g., tools in "github.py" get domain "github").
+    The mcp_module is automatically derived from the file stem of the module where
+    the tool is defined (e.g., tools in "github.py" get mcp_module "github").
 
     Args:
         read_only: If True, tool only reads without making changes (default: False)
@@ -89,10 +89,10 @@ def mcp_tool(
         def list_connectors_in_repo():
             ...
     """
-    domain_str = _get_caller_file_stem()
+    mcp_module_str = _get_caller_file_stem()
 
     annotations: dict[str, Any] = {
-        "domain": domain_str,
+        "mcp_module": mcp_module_str,
         READ_ONLY_HINT: read_only,
         DESTRUCTIVE_HINT: destructive,
         IDEMPOTENT_HINT: idempotent,
@@ -117,8 +117,8 @@ def mcp_prompt(
 ]:
     """Decorator for deferred MCP prompt registration.
 
-    The domain is automatically derived from the file stem of the module where
-    the prompt is defined (e.g., prompts in "workflows.py" get domain "workflows").
+    The mcp_module is automatically derived from the file stem of the module where
+    the prompt is defined (e.g., prompts in "workflows.py" get mcp_module "workflows").
 
     Args:
         name: Unique name for the prompt
@@ -132,7 +132,7 @@ def mcp_prompt(
         def my_prompt_func() -> list[dict[str, str]]:
             return [{"role": "user", "content": "Hello"}]
     """
-    domain_str = _get_caller_file_stem()
+    mcp_module_str = _get_caller_file_stem()
 
     def decorator(
         func: Callable[..., list[dict[str, str]]],
@@ -140,7 +140,7 @@ def mcp_prompt(
         annotations = {
             "name": name,
             "description": description,
-            "domain": domain_str,
+            "mcp_module": mcp_module_str,
         }
         _REGISTERED_PROMPTS.append((func, annotations))
         return func
@@ -155,8 +155,8 @@ def mcp_resource(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for deferred MCP resource registration.
 
-    The domain is automatically derived from the file stem of the module where
-    the resource is defined (e.g., resources in "server_info.py" get domain "server_info").
+    The mcp_module is automatically derived from the file stem of the module where
+    the resource is defined (e.g., resources in "server_info.py" get mcp_module "server_info").
 
     Args:
         uri: Unique URI for the resource
@@ -171,14 +171,14 @@ def mcp_resource(
         def get_version() -> dict:
             return {"version": "1.0.0"}
     """
-    domain_str = _get_caller_file_stem()
+    mcp_module_str = _get_caller_file_stem()
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         annotations = {
             "uri": uri,
             "description": description,
             "mime_type": mime_type,
-            "domain": domain_str,
+            "mcp_module": mcp_module_str,
         }
         _REGISTERED_RESOURCES.append((func, annotations))
         return func

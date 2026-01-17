@@ -2,7 +2,7 @@
 """MCP capability registration utilities.
 
 This module provides functions to register tools, prompts, and resources
-with a FastMCP app, filtered by domain.
+with a FastMCP app, filtered by mcp_module.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
     _REGISTERED_RESOURCES,
     _REGISTERED_TOOLS,
-    _normalize_domain,
+    _normalize_mcp_module,
 )
 
 
@@ -60,23 +60,25 @@ def _get_caller_file_stem() -> str:
 def _register_mcp_callables(
     *,
     app: FastMCP,
-    domain: str,
+    mcp_module: str,
     resource_list: list[tuple[Callable[..., Any], dict[str, Any]]],
     register_fn: Callable[[FastMCP, Callable[..., Any], dict[str, Any]], None],
 ) -> None:
-    """Register resources and tools with the FastMCP app, filtered by domain.
+    """Register resources and tools with the FastMCP app, filtered by mcp_module.
 
     Args:
         app: The FastMCP app instance
-        domain: The domain to register tools for. Can be a simple name (e.g., "github")
+        mcp_module: The mcp_module to register tools for. Can be a simple name (e.g., "github")
             or a full module path (e.g., "my_package.mcp.github" from __name__).
         resource_list: List of (callable, annotations) tuples to register
         register_fn: Function to call for each registration
     """
-    domain_str = _normalize_domain(domain)
+    mcp_module_str = _normalize_mcp_module(mcp_module)
 
     filtered_callables = [
-        (func, ann) for func, ann in resource_list if ann.get("domain") == domain_str
+        (func, ann)
+        for func, ann in resource_list
+        if ann.get("mcp_module") == mcp_module_str
     ]
 
     for callable_fn, callable_annotations in filtered_callables:
@@ -85,21 +87,21 @@ def _register_mcp_callables(
 
 def register_mcp_tools(
     app: FastMCP,
-    domain: str | None = None,
+    mcp_module: str | None = None,
     *,
     exclude_args: list[str] | None = None,
 ) -> None:
-    """Register tools with the FastMCP app, filtered by domain.
+    """Register tools with the FastMCP app, filtered by mcp_module.
 
     Args:
         app: The FastMCP app instance
-        domain: The domain to register for. If not provided, automatically
+        mcp_module: The mcp_module to register for. If not provided, automatically
             derived from the caller's file stem.
         exclude_args: Optional list of argument names to exclude from tool schema.
             This is useful for arguments that are injected by middleware.
     """
-    if domain is None:
-        domain = _get_caller_file_stem()
+    if mcp_module is None:
+        mcp_module = _get_caller_file_stem()
 
     def _register_fn(
         app: FastMCP,
@@ -120,7 +122,7 @@ def register_mcp_tools(
 
     _register_mcp_callables(
         app=app,
-        domain=domain,
+        mcp_module=mcp_module,
         resource_list=_REGISTERED_TOOLS,
         register_fn=_register_fn,
     )
@@ -128,17 +130,17 @@ def register_mcp_tools(
 
 def register_mcp_prompts(
     app: FastMCP,
-    domain: str | None = None,
+    mcp_module: str | None = None,
 ) -> None:
-    """Register prompt callables with the FastMCP app, filtered by domain.
+    """Register prompt callables with the FastMCP app, filtered by mcp_module.
 
     Args:
         app: The FastMCP app instance
-        domain: The domain to register for. If not provided, automatically
+        mcp_module: The mcp_module to register for. If not provided, automatically
             derived from the caller's file stem.
     """
-    if domain is None:
-        domain = _get_caller_file_stem()
+    if mcp_module is None:
+        mcp_module = _get_caller_file_stem()
 
     def _register_fn(
         app: FastMCP,
@@ -152,7 +154,7 @@ def register_mcp_prompts(
 
     _register_mcp_callables(
         app=app,
-        domain=domain,
+        mcp_module=mcp_module,
         resource_list=_REGISTERED_PROMPTS,
         register_fn=_register_fn,
     )
@@ -160,17 +162,17 @@ def register_mcp_prompts(
 
 def register_mcp_resources(
     app: FastMCP,
-    domain: str | None = None,
+    mcp_module: str | None = None,
 ) -> None:
-    """Register resource callables with the FastMCP app, filtered by domain.
+    """Register resource callables with the FastMCP app, filtered by mcp_module.
 
     Args:
         app: The FastMCP app instance
-        domain: The domain to register for. If not provided, automatically
+        mcp_module: The mcp_module to register for. If not provided, automatically
             derived from the caller's file stem.
     """
-    if domain is None:
-        domain = _get_caller_file_stem()
+    if mcp_module is None:
+        mcp_module = _get_caller_file_stem()
 
     def _register_fn(
         app: FastMCP,
@@ -185,7 +187,7 @@ def register_mcp_resources(
 
     _register_mcp_callables(
         app=app,
-        domain=domain,
+        mcp_module=mcp_module,
         resource_list=_REGISTERED_RESOURCES,
         register_fn=_register_fn,
     )
