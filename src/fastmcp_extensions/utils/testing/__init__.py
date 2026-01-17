@@ -5,66 +5,27 @@ This module provides utilities for testing MCP tools directly with JSON argument
 supporting both stdio and HTTP transports.
 
 Usage (stdio transport):
-    Create a module in your MCP server project that can be called with -m syntax:
+    python -m fastmcp_extensions.utils.testing --app <module:app> <tool_name> '<json_args>'
 
-    ```python
-    # my_mcp_server/tool_test.py
-    import sys
-    from my_mcp_server.server import app
-    from fastmcp_extensions.utils.testing import run_tool_test
+    Example:
+        python -m fastmcp_extensions.utils.testing --app my_mcp_server.server:app list_tools '{}'
 
-    if __name__ == "__main__":
-        if len(sys.argv) < 3:
-            print("Usage: python -m my_mcp_server.tool_test <tool_name> '<json_args>'")
-            sys.exit(1)
-        run_tool_test(app, sys.argv[1], sys.argv[2])
-    ```
-
-    Then add a poe task:
-    ```toml
-    [tool.poe.tasks.mcp-tool-test]
-    cmd = "python -m my_mcp_server.tool_test"
-    help = "Test MCP tools with JSON arguments"
-    ```
-
-    Run with: `poe mcp-tool-test <tool_name> '<json_args>'`
+    Poe task configuration:
+        [tool.poe.tasks.mcp-tool-test]
+        cmd = "python -m fastmcp_extensions.utils.testing --app my_mcp_server.server:app"
+        help = "Test MCP tools with JSON arguments"
 
 Usage (HTTP transport):
-    Create a module for HTTP testing:
+    python -m fastmcp_extensions.utils.testing --http --cmd '<server_command>' [tool_name] ['<json_args>']
 
-    ```python
-    # my_mcp_server/tool_test_http.py
-    import asyncio
-    import sys
-    from fastmcp_extensions.utils.testing import run_http_tool_test
+    Example:
+        python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'
+        python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http' get_version '{}'
 
-    HTTP_SERVER_COMMAND = ["uv", "run", "my-mcp-server-http"]
-
-    if __name__ == "__main__":
-        tool_name = sys.argv[1] if len(sys.argv) > 1 else None
-        json_args = sys.argv[2] if len(sys.argv) > 2 else "{}"
-        args = json.loads(json_args) if tool_name else None
-        sys.exit(
-            asyncio.run(
-                run_http_tool_test(
-                    HTTP_SERVER_COMMAND,
-                    tool_name=tool_name,
-                    args=args,
-                )
-            )
-        )
-    ```
-
-    Then add a poe task:
-    ```toml
-    [tool.poe.tasks.mcp-tool-test-http]
-    cmd = "python -m my_mcp_server.tool_test_http"
-    help = "Test MCP tools over HTTP transport"
-    ```
-
-    Run with:
-    - Smoke test: `poe mcp-tool-test-http`
-    - Test specific tool: `poe mcp-tool-test-http <tool_name> '<json_args>'`
+    Poe task configuration:
+        [tool.poe.tasks.mcp-tool-test-http]
+        cmd = "python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'"
+        help = "Test MCP tools over HTTP transport"
 """
 
 from __future__ import annotations
@@ -239,3 +200,13 @@ async def run_http_tool_test(
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+
+__all__ = [
+    "call_mcp_tool",
+    "find_free_port",
+    "list_mcp_tools",
+    "run_http_tool_test",
+    "run_tool_test",
+    "wait_for_server",
+]
