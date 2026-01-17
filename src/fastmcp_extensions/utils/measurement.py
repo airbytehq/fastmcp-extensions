@@ -3,6 +3,32 @@
 
 This module provides utilities for measuring the size of MCP tool lists,
 which is useful for tracking context truncation issues when AI agents call list_tools.
+
+Usage:
+    Create a module in your MCP server project that can be called with -m syntax:
+
+    ```python
+    # my_mcp_server/measure_tools.py
+    from my_mcp_server.server import app
+    from fastmcp_extensions.utils.measurement import run_measurement
+
+    if __name__ == "__main__":
+        run_measurement(app, server_name="my-mcp-server")
+    ```
+
+    Then add a poe task:
+    ```toml
+    [tool.poe.tasks.mcp-measure-tools]
+    cmd = "python -m my_mcp_server.measure_tools"
+    help = "Measure MCP tool list size"
+    ```
+
+    Run with: `poe mcp-measure-tools`
+
+Output includes:
+    - Tool count
+    - Total characters (names + descriptions + schemas)
+    - Average characters per tool
 """
 
 from __future__ import annotations

@@ -3,6 +3,68 @@
 
 This module provides utilities for testing MCP tools directly with JSON arguments,
 supporting both stdio and HTTP transports.
+
+Usage (stdio transport):
+    Create a module in your MCP server project that can be called with -m syntax:
+
+    ```python
+    # my_mcp_server/tool_test.py
+    import sys
+    from my_mcp_server.server import app
+    from fastmcp_extensions.utils.testing import run_tool_test
+
+    if __name__ == "__main__":
+        if len(sys.argv) < 3:
+            print("Usage: python -m my_mcp_server.tool_test <tool_name> '<json_args>'")
+            sys.exit(1)
+        run_tool_test(app, sys.argv[1], sys.argv[2])
+    ```
+
+    Then add a poe task:
+    ```toml
+    [tool.poe.tasks.mcp-tool-test]
+    cmd = "python -m my_mcp_server.tool_test"
+    help = "Test MCP tools with JSON arguments"
+    ```
+
+    Run with: `poe mcp-tool-test <tool_name> '<json_args>'`
+
+Usage (HTTP transport):
+    Create a module for HTTP testing:
+
+    ```python
+    # my_mcp_server/tool_test_http.py
+    import asyncio
+    import sys
+    from fastmcp_extensions.utils.testing import run_http_tool_test
+
+    HTTP_SERVER_COMMAND = ["uv", "run", "my-mcp-server-http"]
+
+    if __name__ == "__main__":
+        tool_name = sys.argv[1] if len(sys.argv) > 1 else None
+        json_args = sys.argv[2] if len(sys.argv) > 2 else "{}"
+        args = json.loads(json_args) if tool_name else None
+        sys.exit(
+            asyncio.run(
+                run_http_tool_test(
+                    HTTP_SERVER_COMMAND,
+                    tool_name=tool_name,
+                    args=args,
+                )
+            )
+        )
+    ```
+
+    Then add a poe task:
+    ```toml
+    [tool.poe.tasks.mcp-tool-test-http]
+    cmd = "python -m my_mcp_server.tool_test_http"
+    help = "Test MCP tools over HTTP transport"
+    ```
+
+    Run with:
+    - Smoke test: `poe mcp-tool-test-http`
+    - Test specific tool: `poe mcp-tool-test-http <tool_name> '<json_args>'`
 """
 
 from __future__ import annotations
