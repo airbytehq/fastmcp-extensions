@@ -89,9 +89,11 @@ known_first_party = [
 # To ignore specific error codes globally, uncomment and modify:
 ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
 
-# To ignore specific packages for specific rules, use CLI options:
-# Examples:
-# --per-rule-ignores DEP001=package-name    # Ignore missing dependency
-# --per-rule-ignores DEP002=unused-package  # Ignore unused dependency  
-# --per-rule-ignores DEP003=transitive-dep  # Ignore transitive dependency
-# --per-rule-ignores DEP004=dev-package     # Ignore misplaced dev dependency
+# To ignore specific packages for specific rules:
+# DEP001=package-name    # Ignore missing dependency
+# DEP002=unused-package  # Ignore unused dependency  
+# DEP003=transitive-dep  # Ignore transitive dependency
+# DEP004=dev-package     # Ignore misplaced dev dependency
+[tool.deptry.per_rule_ignores]
+# uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
+DEP003 = ["uvicorn"]
