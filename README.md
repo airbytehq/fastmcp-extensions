@@ -43,7 +43,7 @@ app = mcp_server(
     server_config_args=[
         MCPServerConfigArg(
             name="api_key",
-            header="X-API-Key",
+            http_header_key="X-API-Key",
             env_var="MY_API_KEY",
             required=True,
             sensitive=True,
@@ -167,7 +167,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Server Factory
 
 - `mcp_server(name, advertised_properties, auto_discover_assets, server_config_args, **fastmcp_kwargs)` - Create a FastMCP instance with built-in server info resource
-- `MCPServerConfigArg(name, header, env_var, required, sensitive)` - Configuration for credential resolution
+- `MCPServerConfigArg(name, http_header_key, env_var, default, required, sensitive)` - Configuration for credential resolution
 - `resolve_config(app, name)` - Resolve a credential from HTTP headers or environment variables
 
 ### Annotations

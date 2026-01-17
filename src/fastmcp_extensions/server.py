@@ -29,15 +29,17 @@ class MCPServerConfigArg:
 
     Attributes:
         name: Unique name for this config argument (used for resolution).
-        header: HTTP header name to check first (case-insensitive).
-        env_var: Environment variable name to check as fallback.
-        required: If True, resolution will raise an error if not found.
+        http_header_key: HTTP header name to check first (case-insensitive). Optional.
+        env_var: Environment variable name to check as fallback. Optional.
+        default: Default value if not found. Can be a string or a callable returning a string.
+        required: If True, resolution will raise an error if not found (after checking default).
         sensitive: If True, the value will be masked in logs/output.
     """
 
     name: str
-    header: str
-    env_var: str
+    http_header_key: str | None = None
+    env_var: str | None = None
+    default: str | Callable[[], str] | None = None
     required: bool = True
     sensitive: bool = False
 
@@ -114,21 +116,32 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
     Raises:
         ValueError: If the config is required but no value can be resolved.
     """
-    headers = get_http_headers()
-    if headers:
-        header_value = _get_header_value(headers, config_arg.header)
-        if header_value:
-            return header_value
+    if config_arg.http_header_key:
+        headers = get_http_headers()
+        if headers:
+            header_value = _get_header_value(headers, config_arg.http_header_key)
+            if header_value:
+                return header_value
 
-    env_value = os.environ.get(config_arg.env_var)
-    if env_value:
-        return env_value
+    if config_arg.env_var:
+        env_value = os.environ.get(config_arg.env_var)
+        if env_value:
+            return env_value
+
+    if config_arg.default is not None:
+        if callable(config_arg.default):
+            return config_arg.default()
+        return config_arg.default
 
     if config_arg.required:
+        sources: list[str] = []
+        if config_arg.http_header_key:
+            sources.append(f"HTTP header '{config_arg.http_header_key}'")
+        if config_arg.env_var:
+            sources.append(f"environment variable '{config_arg.env_var}'")
+        source_str = " or ".join(sources) if sources else "no sources configured"
         raise ValueError(
-            f"Required config '{config_arg.name}' not found. "
-            f"Set HTTP header '{config_arg.header}' or "
-            f"environment variable '{config_arg.env_var}'."
+            f"Required config '{config_arg.name}' not found. Set {source_str}."
         )
 
     return ""
@@ -274,7 +287,7 @@ def mcp_server(
             server_config_args=[
                 MCPServerConfigArg(
                     name="api_key",
-                    header="X-API-Key",
+                    http_header_key="X-API-Key",
                     env_var="MY_API_KEY",
                     required=True,
                     sensitive=True,
