@@ -36,6 +36,10 @@ class MCPServerConfigArg:
         default: Default value if not found. Can be a string or a callable returning a string.
         required: If True, resolution will raise an error if not found (after checking default).
         sensitive: If True, the value will be masked in logs/output.
+        normalize_fn: Optional function to transform the resolved value. Useful for
+            parsing values like "Bearer <token>" from Authorization headers.
+            The function receives the raw value and returns the normalized value,
+            or None if the value should be treated as not found (triggering fallback).
     """
 
     name: str
@@ -44,6 +48,7 @@ class MCPServerConfigArg:
     default: str | Callable[[], str] | None = None
     required: bool = True
     sensitive: bool = False
+    normalize_fn: Callable[[str], str | None] | None = None
 
 
 @dataclass
@@ -119,17 +124,28 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
     Raises:
         ValueError: If the config is required but no value can be resolved.
     """
+
+    def _apply_normalize(value: str) -> str | None:
+        """Apply normalize_fn if configured, otherwise return value as-is."""
+        if config_arg.normalize_fn is not None:
+            return config_arg.normalize_fn(value)
+        return value
+
     if config_arg.http_header_key:
         headers = get_http_headers()
         if headers:
             header_value = _get_header_value(headers, config_arg.http_header_key)
             if header_value:
-                return header_value
+                normalized = _apply_normalize(header_value)
+                if normalized is not None:
+                    return normalized
 
     if config_arg.env_var:
         env_value = os.environ.get(config_arg.env_var)
         if env_value:
-            return env_value
+            normalized = _apply_normalize(env_value)
+            if normalized is not None:
+                return normalized
 
     if config_arg.default is not None:
         if callable(config_arg.default):
