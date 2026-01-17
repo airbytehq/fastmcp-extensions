@@ -43,7 +43,7 @@ jobs:
       - name: Append comment with job run link
         id: first-comment-action
         if: github.event.inputs.comment-id
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ github.event.inputs.comment-id }}
           issue-number: ${{ github.event.inputs.pr }}
@@ -89,7 +89,7 @@ jobs:
 
       - name: Append success comment
         if: success() && github.event.inputs.comment-id
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
           issue-number: ${{ github.event.inputs.pr }}
@@ -109,7 +109,7 @@ jobs:
 
       - name: Append failure comment
         if: failure() && github.event.inputs.comment-id
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
           issue-number: ${{ github.event.inputs.pr }}
