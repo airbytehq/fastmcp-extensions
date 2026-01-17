@@ -5,7 +5,7 @@ This module contains utilities that are designed to be called as scripts
 or used programmatically for testing and measuring MCP servers.
 
 Submodules:
-    - testing: MCP tool testing utilities (stdio and HTTP transports)
+    - test_tool: MCP tool testing utilities (stdio and HTTP transports)
     - measurement: MCP tool list measurement utilities
 """
 
@@ -16,7 +16,7 @@ from fastmcp_extensions.utils.measurement import (
     measure_tool_list_detailed,
     run_measurement,
 )
-from fastmcp_extensions.utils.testing import (
+from fastmcp_extensions.utils.test_tool import (
     call_mcp_tool,
     find_free_port,
     list_mcp_tools,

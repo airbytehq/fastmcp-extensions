@@ -2,25 +2,25 @@
 """CLI entry point for MCP tool testing.
 
 Usage (stdio transport):
-    python -m fastmcp_extensions.utils.testing --app <module:app> <tool_name> '<json_args>'
+    python -m fastmcp_extensions.utils.test_tool --app <module:app> <tool_name> '<json_args>'
 
 Usage (HTTP transport with --app):
-    python -m fastmcp_extensions.utils.testing --http --app <module:app> [tool_name] ['<json_args>']
+    python -m fastmcp_extensions.utils.test_tool --http --app <module:app> [tool_name] ['<json_args>']
 
 Usage (HTTP transport with --cmd):
-    python -m fastmcp_extensions.utils.testing --http --cmd '<server_command>' [tool_name] ['<json_args>']
+    python -m fastmcp_extensions.utils.test_tool --http --cmd '<server_command>' [tool_name] ['<json_args>']
 
 Examples:
     # Stdio transport
-    python -m fastmcp_extensions.utils.testing --app my_server.server:app list_tools '{}'
+    python -m fastmcp_extensions.utils.test_tool --app my_server.server:app list_tools '{}'
 
     # HTTP transport with --app (runs app.run_http() directly)
-    python -m fastmcp_extensions.utils.testing --http --app my_server.server:app
-    python -m fastmcp_extensions.utils.testing --http --app my_server.server:app get_version '{}'
+    python -m fastmcp_extensions.utils.test_tool --http --app my_server.server:app
+    python -m fastmcp_extensions.utils.test_tool --http --app my_server.server:app get_version '{}'
 
     # HTTP transport with --cmd (spawns server subprocess)
-    python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'
-    python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http' get_version '{}'
+    python -m fastmcp_extensions.utils.test_tool --http --cmd 'uv run my-mcp-http'
+    python -m fastmcp_extensions.utils.test_tool --http --cmd 'uv run my-mcp-http' get_version '{}'
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ import json
 import shlex
 import sys
 
-from fastmcp_extensions.utils.testing import run_http_tool_test, run_tool_test
+from fastmcp_extensions.utils.test_tool import run_http_tool_test, run_tool_test
 
 
 def _import_app(app_path: str) -> object:
@@ -108,7 +108,7 @@ def main() -> None:
             sys.exit(exit_code)
         else:
             # Use app mode - run HTTP server directly from app
-            from fastmcp_extensions.utils.testing import run_http_tool_test_with_app
+            from fastmcp_extensions.utils.test_tool import run_http_tool_test_with_app
 
             app = _import_app(args.app)
             exit_code = asyncio.run(
