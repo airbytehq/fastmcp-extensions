@@ -47,16 +47,3 @@ cmd = "deptry ."
 [tool.poe.tasks.pre-commit]
 help = "Run all pre-commit checks"
 sequence = ["format", "lint", "test-fast"]
-
-# MCP tool testing tasks
-[tool.poe.tasks.mcp-tool-test]
-help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'"
-cmd = "python bin/test_mcp_tool.py"
-
-[tool.poe.tasks.mcp-tool-test-http]
-help = "Test MCP tools over HTTP transport: poe mcp-tool-test-http [tool_name] ['<json_args>']"
-cmd = "python bin/test_mcp_tool_http.py"
-
-[tool.poe.tasks.mcp-measure-tools]
-help = "Measure the size of the MCP tool list output"
-cmd = "python bin/measure_mcp_tool_list.py"
