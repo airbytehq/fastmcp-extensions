@@ -8,10 +8,10 @@ lint = "ruff check ."
 format = "ruff format ."
 format-check = "ruff format --check ."
 
-# Testing  
+# Testing
 test = "pytest"
 test-fast = "pytest -x"
-test-cov = "pytest --cov=awesome_python_template --cov-report=html"
+test-cov = "pytest --cov=fastmcp_extensions --cov-report=html"
 test-unit = "pytest -m unit"
 test-integration = "pytest -m integration"
 
@@ -30,14 +30,13 @@ docs-serve = "echo 'Documentation serving not yet configured'"
 
 # Development helpers
 clean = "rm -rf .pytest_cache .coverage htmlcov dist .ruff_cache"
-version = { "shell" = "echo 'awesome-python-template version:' && python -c 'import awesome_python_template; print(awesome_python_template.__version__)'" }
 
 [tool.poe.tasks.typecheck]
 help = "Run type checking with mypy"
-cmd = "echo 'Type checking not yet configured - consider adding mypy'"
+cmd = "mypy src/fastmcp_extensions"
 
 [tool.poe.tasks.security]
-help = "Run security checks with bandit"  
+help = "Run security checks with bandit"
 cmd = "echo 'Security scanning not yet configured - consider adding bandit'"
 
 [tool.poe.tasks.deps]

@@ -1,15 +1,17 @@
 [project]
-name = "awesome-python-template"
+name = "fastmcp-extensions"
 dynamic = ["version"]
-description = "A modern Python project template with best practices and tooling"
+description = "Unofficial extension library for FastMCP 2.0 with patterns, practices, and utilities"
 readme = "README.md"
 authors = [
-    { name = "Aaron Steers", email = "aaron@aaronsteers.com" }
+    { name = "Airbyte", email = "contact@airbyte.io" }
 ]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastmcp>=2.2.7,<3.0",
+]
 license = { file = "LICENSE" }
-keywords = ["template", "scaffold", "python", "modern"]
+keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,13 +23,20 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[project.urls]
+Homepage = "https://github.com/airbytehq/fastmcp-extensions"
+Repository = "https://github.com/airbytehq/fastmcp-extensions"
+Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
     "poethepoet>=0.24.0",
     "deptry>=0.12.0",
+    "mypy>=1.8.0",
 ]
 
 [build-system]
@@ -41,6 +50,9 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fastmcp_extensions"]
 
 # Deptry configuration for dependency analysis
 # https://deptry.com/
@@ -71,15 +83,17 @@ ignore_notebooks = false
 
 # Known first-party modules (your own packages)
 known_first_party = [
-    "awesome_python_template",
+    "fastmcp_extensions",
 ]
 
 # To ignore specific error codes globally, uncomment and modify:
 ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
 
-# To ignore specific packages for specific rules, use CLI options:
-# Examples:
-# --per-rule-ignores DEP001=package-name    # Ignore missing dependency
-# --per-rule-ignores DEP002=unused-package  # Ignore unused dependency  
-# --per-rule-ignores DEP003=transitive-dep  # Ignore transitive dependency
-# --per-rule-ignores DEP004=dev-package     # Ignore misplaced dev dependency
+# To ignore specific packages for specific rules:
+# DEP001=package-name    # Ignore missing dependency
+# DEP002=unused-package  # Ignore unused dependency  
+# DEP003=transitive-dep  # Ignore transitive dependency
+# DEP004=dev-package     # Ignore misplaced dev dependency
+[tool.deptry.per_rule_ignores]
+# uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
+DEP003 = ["uvicorn"]
