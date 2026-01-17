@@ -4,6 +4,7 @@ Unofficial extension library for FastMCP 2.0 with patterns, practices, and utili
 
 ## Features
 
+- MCP Server Factory: `mcp_server()` helper that creates FastMCP instances with built-in server info resources and credential resolution
 - MCP Annotation Constants: Standard annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) following the FastMCP 2.2.7+ specification
 - Deferred Registration Decorators: `@mcp_tool`, `@mcp_prompt`, `@mcp_resource` decorators for organizing tools by domain with automatic domain detection
 - Registration Utilities: Functions to register tools, prompts, and resources with a FastMCP app, filtered by domain
@@ -24,6 +25,37 @@ uv add fastmcp-extensions
 ```
 
 ## Quick Start
+
+### Using the MCP Server Factory
+
+The `mcp_server()` function creates a FastMCP instance with built-in server info resources and optional credential resolution:
+
+```python
+from fastmcp_extensions import mcp_server, MCPServerConfigArg
+
+app = mcp_server(
+    name="my-mcp-server",
+    advertised_properties={
+        "package_name": "my-package",
+        "docs_url": "https://github.com/org/repo",
+        "release_history_url": "https://github.com/org/repo/releases",
+    },
+    server_config_args=[
+        MCPServerConfigArg(
+            name="api_key",
+            header="X-API-Key",
+            env_var="MY_API_KEY",
+            required=True,
+            sensitive=True,
+        ),
+    ],
+)
+
+# Server info resource is automatically registered at {name}://server/info
+# Resolve credentials from HTTP headers or environment variables
+from fastmcp_extensions import resolve_config
+api_key = resolve_config(app, "api_key")
+```
 
 ### Using Annotation Constants
 
@@ -131,6 +163,12 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ```
 
 ## API Reference
+
+### Server Factory
+
+- `mcp_server(name, advertised_properties, auto_discover_assets, server_config_args, **fastmcp_kwargs)` - Create a FastMCP instance with built-in server info resource
+- `MCPServerConfigArg(name, header, env_var, required, sensitive)` - Configuration for credential resolution
+- `resolve_config(app, name)` - Resolve a credential from HTTP headers or environment variables
 
 ### Annotations
 

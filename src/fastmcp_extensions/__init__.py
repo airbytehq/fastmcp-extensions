@@ -33,12 +33,20 @@ from fastmcp_extensions.registration import (
     register_mcp_resources,
     register_mcp_tools,
 )
+from fastmcp_extensions.server import (
+    MCPServerConfig,
+    MCPServerConfigArg,
+    mcp_server,
+    resolve_config,
+)
 
 __all__ = [
     "DESTRUCTIVE_HINT",
     "IDEMPOTENT_HINT",
     "OPEN_WORLD_HINT",
     "READ_ONLY_HINT",
+    "MCPServerConfig",
+    "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
     "clear_registrations",
@@ -47,8 +55,10 @@ __all__ = [
     "get_registered_tools",
     "mcp_prompt",
     "mcp_resource",
+    "mcp_server",
     "mcp_tool",
     "register_mcp_prompts",
     "register_mcp_resources",
     "register_mcp_tools",
+    "resolve_config",
 ]
