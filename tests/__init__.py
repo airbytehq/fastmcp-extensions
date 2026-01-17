@@ -1,1 +1,1 @@
-"""Tests for awesome_python_template package."""
+"""Tests for fastmcp_extensions package."""

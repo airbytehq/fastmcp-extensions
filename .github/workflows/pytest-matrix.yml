@@ -40,7 +40,7 @@ jobs:
         timeout-minutes: 30
         run: >
           uv run pytest
-          --cov=awesome_python_template
+          --cov=fastmcp_extensions
           --cov-report=xml
           --cov-report=term
 

@@ -8,7 +8,7 @@
 # Requirements:
 # - PyPI Trusted Publisher configured for publish.yml (see publish.yml header for setup)
 #
-# TODO: When ready to publish to real PyPI, update the install commands in the success comment
+# NOTE: When publishing to real PyPI, update the install commands in the success comment
 # to remove the --index-url flags.
 
 name: On-Demand Prerelease
@@ -102,9 +102,8 @@ jobs:
             >
             > Install and test with any of the following:
             > ```bash
-            > uv tool install awesome-python-template==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
-            > uv add awesome-python-template==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
-            > uvx --index-url https://test.pypi.org/simple/ --from=awesome-python-template==${{ steps.version.outputs.version }} awesome-python-cli ...
+            > uv tool install fastmcp-extensions==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
+            > uv add fastmcp-extensions==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
             > ```
 
       - name: Append failure comment

@@ -57,7 +57,7 @@ jobs:
         run: >
           uv run pytest
           --exitfirst
-          --cov=awesome_python_template
+          --cov=fastmcp_extensions
           --cov-report=xml
           --cov-report=term
 
