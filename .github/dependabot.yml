@@ -1,0 +1,35 @@
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/" # Location of package manifests
+    commit-message:
+      prefix: "chore(deps): "
+    schedule:
+      interval: daily
+    labels:
+      - chore
+      - dependencies
+    open-pull-requests-limit: 8 # default is 5
+
+  - package-ecosystem: github-actions
+    open-pull-requests-limit: 5 # default is 5
+    directory: "/"
+    commit-message:
+      prefix: "ci(deps): "
+    schedule:
+      interval: monthly
+    labels:
+      - ci
+      - dependencies
+    groups:
+      # allow combining github-actions updates into a single PR
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor

@@ -1,0 +1,121 @@
+# Prerelease Command Workflow
+#
+# This workflow is triggered by the /prerelease slash command on a PR.
+# It dispatches the publish workflow to build and publish a prerelease version.
+#
+# Usage: Comment `/prerelease` on a PR to trigger this workflow.
+#
+# Requirements:
+# - PyPI Trusted Publisher configured for publish.yml (see publish.yml header for setup)
+#
+# TODO: When ready to publish to real PyPI, update the install commands in the success comment
+# to remove the --index-url flags.
+
+name: On-Demand Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR Number"
+        type: string
+        required: true
+      comment-id:
+        description: "Comment ID (Optional)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  prerelease:
+    name: Trigger Prerelease Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create URL to the run output
+        id: vars
+        run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+      - name: Append comment with job run link
+        id: first-comment-action
+        if: github.event.inputs.comment-id
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ github.event.inputs.comment-id }}
+          issue-number: ${{ github.event.inputs.pr }}
+          body: |
+            > **Prerelease Build Started**
+            >
+            > Building and publishing prerelease package from this PR...
+            > [Check job output.](${{ steps.vars.outputs.run-url }})
+
+      - name: Checkout to get latest tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute prerelease version
+        id: version
+        run: |
+          # Get the latest tag version (strip 'v' prefix if present)
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          BASE_VERSION=${LATEST_TAG#v}
+          # Create a unique prerelease version using PR number and run ID
+          # Format: {base}.dev{pr_number}{run_id} (e.g., 0.2.0.dev26123456789)
+          PRERELEASE_VERSION="${BASE_VERSION}.dev${{ github.event.inputs.pr }}${{ github.run_id }}"
+          echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
+          echo "Computed prerelease version: $PRERELEASE_VERSION"
+
+      - name: Trigger publish workflow
+        id: trigger-publish
+        uses: the-actions-org/workflow-dispatch@v4
+        with:
+          workflow: publish.yml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Use refs/pull/<PR>/head for fork compatibility
+          ref: refs/pull/${{ github.event.inputs.pr }}/head
+          wait-for-completion: true
+          wait-for-completion-timeout: 10m
+          display-workflow-run-url: false
+          inputs: >-
+            {
+              "version": "${{ steps.version.outputs.version }}",
+              "publish_to_pypi": "true"
+            }
+
+      - name: Append success comment
+        if: success() && github.event.inputs.comment-id
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+          issue-number: ${{ github.event.inputs.pr }}
+          reactions: rocket
+          body: |
+            > **Prerelease Published to TestPyPI**
+            >
+            > Version: `${{ steps.version.outputs.version }}`
+            > [View publish workflow](${{ steps.trigger-publish.outputs.workflow-url }})
+            >
+            > Install and test with any of the following:
+            > ```bash
+            > uv tool install awesome-python-template==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
+            > uv add awesome-python-template==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
+            > uvx --index-url https://test.pypi.org/simple/ --from=awesome-python-template==${{ steps.version.outputs.version }} awesome-python-cli ...
+            > ```
+
+      - name: Append failure comment
+        if: failure() && github.event.inputs.comment-id
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+          issue-number: ${{ github.event.inputs.pr }}
+          reactions: confused
+          body: |
+            > **Prerelease Build/Publish Failed**
+            >
+            > The prerelease encountered an error.
+            > [Check job output](${{ steps.vars.outputs.run-url }}) for details.

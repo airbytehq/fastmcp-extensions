@@ -1,0 +1,90 @@
+name: Release Drafter
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-drafter
+  cancel-in-progress: false
+
+jobs:
+  update_release_draft:
+    # Only runs on push to main - creates/updates draft release notes
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      # Drafts the next Release notes as Pull Requests are merged into "main"
+      # Pinned to v6.0.0 to avoid v6.1.0 bug: https://github.com/release-drafter/release-drafter/issues/1425
+      - uses: release-drafter/release-drafter@v6.0.0
+        id: release-drafter
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      upload_url: ${{ steps.release-drafter.outputs.upload_url }}
+      tag_name: ${{ steps.release-drafter.outputs.tag_name }}
+      release_id: ${{ steps.release-drafter.outputs.id }}
+
+  # Build and upload assets to the draft release (only on push to main)
+  upload_release_assets:
+    name: Upload Release Assets
+    needs: [update_release_draft]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Get version from draft release tag
+        id: version
+        run: |
+          TAG_NAME="${{ needs.update_release_draft.outputs.tag_name }}"
+          # Remove 'v' prefix if present
+          VERSION="${TAG_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build package
+        env:
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.version }}
+        run: uv build
+
+      - name: Upload wheel to draft release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/*.whl
+          release_id: ${{ needs.update_release_draft.outputs.release_id }}
+          overwrite: true
+          file_glob: true
+          draft: true
+
+      - name: Upload sdist to draft release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/*.tar.gz
+          release_id: ${{ needs.update_release_draft.outputs.release_id }}
+          overwrite: true
+          file_glob: true
+          draft: true

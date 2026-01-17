@@ -1,0 +1,85 @@
+[project]
+name = "awesome-python-template"
+dynamic = ["version"]
+description = "A modern Python project template with best practices and tooling"
+readme = "README.md"
+authors = [
+    { name = "Aaron Steers", email = "aaron@aaronsteers.com" }
+]
+requires-python = ">=3.10"
+dependencies = []
+license = { file = "LICENSE" }
+keywords = ["template", "scaffold", "python", "modern"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "poethepoet>=0.24.0",
+    "deptry>=0.12.0",
+]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+fallback-version = "0.0.0"
+
+# Deptry configuration for dependency analysis
+# https://deptry.com/
+# Search "deptry" in this repo to find where to ignore false positives
+[tool.deptry]
+# Files and directories to exclude from analysis (regex patterns)
+exclude = [
+    ".*\\.venv/.*",
+    ".*venv/.*", 
+    ".*__pycache__.*",
+    ".*\\.pytest_cache.*",
+    ".*\\.git.*",
+    ".*dist.*",
+    ".*build.*",
+    ".*docs.*",
+]
+
+# Additional excludes beyond defaults
+extend_exclude = [
+    # Add additional patterns here if needed
+]
+
+# Mark these dependency groups as development dependencies (PEP 621)
+pep621_dev_dependency_groups = ["dev"]
+
+# Ignore Jupyter notebooks
+ignore_notebooks = false
+
+# Known first-party modules (your own packages)
+known_first_party = [
+    "awesome_python_template",
+]
+
+# To ignore specific error codes globally, uncomment and modify:
+ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
+
+# To ignore specific packages for specific rules, use CLI options:
+# Examples:
+# --per-rule-ignores DEP001=package-name    # Ignore missing dependency
+# --per-rule-ignores DEP002=unused-package  # Ignore unused dependency  
+# --per-rule-ignores DEP003=transitive-dep  # Ignore transitive dependency
+# --per-rule-ignores DEP004=dev-package     # Ignore misplaced dev dependency

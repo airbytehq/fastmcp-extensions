@@ -1,0 +1,69 @@
+name: Pytest (Fast)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-build:
+    name: Build and Inspect Python Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+
+      - name: Check uv lock file is current
+        run: uv lock --check
+
+      - name: Build package
+        run: uv build
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Packages-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+  pytest-fast:
+    name: Pytest (Fast)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run Pytest with Coverage (Fast Tests Only)
+        timeout-minutes: 20
+        run: >
+          uv run pytest
+          --exitfirst
+          --cov=awesome_python_template
+          --cov-report=xml
+          --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false

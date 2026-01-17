@@ -1,0 +1,37 @@
+name: On-Demand Lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR Number"
+        type: string
+        required: false
+      comment-id:
+        description: "Comment ID (Optional)"
+        type: string
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  run-lock-command:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate as GitHub App (if available)
+        uses: actions/create-github-app-token@v2
+        id: get-app-token
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
+      - name: Run Poe Lock Command
+        uses: aaronsteers/poe-command-processor@v1.3.3
+        with:
+          pr: ${{ github.event.inputs.pr }}
+          comment-id: ${{ github.event.inputs.comment-id }}
+          github-token: ${{ steps.get-app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          command: lock
