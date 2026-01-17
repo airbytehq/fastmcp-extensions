@@ -1,15 +1,15 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""FastMCP Extensions utilities for testing and measurement.
+"""FastMCP Extensions utilities for testing and server description.
 
 This module contains utilities that are designed to be called as scripts
-or used programmatically for testing and measuring MCP servers.
+or used programmatically for testing and describing MCP servers.
 
 Submodules:
     - test_tool: MCP tool testing utilities (stdio and HTTP transports)
-    - measurement: MCP tool list measurement utilities
+    - describe_server: MCP server description and measurement utilities
 """
 
-from fastmcp_extensions.utils.measurement import (
+from fastmcp_extensions.utils.describe_server import (
     ToolListMeasurement,
     get_tool_details,
     measure_tool_list,

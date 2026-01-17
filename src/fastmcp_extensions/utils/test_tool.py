@@ -37,11 +37,16 @@ Usage (HTTP transport with --cmd, for subprocess mode):
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import importlib
 import json
+import os
+import shlex
 import socket
 import subprocess
 import sys
+import threading
 from typing import TYPE_CHECKING, Any
 
 from fastmcp import Client
@@ -55,54 +60,26 @@ POLL_INTERVAL = 0.2
 
 
 async def call_mcp_tool(app: FastMCP, tool_name: str, args: dict[str, Any]) -> object:
-    """Call an MCP tool using the FastMCP client.
-
-    Args:
-        app: The FastMCP app instance
-        tool_name: Name of the tool to call
-        args: Arguments to pass to the tool
-
-    Returns:
-        The result from the tool call
-    """
+    """Call an MCP tool using the FastMCP client."""
     async with Client(app) as client:
         return await client.call_tool(tool_name, args)
 
 
 async def list_mcp_tools(app: FastMCP) -> list[Any]:
-    """List all available MCP tools.
-
-    Args:
-        app: The FastMCP app instance
-
-    Returns:
-        List of available tools
-    """
+    """List all available MCP tools."""
     async with Client(app) as client:
         return await client.list_tools()
 
 
 def find_free_port() -> int:
-    """Find an available port on localhost.
-
-    Returns:
-        An available port number
-    """
+    """Find an available port on localhost."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
 async def wait_for_server(url: str, timeout: float = SERVER_STARTUP_TIMEOUT) -> bool:
-    """Wait for the MCP server to be ready by attempting to list tools.
-
-    Args:
-        url: The URL of the MCP server
-        timeout: Maximum time to wait in seconds
-
-    Returns:
-        True if server is ready, False if timeout
-    """
+    """Wait for the MCP server to be ready by attempting to list tools."""
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
         try:
@@ -119,15 +96,7 @@ def run_tool_test(
     tool_name: str,
     json_args: str,
 ) -> None:
-    """Run a tool test with JSON arguments and print the result.
-
-    This is a convenience function for CLI tool testing scripts.
-
-    Args:
-        app: The FastMCP app instance
-        tool_name: Name of the tool to call
-        json_args: JSON string of arguments to pass to the tool
-    """
+    """Run a tool test with JSON arguments and print the result."""
     args: dict[str, Any] = json.loads(json_args)
     result = asyncio.run(call_mcp_tool(app, tool_name, args))
 
@@ -144,23 +113,7 @@ async def run_http_tool_test(
     args: dict[str, Any] | None = None,
     env: dict[str, str] | None = None,
 ) -> int:
-    """Run a tool test over HTTP transport using a subprocess.
-
-    This function spawns an HTTP server, verifies it's working,
-    optionally calls a specific tool, then shuts down the server.
-
-    Args:
-        http_server_command: Command to start the HTTP server (e.g., ["uv", "run", "my-mcp-http"])
-        port: Port to use (if None, finds a free port)
-        tool_name: Optional tool name to call
-        args: Optional arguments for the tool
-        env: Optional environment variables for the server process
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    import os
-
+    """Run a tool test over HTTP transport using a subprocess."""
     if port is None:
         port = find_free_port()
 
@@ -215,22 +168,8 @@ async def run_http_tool_test_with_app(
     tool_name: str | None = None,
     args: dict[str, Any] | None = None,
 ) -> int:
-    """Run a tool test over HTTP transport using the app directly.
-
-    This function starts the HTTP server from the app instance,
-    verifies it's working, optionally calls a specific tool, then shuts down.
-
-    Args:
-        app: The FastMCP app instance
-        port: Port to use (if None, finds a free port)
-        tool_name: Optional tool name to call
-        args: Optional arguments for the tool
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    import os
-    import threading
+    """Run a tool test over HTTP transport using the app directly."""
+    import uvicorn
 
     if port is None:
         port = find_free_port()
@@ -245,8 +184,6 @@ async def run_http_tool_test_with_app(
     def run_server() -> None:
         nonlocal server_error
         try:
-            import uvicorn
-
             uvicorn.run(
                 app.http_app(),
                 host="127.0.0.1",
@@ -285,6 +222,92 @@ async def run_http_tool_test_with_app(
         pass
 
 
+def _import_app(app_path: str) -> object:
+    """Import an app from a module:attribute path."""
+    if ":" not in app_path:
+        msg = f"Invalid app path '{app_path}'. Expected format: 'module.path:attribute'"
+        raise ValueError(msg)
+
+    module_path, attr_name = app_path.rsplit(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name)
+
+
+def main() -> None:
+    """Main entry point for the MCP tool testing CLI."""
+    parser = argparse.ArgumentParser(
+        description="Test MCP tools with JSON arguments",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    parser.add_argument(
+        "--app",
+        help="App module path in format 'module.path:attribute' (for both stdio and HTTP transport)",
+    )
+    parser.add_argument(
+        "--http",
+        action="store_true",
+        help="Use HTTP transport instead of stdio",
+    )
+    parser.add_argument(
+        "--cmd",
+        help="HTTP server command (alternative to --app for HTTP mode, spawns subprocess)",
+    )
+    parser.add_argument(
+        "tool_name",
+        nargs="?",
+        help="Name of the tool to call (optional for HTTP smoke test)",
+    )
+    parser.add_argument(
+        "json_args",
+        nargs="?",
+        default="{}",
+        help="JSON string of arguments to pass to the tool",
+    )
+
+    cli_args = parser.parse_args()
+
+    if cli_args.http:
+        # HTTP transport mode
+        if not cli_args.cmd and not cli_args.app:
+            parser.error("--app or --cmd is required for HTTP transport mode")
+
+        tool_args = json.loads(cli_args.json_args) if cli_args.tool_name else None
+
+        if cli_args.cmd:
+            # Use subprocess mode with explicit command
+            http_command = shlex.split(cli_args.cmd)
+            exit_code = asyncio.run(
+                run_http_tool_test(
+                    http_server_command=http_command,
+                    tool_name=cli_args.tool_name,
+                    args=tool_args,
+                )
+            )
+            sys.exit(exit_code)
+        else:
+            # Use app mode - run HTTP server directly from app
+            app = _import_app(cli_args.app)
+            exit_code = asyncio.run(
+                run_http_tool_test_with_app(
+                    app=app,
+                    tool_name=cli_args.tool_name,
+                    args=tool_args,
+                )
+            )
+            sys.exit(exit_code)
+    else:
+        # Stdio transport mode
+        if not cli_args.app:
+            parser.error("--app is required for stdio transport mode")
+        if not cli_args.tool_name:
+            parser.error("tool_name is required for stdio transport mode")
+
+        app = _import_app(cli_args.app)
+        run_tool_test(app, cli_args.tool_name, cli_args.json_args)
+
+
 __all__ = [
     "call_mcp_tool",
     "find_free_port",
@@ -294,3 +317,6 @@ __all__ = [
     "run_tool_test",
     "wait_for_server",
 ]
+
+if __name__ == "__main__":
+    main()
