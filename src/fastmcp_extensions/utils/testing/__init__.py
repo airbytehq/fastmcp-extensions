@@ -15,17 +15,24 @@ Usage (stdio transport):
         cmd = "python -m fastmcp_extensions.utils.testing --app my_mcp_server.server:app"
         help = "Test MCP tools with JSON arguments"
 
-Usage (HTTP transport):
+Usage (HTTP transport with --app):
+    python -m fastmcp_extensions.utils.testing --http --app <module:app> [tool_name] ['<json_args>']
+
+    Example:
+        python -m fastmcp_extensions.utils.testing --http --app my_mcp_server.server:app
+        python -m fastmcp_extensions.utils.testing --http --app my_mcp_server.server:app get_version '{}'
+
+    Poe task configuration:
+        [tool.poe.tasks.mcp-tool-test-http]
+        cmd = "python -m fastmcp_extensions.utils.testing --http --app my_mcp_server.server:app"
+        help = "Test MCP tools over HTTP transport"
+
+Usage (HTTP transport with --cmd, for subprocess mode):
     python -m fastmcp_extensions.utils.testing --http --cmd '<server_command>' [tool_name] ['<json_args>']
 
     Example:
         python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'
         python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http' get_version '{}'
-
-    Poe task configuration:
-        [tool.poe.tasks.mcp-tool-test-http]
-        cmd = "python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'"
-        help = "Test MCP tools over HTTP transport"
 """
 
 from __future__ import annotations
@@ -137,7 +144,7 @@ async def run_http_tool_test(
     args: dict[str, Any] | None = None,
     env: dict[str, str] | None = None,
 ) -> int:
-    """Run a tool test over HTTP transport.
+    """Run a tool test over HTTP transport using a subprocess.
 
     This function spawns an HTTP server, verifies it's working,
     optionally calls a specific tool, then shuts down the server.
@@ -202,11 +209,88 @@ async def run_http_tool_test(
             proc.wait()
 
 
+async def run_http_tool_test_with_app(
+    app: FastMCP,
+    port: int | None = None,
+    tool_name: str | None = None,
+    args: dict[str, Any] | None = None,
+) -> int:
+    """Run a tool test over HTTP transport using the app directly.
+
+    This function starts the HTTP server from the app instance,
+    verifies it's working, optionally calls a specific tool, then shuts down.
+
+    Args:
+        app: The FastMCP app instance
+        port: Port to use (if None, finds a free port)
+        tool_name: Optional tool name to call
+        args: Optional arguments for the tool
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    import os
+    import threading
+
+    if port is None:
+        port = find_free_port()
+
+    url = f"http://127.0.0.1:{port}/mcp"
+    os.environ["MCP_HTTP_PORT"] = str(port)
+
+    print(f"Starting HTTP server on port {port}...", file=sys.stderr)
+
+    server_error: Exception | None = None
+
+    def run_server() -> None:
+        nonlocal server_error
+        try:
+            import uvicorn
+
+            uvicorn.run(
+                app.http_app(),
+                host="127.0.0.1",
+                port=port,
+                log_level="error",
+            )
+        except Exception as e:
+            server_error = e
+
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
+    try:
+        if not await wait_for_server(url):
+            if server_error:
+                print(f"Server error: {server_error}", file=sys.stderr)
+            print(f"Server failed to start on port {port}", file=sys.stderr)
+            return 1
+
+        async with Client(url) as client:
+            tools = await client.list_tools()
+            print(f"HTTP transport OK - {len(tools)} tools available")
+
+            if tool_name:
+                print(f"Calling tool: {tool_name}", file=sys.stderr)
+                result = await client.call_tool(tool_name, args or {})
+
+                if hasattr(result, "text"):
+                    print(result.text)
+                else:
+                    print(str(result))
+
+        return 0
+
+    finally:
+        pass
+
+
 __all__ = [
     "call_mcp_tool",
     "find_free_port",
     "list_mcp_tools",
     "run_http_tool_test",
+    "run_http_tool_test_with_app",
     "run_tool_test",
     "wait_for_server",
 ]

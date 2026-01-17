@@ -4,17 +4,22 @@
 Usage (stdio transport):
     python -m fastmcp_extensions.utils.testing --app <module:app> <tool_name> '<json_args>'
 
-Usage (HTTP transport):
+Usage (HTTP transport with --app):
+    python -m fastmcp_extensions.utils.testing --http --app <module:app> [tool_name] ['<json_args>']
+
+Usage (HTTP transport with --cmd):
     python -m fastmcp_extensions.utils.testing --http --cmd '<server_command>' [tool_name] ['<json_args>']
 
 Examples:
     # Stdio transport
     python -m fastmcp_extensions.utils.testing --app my_server.server:app list_tools '{}'
 
-    # HTTP transport (smoke test)
-    python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'
+    # HTTP transport with --app (runs app.run_http() directly)
+    python -m fastmcp_extensions.utils.testing --http --app my_server.server:app
+    python -m fastmcp_extensions.utils.testing --http --app my_server.server:app get_version '{}'
 
-    # HTTP transport (specific tool)
+    # HTTP transport with --cmd (spawns server subprocess)
+    python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http'
     python -m fastmcp_extensions.utils.testing --http --cmd 'uv run my-mcp-http' get_version '{}'
 """
 
@@ -58,7 +63,7 @@ def main() -> None:
 
     parser.add_argument(
         "--app",
-        help="App module path in format 'module.path:attribute' (for stdio transport)",
+        help="App module path in format 'module.path:attribute' (for both stdio and HTTP transport)",
     )
     parser.add_argument(
         "--http",
@@ -67,7 +72,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--cmd",
-        help="HTTP server command (required for --http mode)",
+        help="HTTP server command (alternative to --app for HTTP mode, spawns subprocess)",
     )
     parser.add_argument(
         "tool_name",
@@ -85,20 +90,35 @@ def main() -> None:
 
     if args.http:
         # HTTP transport mode
-        if not args.cmd:
-            parser.error("--cmd is required for HTTP transport mode")
+        if not args.cmd and not args.app:
+            parser.error("--app or --cmd is required for HTTP transport mode")
 
         tool_args = json.loads(args.json_args) if args.tool_name else None
-        http_command = shlex.split(args.cmd)
 
-        exit_code = asyncio.run(
-            run_http_tool_test(
-                http_server_command=http_command,
-                tool_name=args.tool_name,
-                args=tool_args,
+        if args.cmd:
+            # Use subprocess mode with explicit command
+            http_command = shlex.split(args.cmd)
+            exit_code = asyncio.run(
+                run_http_tool_test(
+                    http_server_command=http_command,
+                    tool_name=args.tool_name,
+                    args=tool_args,
+                )
             )
-        )
-        sys.exit(exit_code)
+            sys.exit(exit_code)
+        else:
+            # Use app mode - run HTTP server directly from app
+            from fastmcp_extensions.utils.testing import run_http_tool_test_with_app
+
+            app = _import_app(args.app)
+            exit_code = asyncio.run(
+                run_http_tool_test_with_app(
+                    app=app,
+                    tool_name=args.tool_name,
+                    args=tool_args,
+                )
+            )
+            sys.exit(exit_code)
     else:
         # Stdio transport mode
         if not args.app:
