@@ -43,7 +43,6 @@ import importlib
 import json
 import os
 import shlex
-import socket
 import subprocess
 import sys
 import threading
@@ -51,12 +50,12 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp import Client
 
+from fastmcp_extensions.utils._http import find_free_port, wait_for_server
+
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
-SERVER_STARTUP_TIMEOUT = 10.0
 SERVER_SHUTDOWN_TIMEOUT = 5.0
-POLL_INTERVAL = 0.2
 
 
 async def call_mcp_tool(app: FastMCP, tool_name: str, args: dict[str, Any]) -> object:
@@ -69,26 +68,6 @@ async def list_mcp_tools(app: FastMCP) -> list[Any]:
     """List all available MCP tools."""
     async with Client(app) as client:
         return await client.list_tools()
-
-
-def find_free_port() -> int:
-    """Find an available port on localhost."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-async def wait_for_server(url: str, timeout: float = SERVER_STARTUP_TIMEOUT) -> bool:
-    """Wait for the MCP server to be ready by attempting to list tools."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        try:
-            async with Client(url) as client:
-                await client.list_tools()
-                return True
-        except Exception:
-            await asyncio.sleep(POLL_INTERVAL)
-    return False
 
 
 def run_tool_test(
