@@ -58,7 +58,6 @@ def _normalize_domain(domain: str) -> str:
 
 
 def mcp_tool(
-    domain: str | None = None,
     *,
     read_only: bool = False,
     destructive: bool = False,
@@ -75,8 +74,6 @@ def mcp_tool(
     the tool is defined (e.g., tools in "github.py" get domain "github").
 
     Args:
-        domain: Optional explicit domain override. If not provided, the domain
-            is automatically derived from the caller's file stem.
         read_only: If True, tool only reads without making changes (default: False)
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
@@ -92,7 +89,7 @@ def mcp_tool(
         def list_connectors_in_repo():
             ...
     """
-    domain_str = _get_caller_file_stem() if domain is None else domain
+    domain_str = _get_caller_file_stem()
 
     annotations: dict[str, Any] = {
         "domain": domain_str,
@@ -115,17 +112,17 @@ def mcp_tool(
 def mcp_prompt(
     name: str,
     description: str,
-    domain: str | None = None,
 ) -> Callable[
     [Callable[..., list[dict[str, str]]]], Callable[..., list[dict[str, str]]]
 ]:
     """Decorator for deferred MCP prompt registration.
 
+    The domain is automatically derived from the file stem of the module where
+    the prompt is defined (e.g., prompts in "workflows.py" get domain "workflows").
+
     Args:
         name: Unique name for the prompt
         description: Human-readable description of the prompt
-        domain: Optional domain for filtering. If not provided, automatically
-            derived from the caller's file stem.
 
     Returns:
         Decorator function that registers the prompt
@@ -135,7 +132,7 @@ def mcp_prompt(
         def my_prompt_func() -> list[dict[str, str]]:
             return [{"role": "user", "content": "Hello"}]
     """
-    domain_str = _get_caller_file_stem() if domain is None else domain
+    domain_str = _get_caller_file_stem()
 
     def decorator(
         func: Callable[..., list[dict[str, str]]],
@@ -155,16 +152,16 @@ def mcp_resource(
     uri: str,
     description: str,
     mime_type: str,
-    domain: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for deferred MCP resource registration.
+
+    The domain is automatically derived from the file stem of the module where
+    the resource is defined (e.g., resources in "server_info.py" get domain "server_info").
 
     Args:
         uri: Unique URI for the resource
         description: Human-readable description of the resource
         mime_type: MIME type of the resource content
-        domain: Optional domain for filtering. If not provided, automatically
-            derived from the caller's file stem.
 
     Returns:
         Decorator function that registers the resource
@@ -174,7 +171,7 @@ def mcp_resource(
         def get_version() -> dict:
             return {"version": "1.0.0"}
     """
-    domain_str = _get_caller_file_stem() if domain is None else domain
+    domain_str = _get_caller_file_stem()
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         annotations = {
