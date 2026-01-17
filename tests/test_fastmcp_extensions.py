@@ -58,7 +58,7 @@ def test_all_exports() -> None:
 
 @pytest.mark.unit
 def test_mcp_tool_decorator() -> None:
-    """Test that mcp_tool decorator registers tools with auto-inferred domain."""
+    """Test that mcp_tool decorator registers tools with auto-inferred mcp_module."""
     clear_registrations()
 
     @mcp_tool(read_only=True)
@@ -70,8 +70,8 @@ def test_mcp_tool_decorator() -> None:
     assert len(tools) == 1
     func, annotations = tools[0]
     assert func.__name__ == "my_test_tool"
-    # Domain is auto-inferred from module name (test_fastmcp_extensions)
-    assert annotations["domain"] == "test_fastmcp_extensions"
+    # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["mcp_module"] == "test_fastmcp_extensions"
     assert annotations[READ_ONLY_HINT] is True
 
     clear_registrations()
@@ -79,7 +79,7 @@ def test_mcp_tool_decorator() -> None:
 
 @pytest.mark.unit
 def test_mcp_prompt_decorator() -> None:
-    """Test that mcp_prompt decorator registers prompts with auto-inferred domain."""
+    """Test that mcp_prompt decorator registers prompts with auto-inferred mcp_module."""
     clear_registrations()
 
     @mcp_prompt("test_prompt", "A test prompt")
@@ -93,15 +93,15 @@ def test_mcp_prompt_decorator() -> None:
     assert func.__name__ == "my_test_prompt"
     assert annotations["name"] == "test_prompt"
     assert annotations["description"] == "A test prompt"
-    # Domain is auto-inferred from module name (test_fastmcp_extensions)
-    assert annotations["domain"] == "test_fastmcp_extensions"
+    # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
     clear_registrations()
 
 
 @pytest.mark.unit
 def test_mcp_resource_decorator() -> None:
-    """Test that mcp_resource decorator registers resources with auto-inferred domain."""
+    """Test that mcp_resource decorator registers resources with auto-inferred mcp_module."""
     clear_registrations()
 
     @mcp_resource(
@@ -120,7 +120,7 @@ def test_mcp_resource_decorator() -> None:
     assert annotations["uri"] == "test://resource"
     assert annotations["description"] == "A test resource"
     assert annotations["mime_type"] == "application/json"
-    # Domain is auto-inferred from module name (test_fastmcp_extensions)
-    assert annotations["domain"] == "test_fastmcp_extensions"
+    # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
     clear_registrations()

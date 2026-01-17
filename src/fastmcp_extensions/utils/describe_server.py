@@ -5,25 +5,15 @@ This module provides utilities for measuring the size of MCP tool lists,
 which is useful for tracking context truncation issues when AI agents call list_tools.
 
 Usage:
-    Create a module in your MCP server project that can be called with -m syntax:
+    python -m fastmcp_extensions.utils.describe_server --app <module:app>
 
-    ```python
-    # my_mcp_server/describe.py
-    from my_mcp_server.server import app
-    from fastmcp_extensions.utils.describe_server import run_measurement
+    Example:
+        python -m fastmcp_extensions.utils.describe_server --app my_mcp_server.server:app
 
-    if __name__ == "__main__":
-        run_measurement(app, server_name="my-mcp-server")
-    ```
-
-    Then add a poe task:
-    ```toml
-    [tool.poe.tasks.mcp-describe-server]
-    cmd = "python -m my_mcp_server.describe"
-    help = "Describe MCP server tool list"
-    ```
-
-    Run with: `poe mcp-describe-server`
+    Poe task configuration:
+        [tool.poe.tasks.mcp-describe-server]
+        cmd = "python -m fastmcp_extensions.utils.describe_server --app my_mcp_server.server:app"
+        help = "Describe MCP server tool list"
 
 Output includes:
     - Tool count
@@ -33,7 +23,9 @@ Output includes:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import importlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -159,3 +151,42 @@ async def get_tool_details(app: FastMCP) -> list[dict[str, Any]]:
             )
 
         return details
+
+
+def _import_app(app_path: str) -> FastMCP:
+    """Import an app from a module:attribute path."""
+    if ":" not in app_path:
+        msg = f"Invalid app path '{app_path}'. Expected format: 'module.path:attribute'"
+        raise ValueError(msg)
+
+    module_path, attr_name = app_path.rsplit(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name)
+
+
+def main() -> None:
+    """Main entry point for the MCP server description CLI."""
+    parser = argparse.ArgumentParser(
+        description="Describe MCP server tool list",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    parser.add_argument(
+        "--app",
+        required=True,
+        help="App module path in format 'module.path:attribute'",
+    )
+    parser.add_argument(
+        "--name",
+        help="Optional server name for reporting",
+    )
+
+    cli_args = parser.parse_args()
+
+    app = _import_app(cli_args.app)
+    run_measurement(app, server_name=cli_args.name)
+
+
+if __name__ == "__main__":
+    main()
