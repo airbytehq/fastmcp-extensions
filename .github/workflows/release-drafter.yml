@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       # Delete all existing assets to ensure clean replacement
-      # This prevents stale artifacts from accumulating if package name changes
+      # This prevents stale artifacts from accumulating, e.g. if artifact names change
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
         with:
