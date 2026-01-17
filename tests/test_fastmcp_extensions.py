@@ -58,10 +58,10 @@ def test_all_exports() -> None:
 
 @pytest.mark.unit
 def test_mcp_tool_decorator() -> None:
-    """Test that mcp_tool decorator registers tools."""
+    """Test that mcp_tool decorator registers tools with auto-inferred domain."""
     clear_registrations()
 
-    @mcp_tool(domain="test", read_only=True)
+    @mcp_tool(read_only=True)
     def my_test_tool() -> str:
         """A test tool."""
         return "test"
@@ -70,7 +70,8 @@ def test_mcp_tool_decorator() -> None:
     assert len(tools) == 1
     func, annotations = tools[0]
     assert func.__name__ == "my_test_tool"
-    assert annotations["domain"] == "test"
+    # Domain is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["domain"] == "test_fastmcp_extensions"
     assert annotations[READ_ONLY_HINT] is True
 
     clear_registrations()
@@ -78,10 +79,10 @@ def test_mcp_tool_decorator() -> None:
 
 @pytest.mark.unit
 def test_mcp_prompt_decorator() -> None:
-    """Test that mcp_prompt decorator registers prompts."""
+    """Test that mcp_prompt decorator registers prompts with auto-inferred domain."""
     clear_registrations()
 
-    @mcp_prompt("test_prompt", "A test prompt", domain="test")
+    @mcp_prompt("test_prompt", "A test prompt")
     def my_test_prompt() -> list[dict[str, str]]:
         """A test prompt."""
         return [{"role": "user", "content": "Hello"}]
@@ -92,18 +93,21 @@ def test_mcp_prompt_decorator() -> None:
     assert func.__name__ == "my_test_prompt"
     assert annotations["name"] == "test_prompt"
     assert annotations["description"] == "A test prompt"
-    assert annotations["domain"] == "test"
+    # Domain is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["domain"] == "test_fastmcp_extensions"
 
     clear_registrations()
 
 
 @pytest.mark.unit
 def test_mcp_resource_decorator() -> None:
-    """Test that mcp_resource decorator registers resources."""
+    """Test that mcp_resource decorator registers resources with auto-inferred domain."""
     clear_registrations()
 
     @mcp_resource(
-        "test://resource", "A test resource", "application/json", domain="test"
+        uri="test://resource",
+        description="A test resource",
+        mime_type="application/json",
     )
     def my_test_resource() -> dict[str, str]:
         """A test resource."""
@@ -116,6 +120,7 @@ def test_mcp_resource_decorator() -> None:
     assert annotations["uri"] == "test://resource"
     assert annotations["description"] == "A test resource"
     assert annotations["mime_type"] == "application/json"
-    assert annotations["domain"] == "test"
+    # Domain is auto-inferred from module name (test_fastmcp_extensions)
+    assert annotations["domain"] == "test_fastmcp_extensions"
 
     clear_registrations()
