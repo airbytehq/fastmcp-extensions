@@ -45,10 +45,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Delete all existing assets to ensure clean replacement
-      # This prevents stale artifacts from accumulating, e.g. if artifact names change
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
+        # Delete all existing assets to ensure clean replacement
+        # This prevents stale artifacts from accumulating, e.g. if artifact names change
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.update_release_draft.outputs.tag_name }}
