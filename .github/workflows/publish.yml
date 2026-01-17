@@ -6,11 +6,6 @@
 #
 # Authentication: This workflow expects GitHub OIDC for passwordless PyPI publishing.
 # For more info: https://docs.pypi.org/trusted-publishers/
-#
-# NOTE: This repo publishes to TestPyPI by default.
-# To publish to real PyPI, update the following in the publish_to_pypi job:
-# 1. Change environment.url from test.pypi.org to pypi.org
-# 2. Remove repository-url from the pypa/gh-action-pypi-publish step
 
 name: Publish Package
 
@@ -185,8 +180,7 @@ jobs:
       contents: write
     environment:
       name: PyPI
-      # When publishing to real PyPI, update this URL:
-      # url: https://pypi.org/p/fastmcp-extensions/
+      url: https://pypi.org/p/fastmcp-extensions/
     env:
       VERSION: ${{ needs.build.outputs.VERSION || needs.download_release_assets.outputs.VERSION }}
       IS_PRERELEASE: ${{ needs.build.outputs.IS_PRERELEASE || 'false' }}
@@ -203,6 +197,3 @@ jobs:
       - name: Publish to PyPI
         # Uses GitHub OIDC for passwordless authentication (see header comment)
         uses: pypa/gh-action-pypi-publish@v1.13.0
-        with:
-          # Remove this line to publish to real PyPI instead of TestPyPI:
-          repository-url: https://test.pypi.org/legacy/
