@@ -24,9 +24,10 @@ install = "uv sync --extra dev"
 install-prod = "uv sync"
 build = "uv build"
 
-# Documentation (placeholder for future)
-docs = "echo 'Documentation generation not yet configured'"
-docs-serve = "echo 'Documentation serving not yet configured'"
+# Documentation with pdoc3
+docs-generate = "pdoc --html --output-dir docs/generated fastmcp_extensions --force"
+docs-preview = { shell = "pdoc --html --output-dir docs/generated fastmcp_extensions --force && open docs/generated/fastmcp_extensions/index.html" }
+get-generated-docs-dir = "echo docs/generated/fastmcp_extensions"
 
 # Development helpers
 clean = "rm -rf .pytest_cache .coverage htmlcov dist .ruff_cache"

@@ -97,3 +97,9 @@ ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test framew
 [tool.deptry.per_rule_ignores]
 # uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
 DEP003 = ["uvicorn"]
+
+[dependency-groups]
+dev = [
+    "pdoc3>=0.11.6",
+    "poethepoet>=0.37.0",
+]
