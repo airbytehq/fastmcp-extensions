@@ -27,11 +27,10 @@ jobs:
       tag_name: ${{ steps.release-drafter.outputs.tag_name }}
       release_id: ${{ steps.release-drafter.outputs.id }}
 
-  # Build and upload assets to the draft release (only on push to main)
+  # Build and upload assets to the draft release
   upload_release_assets:
     name: Upload Release Assets
     needs: [update_release_draft]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -43,8 +42,6 @@ jobs:
 
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
-        # Delete all existing assets to ensure clean replacement
-        # This prevents stale artifacts from accumulating, e.g. if artifact names change
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.update_release_draft.outputs.tag_name }}
@@ -64,31 +61,19 @@ jobs:
         id: version
         run: |
           TAG_NAME="${{ needs.update_release_draft.outputs.tag_name }}"
-          # Remove 'v' prefix if present
           VERSION="${TAG_NAME#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
 
       - name: Build package
         env:
           UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.version }}
         run: uv build
 
-      - name: Upload wheel to draft release
+      - name: Upload assets to draft release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/*.whl
-          release_id: ${{ needs.update_release_draft.outputs.release_id }}
-          overwrite: true
-          file_glob: true
-          draft: true
-
-      - name: Upload sdist to draft release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/*.tar.gz
+          file: dist/*
           release_id: ${{ needs.update_release_draft.outputs.release_id }}
           overwrite: true
           file_glob: true
