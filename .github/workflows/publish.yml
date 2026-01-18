@@ -59,7 +59,7 @@ jobs:
           fi
           echo "Assets verified successfully"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: Packages-${{ github.run_id }}
           path: |
@@ -151,7 +151,7 @@ jobs:
           UV_DYNAMIC_VERSIONING_BYPASS: ${{ env.VERSION }}
         run: uv build
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: Packages-${{ github.run_id }}
           path: |
