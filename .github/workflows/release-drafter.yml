@@ -24,13 +24,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve version from tag
-        id: version
-        run: |
-          TAG_NAME="${{ steps.release-drafter.outputs.tag_name }}"
-          VERSION="${TAG_NAME#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
         with:
@@ -49,9 +42,9 @@ jobs:
           version: "latest"
 
       - name: Build package
+        run: UV_DYNAMIC_VERSIONING_BYPASS="${TAG_NAME#v}" uv build
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.version }}
-        run: uv build
+          TAG_NAME: ${{ steps.release-drafter.outputs.tag_name }}
 
       - name: Upload assets to draft release
         uses: svenstaro/upload-release-action@v2
