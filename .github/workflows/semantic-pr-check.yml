@@ -1,15 +1,6 @@
 # Semantic PR Title Validation
 #
-# This workflow validates PR titles follow conventional commit format and applies
-# labels automatically based on the title.
-#
-# Jobs:
-# 1. validate-pr-title - Ensures PR titles follow semantic format (feat:, fix:, etc.)
-# 2. autolabel - Uses Release Drafter's autolabeler to apply labels based on title
-#    (e.g., "feat:" -> enhancement -> minor, "fix:" -> bug -> patch)
-#
-# Note: The autolabeler uses the same release-drafter.yml config but only applies
-# labels when triggered from PR events (it doesn't create/update draft releases).
+# This workflow validates PR titles follow conventional commit format.
 
 name: Semantic PR Title Validation
 
@@ -18,47 +9,6 @@ on:
     types: [opened, edited, ready_for_review]
 
 jobs:
-  autolabel:
-    name: Auto-label PR
-    # Apply labels based on PR title using Release Drafter's autolabeler.
-    # Skip if 'edited' event but the title wasn't changed (e.g., only description was edited).
-    # Skipping unnecessary runs reduces unlabel-relabel spam on the PR.
-    # Some notification triggers run upon label additions, so this also prevents notification spam.
-    if: >
-      github.event.action != 'edited'
-      || (
-        github.event.changes.title &&
-        github.event.changes.title.from != ''
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      # Remove title-derived labels first to make autolabeler idempotent
-      # (e.g., if PR title changes from "fix:" to "ci:", remove old "bug" label)
-      - name: Remove title-derived labels
-        uses: actions-ecosystem/action-remove-labels@v1
-        with:
-          labels: |
-            bug
-            enhancement
-            chore
-            ci
-            docs
-            testing
-            security
-            dependencies
-            breaking
-
-      # Run release-drafter with disable-releaser to only apply labels (not create releases)
-      - uses: release-drafter/release-drafter@v6
-        with:
-          config-name: release-drafter.yml
-          disable-releaser: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   validate-pr-title:
     name: Validate PR Title
     # Skip if 'edited' event but the title wasn't changed (e.g., only description was edited)
