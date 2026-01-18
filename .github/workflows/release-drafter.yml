@@ -50,7 +50,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/*
+          file: dist/*.{whl,tar.gz}
           release_id: ${{ steps.release-drafter.outputs.id }}
           overwrite: true
           file_glob: true
