@@ -59,11 +59,6 @@ jobs:
         with:
           version: "latest"
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
       - name: Build package
         env:
           UV_DYNAMIC_VERSIONING_BYPASS: ${{ needs.update_release_draft.outputs.version }}
