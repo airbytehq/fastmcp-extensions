@@ -11,7 +11,6 @@ concurrency:
 
 jobs:
   update_release_draft:
-    # Only runs on push to main - creates/updates draft release notes
     permissions:
       contents: write
       pull-requests: write
@@ -22,10 +21,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve version from tag
+        id: version
+        run: |
+          TAG_NAME="${{ steps.release-drafter.outputs.tag_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
     outputs:
       upload_url: ${{ steps.release-drafter.outputs.upload_url }}
       tag_name: ${{ steps.release-drafter.outputs.tag_name }}
       release_id: ${{ steps.release-drafter.outputs.id }}
+      version: ${{ steps.version.outputs.version }}
 
   # Build and upload assets to the draft release
   upload_release_assets:
@@ -35,17 +42,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.update_release_draft.outputs.tag_name }}
           deleteOnlyFromDrafts: true
+
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -57,16 +64,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Get version from draft release tag
-        id: version
-        run: |
-          TAG_NAME="${{ needs.update_release_draft.outputs.tag_name }}"
-          VERSION="${TAG_NAME#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Build package
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.version }}
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ needs.update_release_draft.outputs.version }}
         run: uv build
 
       - name: Upload assets to draft release
