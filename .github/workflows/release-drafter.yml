@@ -31,20 +31,20 @@ jobs:
           tag: ${{ steps.release-drafter.outputs.tag_name }}
           deleteOnlyFromDrafts: true
 
-      - name: Checkout Repo
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Build package
-        run: UV_DYNAMIC_VERSIONING_BYPASS="${TAG_NAME#v}" uv build
         env:
           TAG_NAME: ${{ steps.release-drafter.outputs.tag_name }}
+        run: UV_DYNAMIC_VERSIONING_BYPASS="${TAG_NAME#v}" uv build
 
       - name: Upload assets to draft release
         uses: svenstaro/upload-release-action@v2
