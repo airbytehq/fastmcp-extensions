@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update_release_draft:
+  draft_release:
     permissions:
       contents: write
       pull-requests: write
@@ -28,25 +28,11 @@ jobs:
           VERSION="${TAG_NAME#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-    outputs:
-      upload_url: ${{ steps.release-drafter.outputs.upload_url }}
-      tag_name: ${{ steps.release-drafter.outputs.tag_name }}
-      release_id: ${{ steps.release-drafter.outputs.id }}
-      version: ${{ steps.version.outputs.version }}
-
-  # Build and upload assets to the draft release
-  upload_release_assets:
-    name: Upload Release Assets
-    needs: [update_release_draft]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
       - name: Delete existing release assets
         uses: andreaswilli/delete-release-assets-action@v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ needs.update_release_draft.outputs.tag_name }}
+          tag: ${{ steps.release-drafter.outputs.tag_name }}
           deleteOnlyFromDrafts: true
 
       - name: Checkout Repo
@@ -61,7 +47,7 @@ jobs:
 
       - name: Build package
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ needs.update_release_draft.outputs.version }}
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.version }}
         run: uv build
 
       - name: Upload assets to draft release
@@ -69,7 +55,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: dist/*
-          release_id: ${{ needs.update_release_draft.outputs.release_id }}
+          release_id: ${{ steps.release-drafter.outputs.id }}
           overwrite: true
           file_glob: true
           draft: true
