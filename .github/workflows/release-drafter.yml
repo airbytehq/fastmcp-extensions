@@ -12,12 +12,14 @@ concurrency:
 
 jobs:
   draft_release:
+    name: Draft Release
     permissions:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: aaronsteers/semantic-pr-release-drafter@v0.3.1
+      - name: Create or update draft release
+        uses: aaronsteers/semantic-pr-release-drafter@v0.3.1
         id: release-drafter
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
