@@ -5,15 +5,15 @@ This module provides a factory function to create FastMCP servers with common
 patterns built-in, including server info resources and HTTP header credential
 resolution.
 
-Key Components
---------------
+## Key Components
+
 - `mcp_server`: Factory function to create a FastMCP instance with built-in features
 - `MCPServerConfigArg`: Dataclass for defining credential resolution configuration
 - `MCPServerConfig`: Dataclass storing server configuration (attached to the app)
 - `resolve_config`: Helper function to resolve credentials at runtime
 
-Basic Usage
------------
+## Basic Usage
+
 Create a simple MCP server with server info resource:
 
 ```py
@@ -25,8 +25,8 @@ app = mcp_server(
 )
 ```
 
-Credential Resolution
----------------------
+## Credential Resolution
+
 Define credentials that resolve from HTTP headers, environment variables, or defaults:
 
 ```py
@@ -48,8 +48,8 @@ app = mcp_server(
 api_key = resolve_config(app, "api_key")
 ```
 
-MCP Module Auto-Discovery
--------------------------
+## MCP Module Auto-Discovery
+
 Automatically discover sibling modules in your package:
 
 ```py
@@ -59,11 +59,11 @@ app = mcp_server(
 )
 ```
 
-See Also
---------
-`MCPServerConfigArg` : Configuration for individual credentials
-`mcp_server` : Main factory function
-`resolve_config` : Runtime credential resolution
+## See Also
+
+- `MCPServerConfigArg` : Configuration for individual credentials
+- `mcp_server` : Main factory function
+- `resolve_config` : Runtime credential resolution
 """
 
 from __future__ import annotations
