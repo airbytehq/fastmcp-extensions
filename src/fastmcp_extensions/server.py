@@ -10,7 +10,7 @@ resolution.
 - `mcp_server`: Factory function to create a FastMCP instance with built-in features
 - `MCPServerConfigArg`: Dataclass for defining credential resolution configuration
 - `MCPServerConfig`: Dataclass storing server configuration (attached to the app)
-- `resolve_config`: Helper function to resolve credentials at runtime
+- `get_mcp_config`: Helper function to get credentials at runtime
 
 ## Basic Usage
 
@@ -30,7 +30,7 @@ app = mcp_server(
 Define credentials that resolve from HTTP headers, environment variables, or defaults:
 
 ```py
-from fastmcp_extensions import mcp_server, MCPServerConfigArg, resolve_config
+from fastmcp_extensions import mcp_server, MCPServerConfigArg, get_mcp_config
 
 app = mcp_server(
     name="my-server",
@@ -44,8 +44,8 @@ app = mcp_server(
     ],
 )
 
-# Later, resolve the credential (checks header -> env var -> default)
-api_key = resolve_config(app, "api_key")
+# Later, get the credential (checks header -> env var -> default)
+api_key = get_mcp_config(app, "api_key")
 ```
 
 ## MCP Module Auto-Discovery
@@ -128,15 +128,16 @@ class MCPServerConfig:
         """Build lookup dict for config args by name."""
         self._config_args_by_name = {arg.name: arg for arg in self.config_args}
 
-    def resolve_config(self, name: str) -> str:
-        """Resolve a configuration value by name.
+    def get_config(self, name: str) -> str:
+        """Get a configuration value by name.
 
         Resolution order:
         1. HTTP headers (case-insensitive)
         2. Environment variables
+        3. Default value
 
         Args:
-            name: The name of the config argument to resolve.
+            name: The name of the config argument to get.
 
         Returns:
             The resolved value as a string.
@@ -442,10 +443,10 @@ def mcp_server(
     return app
 
 
-def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
-    """Resolve a configuration value from an MCP server.
+def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
+    """Get a configuration value from an MCP server.
 
-    This is a convenience function to resolve config values from a FastMCP
+    This is a convenience function to get config values from a FastMCP
     app created with mcp_server(). It accepts either a Context object (preferred
     for use in MCP tools) or a FastMCP app instance directly.
 
@@ -455,7 +456,7 @@ def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     Args:
         ctx_or_app: Either a FastMCP Context object (from tool/resource functions)
             or a FastMCP application instance (created with mcp_server()).
-        name: The name of the config argument to resolve.
+        name: The name of the config argument to get.
 
     Returns:
         The resolved value as a string.
@@ -469,7 +470,7 @@ def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
         ```python
         @mcp_tool(...)
         def my_tool(ctx: Context, ...) -> str:
-            api_key = resolve_config(ctx, "api_key")
+            api_key = get_mcp_config(ctx, "api_key")
             ...
         ```
     """
@@ -477,4 +478,4 @@ def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
 
     config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
-    return config.resolve_config(name)
+    return config.get_config(name)

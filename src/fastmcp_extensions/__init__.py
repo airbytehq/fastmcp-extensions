@@ -36,8 +36,8 @@ from fastmcp_extensions.registration import (
 from fastmcp_extensions.server import (
     MCPServerConfig,
     MCPServerConfigArg,
+    get_mcp_config,
     mcp_server,
-    resolve_config,
 )
 
 __all__ = [
@@ -50,6 +50,7 @@ __all__ = [
     "PromptDef",
     "ResourceDef",
     "clear_registrations",
+    "get_mcp_config",
     "get_registered_prompts",
     "get_registered_resources",
     "get_registered_tools",
@@ -60,5 +61,4 @@ __all__ = [
     "register_mcp_prompts",
     "register_mcp_resources",
     "register_mcp_tools",
-    "resolve_config",
 ]

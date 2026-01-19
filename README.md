@@ -52,9 +52,9 @@ app = mcp_server(
 )
 
 # Server info resource is automatically registered at {name}://server/info
-# Resolve credentials from HTTP headers or environment variables
-from fastmcp_extensions import resolve_config
-api_key = resolve_config(app, "api_key")
+# Get credentials from HTTP headers or environment variables
+from fastmcp_extensions import get_mcp_config
+api_key = get_mcp_config(app, "api_key")
 ```
 
 ### Using Annotation Constants
@@ -168,7 +168,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 - `mcp_server` - Create a FastMCP instance with built-in server info resource
 - `MCPServerConfigArg` - Configuration for credential resolution
-- `resolve_config` - Resolve a credential from HTTP headers or environment variables
+- `get_mcp_config` - Get a credential from HTTP headers or environment variables
 
 ### Annotations
 

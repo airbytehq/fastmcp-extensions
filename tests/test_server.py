@@ -10,8 +10,8 @@ from fastmcp import FastMCP
 from fastmcp_extensions import (
     MCPServerConfig,
     MCPServerConfigArg,
+    get_mcp_config,
     mcp_server,
-    resolve_config,
 )
 
 
@@ -112,7 +112,7 @@ def test_mcp_server_config_arg_attributes(
 
 
 @pytest.mark.unit
-def test_resolve_config_from_env_var() -> None:
+def test_get_mcp_config_from_env_var() -> None:
     """Test resolving config from environment variable."""
     config_args = [
         MCPServerConfigArg(
@@ -125,12 +125,12 @@ def test_resolve_config_from_env_var() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch.dict(os.environ, {"TEST_API_KEY": "secret-key-123"}):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "secret-key-123"
 
 
 @pytest.mark.unit
-def test_resolve_config_from_http_header() -> None:
+def test_get_mcp_config_from_http_header() -> None:
     """Test resolving config from HTTP header (takes precedence over env var)."""
     config_args = [
         MCPServerConfigArg(
@@ -146,12 +146,12 @@ def test_resolve_config_from_http_header() -> None:
         "fastmcp_extensions.server.get_http_headers",
         return_value={"X-API-Key": "header-key"},
     ):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "header-key"
 
 
 @pytest.mark.unit
-def test_resolve_config_header_case_insensitive() -> None:
+def test_get_mcp_config_header_case_insensitive() -> None:
     """Test that HTTP header resolution is case-insensitive."""
     config_args = [
         MCPServerConfigArg(
@@ -167,21 +167,21 @@ def test_resolve_config_header_case_insensitive() -> None:
         "fastmcp_extensions.server.get_http_headers",
         return_value={"x-api-key": "lowercase-header-key"},
     ):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "lowercase-header-key"
 
 
 @pytest.mark.unit
-def test_resolve_config_unknown_name_raises_key_error() -> None:
+def test_get_mcp_config_unknown_name_raises_key_error() -> None:
     """Test that resolving unknown config name raises KeyError."""
     app = mcp_server("test-server")
 
     with pytest.raises(KeyError, match="Unknown config argument"):
-        resolve_config(app, "nonexistent")
+        get_mcp_config(app, "nonexistent")
 
 
 @pytest.mark.unit
-def test_resolve_config_required_missing_raises_value_error() -> None:
+def test_get_mcp_config_required_missing_raises_value_error() -> None:
     """Test that missing required config raises ValueError."""
     config_args = [
         MCPServerConfigArg(
@@ -197,11 +197,11 @@ def test_resolve_config_required_missing_raises_value_error() -> None:
         "fastmcp_extensions.server.get_http_headers", return_value=None
     )
     with mock_headers, pytest.raises(ValueError, match="Required config"):
-        resolve_config(app, "api_key")
+        get_mcp_config(app, "api_key")
 
 
 @pytest.mark.unit
-def test_resolve_config_optional_missing_returns_empty_string() -> None:
+def test_get_mcp_config_optional_missing_returns_empty_string() -> None:
     """Test that missing optional config returns empty string."""
     config_args = [
         MCPServerConfigArg(
@@ -214,7 +214,7 @@ def test_resolve_config_optional_missing_returns_empty_string() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
-        value = resolve_config(app, "optional_key")
+        value = get_mcp_config(app, "optional_key")
         assert value == ""
 
 
@@ -237,7 +237,7 @@ def test_mcp_server_config_default_values() -> None:
 
 
 @pytest.mark.unit
-def test_resolve_config_with_string_default() -> None:
+def test_get_mcp_config_with_string_default() -> None:
     """Test resolving config with a string default value."""
     config_args = [
         MCPServerConfigArg(
@@ -250,12 +250,12 @@ def test_resolve_config_with_string_default() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "default-value"
 
 
 @pytest.mark.unit
-def test_resolve_config_with_callable_default() -> None:
+def test_get_mcp_config_with_callable_default() -> None:
     """Test resolving config with a callable default value."""
     config_args = [
         MCPServerConfigArg(
@@ -268,12 +268,12 @@ def test_resolve_config_with_callable_default() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "callable-default"
 
 
 @pytest.mark.unit
-def test_resolve_config_env_var_takes_precedence_over_default() -> None:
+def test_get_mcp_config_env_var_takes_precedence_over_default() -> None:
     """Test that env var takes precedence over default value."""
     config_args = [
         MCPServerConfigArg(
@@ -286,12 +286,12 @@ def test_resolve_config_env_var_takes_precedence_over_default() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch.dict(os.environ, {"TEST_API_KEY": "env-value"}):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "env-value"
 
 
 @pytest.mark.unit
-def test_resolve_config_with_only_env_var() -> None:
+def test_get_mcp_config_with_only_env_var() -> None:
     """Test resolving config with only env_var set (no http_header_key)."""
     config_args = [
         MCPServerConfigArg(
@@ -303,12 +303,12 @@ def test_resolve_config_with_only_env_var() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch.dict(os.environ, {"TEST_API_KEY": "env-only-value"}):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "env-only-value"
 
 
 @pytest.mark.unit
-def test_resolve_config_with_only_http_header() -> None:
+def test_get_mcp_config_with_only_http_header() -> None:
     """Test resolving config with only http_header_key set (no env_var)."""
     config_args = [
         MCPServerConfigArg(
@@ -323,5 +323,5 @@ def test_resolve_config_with_only_http_header() -> None:
         "fastmcp_extensions.server.get_http_headers",
         return_value={"X-API-Key": "header-only-value"},
     ):
-        value = resolve_config(app, "api_key")
+        value = get_mcp_config(app, "api_key")
         assert value == "header-only-value"
