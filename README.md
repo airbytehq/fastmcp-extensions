@@ -4,12 +4,13 @@ Unofficial extension library for FastMCP 2.0 with patterns, practices, and utili
 
 ## Features
 
+- MCP Server Factory: `mcp_server()` helper that creates FastMCP instances with built-in server info resources, MCP asset discovery (optional), and credential resolution.
 - MCP Annotation Constants: Standard annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) following the FastMCP 2.2.7+ specification
-- Deferred Registration Decorators: `@mcp_tool`, `@mcp_prompt`, `@mcp_resource` decorators for organizing tools by domain with automatic domain detection
-- Registration Utilities: Functions to register tools, prompts, and resources with a FastMCP app, filtered by domain
-- Tool Testing Utilities: Helpers for testing MCP tools directly with JSON arguments (stdio and HTTP transports)
-- Tool List Measurement: Utilities for measuring tool list size to track context truncation issues
-- Prompt Helpers: Generic `get_prompt_text` helper for agents that cannot access prompt assets directly
+- Deferred Registration Decorators: `@mcp_tool`, `@mcp_prompt`, `@mcp_resource` decorators for organizing tools by domain with automatic domain detection.
+- Registration Utilities: Functions to register tools, prompts, and resources with a FastMCP app, filtered by domain.
+- Tool Testing Utilities: Helpers for testing MCP tools directly with JSON arguments (stdio and HTTP transports).
+- Tool List Measurement: Utilities for measuring tool list size to track context truncation issues.
+- Prompt Helpers: Generic `get_prompt_text` helper for agents that cannot access prompt assets directly.
 
 ## Installation
 
@@ -24,6 +25,37 @@ uv add fastmcp-extensions
 ```
 
 ## Quick Start
+
+### Using the MCP Server Factory
+
+The `mcp_server` function creates a FastMCP instance with built-in server info resources and optional credential resolution:
+
+```python
+from fastmcp_extensions import mcp_server, MCPServerConfigArg
+
+app = mcp_server(
+    name="my-mcp-server",
+    package_name="my-package",
+    advertised_properties={
+        "docs_url": "https://github.com/org/repo",
+        "release_history_url": "https://github.com/org/repo/releases",
+    },
+    server_config_args=[
+        MCPServerConfigArg(
+            name="api_key",
+            http_header_key="X-API-Key",
+            env_var="MY_API_KEY",
+            required=True,
+            sensitive=True,
+        ),
+    ],
+)
+
+# Server info resource is automatically registered at {name}://server/info
+# Get credentials from HTTP headers or environment variables
+from fastmcp_extensions import get_mcp_config
+api_key = get_mcp_config(app, "api_key")
+```
 
 ### Using Annotation Constants
 
@@ -132,10 +164,16 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ## API Reference
 
+### Server Factory
+
+- `mcp_server` - Create a FastMCP instance with built-in server info resource and auto-registration of decorated tools and assets.
+- `MCPServerConfigArg` - Configuration for credential resolution and other server settings.
+- `get_mcp_config` - Get a credential from HTTP headers or environment variables.
+
 ### Annotations
 
 | Constant | Description | FastMCP Default |
-|----------|-------------|-----------------|
+| -------- | ----------- | --------------- |
 | `READ_ONLY_HINT` | Tool only reads data | `False` |
 | `DESTRUCTIVE_HINT` | Tool modifies/deletes data | `True` |
 | `IDEMPOTENT_HINT` | Repeated calls have same effect | `False` |

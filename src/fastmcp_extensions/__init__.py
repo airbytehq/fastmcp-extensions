@@ -18,10 +18,6 @@ from fastmcp_extensions.annotations import (
     READ_ONLY_HINT,
 )
 from fastmcp_extensions.decorators import (
-    clear_registrations,
-    get_registered_prompts,
-    get_registered_resources,
-    get_registered_tools,
     mcp_prompt,
     mcp_resource,
     mcp_tool,
@@ -33,20 +29,26 @@ from fastmcp_extensions.registration import (
     register_mcp_resources,
     register_mcp_tools,
 )
+from fastmcp_extensions.server import (
+    MCPServerConfig,
+    MCPServerConfigArg,
+    get_mcp_config,
+    mcp_server,
+)
 
 __all__ = [
     "DESTRUCTIVE_HINT",
     "IDEMPOTENT_HINT",
     "OPEN_WORLD_HINT",
     "READ_ONLY_HINT",
+    "MCPServerConfig",
+    "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
-    "clear_registrations",
-    "get_registered_prompts",
-    "get_registered_resources",
-    "get_registered_tools",
+    "get_mcp_config",
     "mcp_prompt",
     "mcp_resource",
+    "mcp_server",
     "mcp_tool",
     "register_mcp_prompts",
     "register_mcp_resources",
