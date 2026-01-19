@@ -58,12 +58,6 @@ app = mcp_server(
     auto_discover_assets=True,  # Discovers non-private sibling modules
 )
 ```
-
-## See Also
-
-- `MCPServerConfigArg` : Configuration for individual credentials
-- `mcp_server` : Main factory function
-- `resolve_config` : Runtime credential resolution
 """
 
 from __future__ import annotations
