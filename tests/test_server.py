@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastmcp import FastMCP
+from mcp.types import Tool
 
 from fastmcp_extensions import (
     MCPServerConfig,
@@ -325,3 +326,41 @@ def test_get_mcp_config_with_only_http_header() -> None:
     ):
         value = get_mcp_config(app, "api_key")
         assert value == "header-only-value"
+
+
+@pytest.mark.unit
+def test_mcp_server_with_tool_filters() -> None:
+    """Test that mcp_server() registers tool filter middleware."""
+
+    def allow_all_filter(tool: Tool, app: FastMCP) -> bool:
+        return True
+
+    app = mcp_server("test-server", tool_filters=[allow_all_filter])
+
+    # Verify middleware was registered
+    assert len(app.middleware) >= 1
+
+
+@pytest.mark.unit
+def test_mcp_server_with_multiple_tool_filters() -> None:
+    """Test that mcp_server() registers multiple tool filter middleware."""
+
+    def filter_one(tool: Tool, app: FastMCP) -> bool:
+        return True
+
+    def filter_two(tool: Tool, app: FastMCP) -> bool:
+        return True
+
+    app = mcp_server("test-server", tool_filters=[filter_one, filter_two])
+
+    # Verify both middleware were registered
+    assert len(app.middleware) >= 2
+
+
+@pytest.mark.unit
+def test_mcp_server_without_tool_filters() -> None:
+    """Test that mcp_server() works without tool_filters parameter."""
+    app = mcp_server("test-server")
+
+    # Should work without any tool filters
+    assert isinstance(app, FastMCP)

@@ -75,6 +75,8 @@ from typing import Any
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
+from fastmcp_extensions.middleware import ToolFilterFn, ToolFilterMiddleware
+
 
 @dataclass
 class MCPServerConfigArg:
@@ -371,6 +373,7 @@ def mcp_server(
     advertised_properties: dict[str, Any] | None = None,
     auto_discover_assets: bool | Callable[[], list[str]] = False,
     server_config_args: list[MCPServerConfigArg] | None = None,
+    tool_filters: list[ToolFilterFn] | None = None,
     **fastmcp_kwargs: Any,
 ) -> FastMCP:
     """Create a FastMCP server with built-in server info and credential resolution.
@@ -380,6 +383,7 @@ def mcp_server(
     - Automatic server info resource registration
     - HTTP header credential resolution
     - Optional MCP module auto-discovery
+    - Per-request tool filtering via middleware
 
     Args:
         name: The name of the MCP server.
@@ -391,6 +395,10 @@ def mcp_server(
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
             Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.
+        tool_filters: List of tool filter functions for per-request tool filtering.
+            Each filter function takes (Tool, FastMCP) and returns True to show
+            the tool, False to hide it. Filters can use get_mcp_config() to access
+            request-specific configuration values from HTTP headers or env vars.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
     Returns:
@@ -398,7 +406,17 @@ def mcp_server(
 
     Example:
         ```python
-        from fastmcp_extensions import mcp_server, MCPServerConfigArg
+        from fastmcp_extensions import mcp_server, MCPServerConfigArg, get_mcp_config
+
+
+        def readonly_filter(tool, app):
+            if get_mcp_config(app, "readonly_mode") == "1":
+                annotations = tool.annotations
+                if annotations is None:
+                    return False
+                return getattr(annotations, "readOnlyHint", False)
+            return True
+
 
         app = mcp_server(
             name="my-mcp-server",
@@ -414,7 +432,14 @@ def mcp_server(
                     required=True,
                     sensitive=True,
                 ),
+                MCPServerConfigArg(
+                    name="readonly_mode",
+                    http_header_key="X-Readonly-Mode",
+                    env_var="READONLY_MODE",
+                    default="0",
+                ),
             ],
+            tool_filters=[readonly_filter],
         )
         ```
     """
@@ -439,6 +464,11 @@ def mcp_server(
             config.advertised_properties["mcp_modules"] = mcp_modules
 
     app.x_mcp_server_config = config  # type: ignore[attr-defined]
+
+    # Register tool filter middleware for each filter function
+    if tool_filters:
+        for filter_fn in tool_filters:
+            app.add_middleware(ToolFilterMiddleware(app, tool_filter=filter_fn))
 
     return app
 
