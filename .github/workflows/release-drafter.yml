@@ -30,7 +30,7 @@ jobs:
 
       - name: Get Release Draft Info (Dry-Run)
         id: dry-run
-        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        uses: aaronsteers/semantic-pr-release-drafter@v0.5.0
         env:
           # Needed to retrieve non-public draft release info.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,7 +43,7 @@ jobs:
         run: uv build
 
       - name: Create or update draft release
-        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        uses: aaronsteers/semantic-pr-release-drafter@v0.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
