@@ -27,8 +27,10 @@ from fastmcp_extensions.decorators import (
     mcp_tool,
 )
 from fastmcp_extensions.registration import (
+    ArgExclusionFilterFn,
     PromptDef,
     ResourceDef,
+    ToolFilterFn,
     register_mcp_prompts,
     register_mcp_resources,
     register_mcp_tools,
@@ -45,10 +47,12 @@ __all__ = [
     "IDEMPOTENT_HINT",
     "OPEN_WORLD_HINT",
     "READ_ONLY_HINT",
+    "ArgExclusionFilterFn",
     "MCPServerConfig",
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
+    "ToolFilterFn",
     "clear_registrations",
     "get_mcp_config",
     "get_registered_prompts",
