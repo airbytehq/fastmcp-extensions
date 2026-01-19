@@ -14,44 +14,50 @@ Key Components
 
 Basic Usage
 -----------
-Create a simple MCP server with server info resource::
+Create a simple MCP server with server info resource:
 
-    from fastmcp_extensions import mcp_server
+```py
+from fastmcp_extensions import mcp_server
 
-    app = mcp_server(
-        name="my-server",
-        package_name="my-package",
-    )
+app = mcp_server(
+    name="my-server",
+    package_name="my-package",
+)
+```
 
 Credential Resolution
 ---------------------
-Define credentials that resolve from HTTP headers, environment variables, or defaults::
+Define credentials that resolve from HTTP headers, environment variables, or defaults:
 
-    from fastmcp_extensions import mcp_server, MCPServerConfigArg, resolve_config
+```py
+from fastmcp_extensions import mcp_server, MCPServerConfigArg, resolve_config
 
-    app = mcp_server(
-        name="my-server",
-        server_config_args=[
-            MCPServerConfigArg(
-                name="api_key",
-                http_header_key="X-API-Key",
-                env_var="MY_API_KEY",
-                default="fallback-value",
-            ),
-        ],
-    )
+app = mcp_server(
+    name="my-server",
+    server_config_args=[
+        MCPServerConfigArg(
+            name="api_key",
+            http_header_key="X-API-Key",
+            env_var="MY_API_KEY",
+            default="fallback-value",
+        ),
+    ],
+)
 
-    # Later, resolve the credential (checks header -> env var -> default)
-    api_key = resolve_config(app, "api_key")
+# Later, resolve the credential (checks header -> env var -> default)
+api_key = resolve_config(app, "api_key")
+```
 
 MCP Module Auto-Discovery
 -------------------------
-Automatically discover sibling modules in your package::
+Automatically discover sibling modules in your package:
 
-    app = mcp_server(
-        name="my-server",
-        auto_discover_assets=True,  # Discovers non-private sibling modules
-    )
+```py
+app = mcp_server(
+    name="my-server",
+    auto_discover_assets=True,  # Discovers non-private sibling modules
+)
+```
 
 See Also
 --------
