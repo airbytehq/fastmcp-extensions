@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
 
@@ -388,14 +388,19 @@ def mcp_server(
     return app
 
 
-def resolve_config(app: FastMCP, name: str) -> str:
+def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     """Resolve a configuration value from an MCP server.
 
     This is a convenience function to resolve config values from a FastMCP
-    app created with mcp_server().
+    app created with mcp_server(). It accepts either a Context object (preferred
+    for use in MCP tools) or a FastMCP app instance directly.
+
+    When using Context, the function accesses the app via ctx.fastmcp, which
+    ensures session-aware resolution of HTTP headers.
 
     Args:
-        app: The FastMCP application instance (created with mcp_server()).
+        ctx_or_app: Either a FastMCP Context object (from tool/resource functions)
+            or a FastMCP application instance (created with mcp_server()).
         name: The name of the config argument to resolve.
 
     Returns:
@@ -405,6 +410,17 @@ def resolve_config(app: FastMCP, name: str) -> str:
         AttributeError: If the app was not created with mcp_server().
         KeyError: If the config argument name is not registered.
         ValueError: If the config is required but no value can be resolved.
+
+    Example:
+        ```python
+        @mcp_tool(...)
+        def my_tool(ctx: Context, ...) -> str:
+            api_key = resolve_config(ctx, "api_key")
+            ...
+        ```
     """
+    # Extract the FastMCP app from Context if needed
+    app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
+
     config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
     return config.resolve_config(name)
