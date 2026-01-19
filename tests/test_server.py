@@ -364,3 +364,144 @@ def test_mcp_server_without_tool_filters() -> None:
 
     # Should work without any tool filters
     assert isinstance(app, FastMCP)
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_adds_config_args() -> None:
+    """Test that include_standard_tool_filters=True adds standard config args."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
+
+    config = app.x_mcp_server_config
+    config_names = [arg.name for arg in config.config_args]
+
+    # Should include both standard config args
+    assert "readonly_mode" in config_names
+    assert "no_destructive_tools" in config_names
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_adds_middleware() -> None:
+    """Test that include_standard_tool_filters=True adds filter middleware."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
+
+    # Should have at least 2 middleware (one for each standard filter)
+    assert len(app.middleware) >= 2
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_false_skips_standard_filters() -> (
+    None
+):
+    """Test that include_standard_tool_filters=False skips standard filters."""
+    app = mcp_server("test-server", include_standard_tool_filters=False)
+
+    config = app.x_mcp_server_config
+    config_names = [arg.name for arg in config.config_args]
+
+    # Should not include standard config args
+    assert "readonly_mode" not in config_names
+    assert "no_destructive_tools" not in config_names
+
+    # Should have no middleware
+    assert len(app.middleware) == 0
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_with_custom_config_args() -> None:
+    """Test that include_standard_tool_filters=True works with custom config args."""
+    custom_arg = MCPServerConfigArg(
+        name="custom_config",
+        http_header_key="X-Custom-Config",
+        env_var="CUSTOM_CONFIG",
+        default="default_value",
+    )
+    app = mcp_server(
+        "test-server",
+        server_config_args=[custom_arg],
+        include_standard_tool_filters=True,
+    )
+
+    config = app.x_mcp_server_config
+    config_names = [arg.name for arg in config.config_args]
+
+    # Should include custom config arg
+    assert "custom_config" in config_names
+    # Should also include standard config args
+    assert "readonly_mode" in config_names
+    assert "no_destructive_tools" in config_names
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_with_custom_tool_filters() -> None:
+    """Test that include_standard_tool_filters=True works with custom tool filters."""
+
+    def custom_filter(tool: Tool, app: FastMCP) -> bool:
+        return True
+
+    app = mcp_server(
+        "test-server",
+        tool_filters=[custom_filter],
+        include_standard_tool_filters=True,
+    )
+
+    # Should have at least 3 middleware (1 custom + 2 standard)
+    assert len(app.middleware) >= 3
+
+
+@pytest.mark.unit
+def test_mcp_server_include_standard_tool_filters_includes_module_config_args() -> None:
+    """Test that include_standard_tool_filters=True adds module filtering config args."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
+
+    config = app.x_mcp_server_config
+    config_names = [arg.name for arg in config.config_args]
+
+    # Should include module filtering config args
+    assert "exclude_modules" in config_names
+    assert "include_modules" in config_names
+    assert "exclude_tools" in config_names
+
+
+@pytest.mark.unit
+def test_parse_csv_config_empty_string() -> None:
+    """Test _parse_csv_config with empty string."""
+    from fastmcp_extensions.server import _parse_csv_config
+
+    result = _parse_csv_config("")
+    assert result == []
+
+
+@pytest.mark.unit
+def test_parse_csv_config_single_value() -> None:
+    """Test _parse_csv_config with single value."""
+    from fastmcp_extensions.server import _parse_csv_config
+
+    result = _parse_csv_config("module1")
+    assert result == ["module1"]
+
+
+@pytest.mark.unit
+def test_parse_csv_config_multiple_values() -> None:
+    """Test _parse_csv_config with multiple values."""
+    from fastmcp_extensions.server import _parse_csv_config
+
+    result = _parse_csv_config("module1,module2,module3")
+    assert result == ["module1", "module2", "module3"]
+
+
+@pytest.mark.unit
+def test_parse_csv_config_trims_whitespace() -> None:
+    """Test _parse_csv_config trims whitespace from values."""
+    from fastmcp_extensions.server import _parse_csv_config
+
+    result = _parse_csv_config("  module1  ,  module2  ,  module3  ")
+    assert result == ["module1", "module2", "module3"]
+
+
+@pytest.mark.unit
+def test_parse_csv_config_filters_empty_values() -> None:
+    """Test _parse_csv_config filters out empty values."""
+    from fastmcp_extensions.server import _parse_csv_config
+
+    result = _parse_csv_config("module1,,module2,  ,module3")
+    assert result == ["module1", "module2", "module3"]

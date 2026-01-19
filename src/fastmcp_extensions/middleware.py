@@ -12,35 +12,50 @@ or other request-specific context.
 
 ## Basic Usage
 
-Create a middleware that filters tools based on a config value:
+The simplest way to use tool filtering is with the standard filters:
 
 ```py
-from fastmcp_extensions import mcp_server, get_mcp_config, ToolFilterMiddleware
+from fastmcp_extensions import mcp_server
+
+app = mcp_server(
+    name="my-server",
+    include_standard_tool_filters=True,
+)
+```
+
+This automatically adds:
+- `readonly_mode`: When MCP_READONLY_MODE=1 or X-MCP-Readonly-Mode: true,
+  only tools with readOnlyHint=True are visible
+- `no_destructive_tools`: When MCP_NO_DESTRUCTIVE_TOOLS=1 or X-No-Destructive-Tools: true,
+  tools with destructiveHint=True are hidden
+
+## Custom Filters
+
+For custom filtering logic, create your own filter functions:
+
+```py
+from fastmcp_extensions import mcp_server, get_mcp_config, MCPServerConfigArg
+
+
+def my_custom_filter(tool, app):
+    if get_mcp_config(app, "my_config") == "1":
+        # Custom filtering logic
+        return tool.name.startswith("allowed_")
+    return True
+
 
 app = mcp_server(
     name="my-server",
     server_config_args=[
         MCPServerConfigArg(
-            name="readonly_mode",
-            http_header_key="X-Readonly-Mode",
-            env_var="READONLY_MODE",
+            name="my_config",
+            http_header_key="X-My-Config",
+            env_var="MY_CONFIG",
             default="0",
         ),
     ],
+    tool_filters=[my_custom_filter],
 )
-
-
-def readonly_filter(tool, app):
-    # In readonly mode, only show tools with readOnlyHint=True
-    if get_mcp_config(app, "readonly_mode") == "1":
-        annotations = tool.annotations
-        if annotations is None:
-            return False
-        return getattr(annotations, "readOnlyHint", False)
-    return True
-
-
-app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_filter))
 ```
 """
 
