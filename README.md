@@ -173,7 +173,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Annotations
 
 | Constant | Description | FastMCP Default |
-|----------|-------------|-----------------|
+| -------- | ----------- | --------------- |
 | `READ_ONLY_HINT` | Tool only reads data | `False` |
 | `DESTRUCTIVE_HINT` | Tool modifies/deletes data | `True` |
 | `IDEMPOTENT_HINT` | Repeated calls have same effect | `False` |
