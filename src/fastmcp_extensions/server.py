@@ -4,6 +4,60 @@
 This module provides a factory function to create FastMCP servers with common
 patterns built-in, including server info resources and HTTP header credential
 resolution.
+
+Key Components
+--------------
+- `mcp_server`: Factory function to create a FastMCP instance with built-in features
+- `MCPServerConfigArg`: Dataclass for defining credential resolution configuration
+- `MCPServerConfig`: Dataclass storing server configuration (attached to the app)
+- `resolve_config`: Helper function to resolve credentials at runtime
+
+Basic Usage
+-----------
+Create a simple MCP server with server info resource::
+
+    from fastmcp_extensions import mcp_server
+
+    app = mcp_server(
+        name="my-server",
+        package_name="my-package",
+    )
+
+Credential Resolution
+---------------------
+Define credentials that resolve from HTTP headers, environment variables, or defaults::
+
+    from fastmcp_extensions import mcp_server, MCPServerConfigArg, resolve_config
+
+    app = mcp_server(
+        name="my-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="api_key",
+                http_header_key="X-API-Key",
+                env_var="MY_API_KEY",
+                default="fallback-value",
+            ),
+        ],
+    )
+
+    # Later, resolve the credential (checks header -> env var -> default)
+    api_key = resolve_config(app, "api_key")
+
+MCP Module Auto-Discovery
+-------------------------
+Automatically discover sibling modules in your package::
+
+    app = mcp_server(
+        name="my-server",
+        auto_discover_assets=True,  # Discovers non-private sibling modules
+    )
+
+See Also
+--------
+`MCPServerConfigArg` : Configuration for individual credentials
+`mcp_server` : Main factory function
+`resolve_config` : Runtime credential resolution
 """
 
 from __future__ import annotations
