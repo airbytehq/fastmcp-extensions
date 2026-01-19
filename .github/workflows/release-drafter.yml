@@ -28,8 +28,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calculate release version (dry-run)
-        id: release_info
+      - name: Get Release Draft Info (Dry-Run)
+        id: dry_run
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,7 +38,7 @@ jobs:
 
       - name: Build package
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.release_info.outputs.resolved_version }}
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.dry_run.outputs.resolved_version }}
         run: uv build
 
       - name: Create or update draft release
@@ -46,7 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ steps.release_info.outputs.resolved_version }}
+          version: ${{ steps.dry_run.outputs.resolved_version }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
