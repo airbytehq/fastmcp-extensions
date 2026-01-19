@@ -22,6 +22,10 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
+from fastmcp_extensions.middleware import (
+    ToolFilterFn,
+    ToolFilterMiddleware,
+)
 from fastmcp_extensions.registration import (
     PromptDef,
     ResourceDef,
@@ -45,6 +49,8 @@ __all__ = [
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
+    "ToolFilterFn",
+    "ToolFilterMiddleware",
     "get_mcp_config",
     "mcp_prompt",
     "mcp_resource",
