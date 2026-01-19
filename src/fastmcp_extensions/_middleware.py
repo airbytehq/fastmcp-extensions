@@ -1,62 +1,14 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""MCP Middleware for dynamic tool filtering.
+"""Internal module for tool filtering implementation.
 
-This module provides middleware for filtering MCP tools on a per-request basis,
-allowing different clients to see different tools based on their HTTP headers
-or other request-specific context.
+This is a private module that provides the internal implementation for
+per-request tool filtering. Users should not import from this module directly.
 
-## Key Components
+For tool filtering, use the `mcp_server()` function with `tool_filters` or
+`include_standard_tool_filters` parameters instead.
 
-- `ToolFilterMiddleware`: Middleware that filters tools based on a callable
-- `ToolFilterFn`: Type alias for tool filter functions
-
-## Basic Usage
-
-The simplest way to use tool filtering is with the standard filters:
-
-```py
-from fastmcp_extensions import mcp_server
-
-app = mcp_server(
-    name="my-server",
-    include_standard_tool_filters=True,
-)
-```
-
-This automatically adds:
-- `readonly_mode`: When MCP_READONLY_MODE=1 or X-MCP-Readonly-Mode: true,
-  only tools with readOnlyHint=True are visible
-- `no_destructive_tools`: When MCP_NO_DESTRUCTIVE_TOOLS=1 or X-No-Destructive-Tools: true,
-  tools with destructiveHint=True are hidden
-
-## Custom Filters
-
-For custom filtering logic, create your own filter functions:
-
-```py
-from fastmcp_extensions import mcp_server, get_mcp_config, MCPServerConfigArg
-
-
-def my_custom_filter(tool, app):
-    if get_mcp_config(app, "my_config") == "1":
-        # Custom filtering logic
-        return tool.name.startswith("allowed_")
-    return True
-
-
-app = mcp_server(
-    name="my-server",
-    server_config_args=[
-        MCPServerConfigArg(
-            name="my_config",
-            http_header_key="X-My-Config",
-            env_var="MY_CONFIG",
-            default="0",
-        ),
-    ],
-    tool_filters=[my_custom_filter],
-)
-```
+See Also:
+    - FastMCP middleware documentation: https://gofastmcp.com/servers/middleware
 """
 
 from __future__ import annotations

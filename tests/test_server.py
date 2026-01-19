@@ -465,7 +465,7 @@ def test_mcp_server_include_standard_tool_filters_includes_module_config_args() 
 @pytest.mark.unit
 def test_parse_csv_config_empty_string() -> None:
     """Test _parse_csv_config with empty string."""
-    from fastmcp_extensions.server import _parse_csv_config
+    from fastmcp_extensions.tool_filters import _parse_csv_config
 
     result = _parse_csv_config("")
     assert result == []
@@ -474,7 +474,7 @@ def test_parse_csv_config_empty_string() -> None:
 @pytest.mark.unit
 def test_parse_csv_config_single_value() -> None:
     """Test _parse_csv_config with single value."""
-    from fastmcp_extensions.server import _parse_csv_config
+    from fastmcp_extensions.tool_filters import _parse_csv_config
 
     result = _parse_csv_config("module1")
     assert result == ["module1"]
@@ -483,7 +483,7 @@ def test_parse_csv_config_single_value() -> None:
 @pytest.mark.unit
 def test_parse_csv_config_multiple_values() -> None:
     """Test _parse_csv_config with multiple values."""
-    from fastmcp_extensions.server import _parse_csv_config
+    from fastmcp_extensions.tool_filters import _parse_csv_config
 
     result = _parse_csv_config("module1,module2,module3")
     assert result == ["module1", "module2", "module3"]
@@ -492,7 +492,7 @@ def test_parse_csv_config_multiple_values() -> None:
 @pytest.mark.unit
 def test_parse_csv_config_trims_whitespace() -> None:
     """Test _parse_csv_config trims whitespace from values."""
-    from fastmcp_extensions.server import _parse_csv_config
+    from fastmcp_extensions.tool_filters import _parse_csv_config
 
     result = _parse_csv_config("  module1  ,  module2  ,  module3  ")
     assert result == ["module1", "module2", "module3"]
@@ -501,7 +501,7 @@ def test_parse_csv_config_trims_whitespace() -> None:
 @pytest.mark.unit
 def test_parse_csv_config_filters_empty_values() -> None:
     """Test _parse_csv_config filters out empty values."""
-    from fastmcp_extensions.server import _parse_csv_config
+    from fastmcp_extensions.tool_filters import _parse_csv_config
 
     result = _parse_csv_config("module1,,module2,  ,module3")
     assert result == ["module1", "module2", "module3"]

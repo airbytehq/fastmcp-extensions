@@ -9,7 +9,8 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import MiddlewareContext
 from mcp.types import Tool, ToolAnnotations
 
-from fastmcp_extensions import ToolFilterFn, ToolFilterMiddleware
+from fastmcp_extensions import ToolFilterFn
+from fastmcp_extensions._middleware import ToolFilterMiddleware
 
 
 def _create_mock_tool(
@@ -236,9 +237,9 @@ def test_tool_filter_fn_type_alias_exported() -> None:
 
 
 @pytest.mark.unit
-def test_tool_filter_middleware_exported() -> None:
-    """Test that ToolFilterMiddleware is properly exported."""
-    from fastmcp_extensions import ToolFilterMiddleware
+def test_tool_filter_middleware_accessible_from_private_module() -> None:
+    """Test that ToolFilterMiddleware is accessible from the private _middleware module."""
+    from fastmcp_extensions._middleware import ToolFilterMiddleware
 
     assert ToolFilterMiddleware is not None
 

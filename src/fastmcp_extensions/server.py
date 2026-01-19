@@ -74,9 +74,8 @@ from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
-from mcp.types import Tool
 
-from fastmcp_extensions.middleware import ToolFilterFn, ToolFilterMiddleware
+from fastmcp_extensions._middleware import ToolFilterFn, ToolFilterMiddleware
 
 
 @dataclass
@@ -437,6 +436,13 @@ def mcp_server(
         )
         ```
     """
+    # Late import to avoid circular dependency
+    # (tool_filters imports MCPServerConfigArg and get_mcp_config from this module)
+    from fastmcp_extensions.tool_filters import (
+        STANDARD_CONFIG_ARGS,
+        STANDARD_TOOL_FILTERS,
+    )
+
     app = FastMCP(name, **fastmcp_kwargs)
 
     # Build the list of config args, including standard ones if requested
@@ -512,216 +518,3 @@ def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
 
     config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
     return config.get_config(name)
-
-
-# =============================================================================
-# Standard Tool Filters
-# =============================================================================
-# These are pre-defined config args and filter functions for common use cases.
-# They are automatically added when include_standard_tool_filters=True.
-
-
-READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
-    name="readonly_mode",
-    http_header_key="X-MCP-Readonly-Mode",
-    env_var="MCP_READONLY_MODE",
-    default="0",
-)
-"""Standard config arg for read-only mode.
-
-When set to "1", only tools with readOnlyHint=True annotation will be visible.
-Can be set via X-MCP-Readonly-Mode HTTP header or MCP_READONLY_MODE env var.
-"""
-
-NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
-    name="no_destructive_tools",
-    http_header_key="X-No-Destructive-Tools",
-    env_var="MCP_NO_DESTRUCTIVE_TOOLS",
-    default="0",
-)
-"""Standard config arg for hiding destructive tools.
-
-When set to "1" or "true", tools with destructiveHint=True annotation will be hidden.
-Can be set via X-No-Destructive-Tools HTTP header or MCP_NO_DESTRUCTIVE_TOOLS env var.
-"""
-
-STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
-    READONLY_MODE_CONFIG_ARG,
-    NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
-]
-"""List of all standard config args for tool filtering."""
-
-
-def _readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on readonly_mode config.
-
-    When readonly_mode is "1" or "true", only show tools with readOnlyHint=True.
-    When readonly_mode is "0" (default), show all tools.
-
-    Args:
-        tool: The tool to check.
-        app: The FastMCP app instance.
-
-    Returns:
-        True if the tool should be visible, False to hide it.
-    """
-    config_value = get_mcp_config(app, "readonly_mode").lower()
-    if config_value in ("1", "true"):
-        annotations = tool.annotations
-        if annotations is None:
-            return False
-        return getattr(annotations, "readOnlyHint", False)
-    return True
-
-
-def _no_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on no_destructive_tools config.
-
-    When no_destructive_tools is "1" or "true", hide tools with destructiveHint=True.
-    When no_destructive_tools is "0" (default), show all tools.
-
-    Args:
-        tool: The tool to check.
-        app: The FastMCP app instance.
-
-    Returns:
-        True if the tool should be visible, False to hide it.
-    """
-    config_value = get_mcp_config(app, "no_destructive_tools").lower()
-    if config_value in ("1", "true"):
-        annotations = tool.annotations
-        if annotations is None:
-            return True  # Allow tools without annotations
-        return not getattr(annotations, "destructiveHint", False)
-    return True
-
-
-EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
-    name="exclude_modules",
-    http_header_key="X-MCP-Exclude-Modules",
-    env_var="MCP_EXCLUDE_MODULES",
-    default="",
-    required=False,
-)
-"""Standard config arg for excluding tools by module name.
-
-Comma-separated list of module names to exclude. Tools from these modules will be hidden.
-Can be set via X-MCP-Exclude-Modules HTTP header or MCP_EXCLUDE_MODULES env var.
-Mutually exclusive with include_modules.
-"""
-
-INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
-    name="include_modules",
-    http_header_key="X-MCP-Include-Modules",
-    env_var="MCP_INCLUDE_MODULES",
-    default="",
-    required=False,
-)
-"""Standard config arg for including only specific modules.
-
-Comma-separated list of module names to include. Only tools from these modules will be visible.
-Can be set via X-MCP-Include-Modules HTTP header or MCP_INCLUDE_MODULES env var.
-Mutually exclusive with exclude_modules.
-"""
-
-EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
-    name="exclude_tools",
-    http_header_key="X-MCP-Exclude-Tools",
-    env_var="MCP_EXCLUDE_TOOLS",
-    default="",
-    required=False,
-)
-"""Standard config arg for excluding specific tools by name.
-
-Comma-separated list of tool names to exclude. These tools will be hidden.
-Can be set via X-MCP-Exclude-Tools HTTP header or MCP_EXCLUDE_TOOLS env var.
-"""
-
-
-def _parse_csv_config(value: str) -> list[str]:
-    """Parse a comma-separated config value into a list of strings.
-
-    Args:
-        value: Comma-separated string value.
-
-    Returns:
-        List of trimmed, non-empty strings.
-    """
-    if not value:
-        return []
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _module_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on exclude_modules and include_modules config.
-
-    When exclude_modules is set, hide tools from those modules.
-    When include_modules is set, only show tools from those modules.
-    If both are set, raises ValueError (mutually exclusive).
-
-    Args:
-        tool: The tool to check.
-        app: The FastMCP app instance.
-
-    Returns:
-        True if the tool should be visible, False to hide it.
-
-    Raises:
-        ValueError: If both exclude_modules and include_modules are set.
-    """
-    exclude_modules = _parse_csv_config(get_mcp_config(app, "exclude_modules"))
-    include_modules = _parse_csv_config(get_mcp_config(app, "include_modules"))
-
-    if exclude_modules and include_modules:
-        raise ValueError(
-            "Cannot specify both exclude_modules and include_modules. "
-            "These options are mutually exclusive."
-        )
-
-    # Get the tool's mcp_module from annotations
-    annotations = tool.annotations
-    tool_module = getattr(annotations, "mcp_module", None) if annotations else None
-
-    if exclude_modules:
-        # Hide tools from excluded modules
-        return not (tool_module and tool_module in exclude_modules)
-
-    if include_modules:
-        # Only show tools from included modules
-        return bool(tool_module and tool_module in include_modules)
-
-    return True
-
-
-def _tool_exclusion_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on exclude_tools config.
-
-    When exclude_tools is set, hide tools with those names.
-
-    Args:
-        tool: The tool to check.
-        app: The FastMCP app instance.
-
-    Returns:
-        True if the tool should be visible, False to hide it.
-    """
-    exclude_tools = _parse_csv_config(get_mcp_config(app, "exclude_tools"))
-    return not (exclude_tools and tool.name in exclude_tools)
-
-
-STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
-    READONLY_MODE_CONFIG_ARG,
-    NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
-    EXCLUDE_MODULES_CONFIG_ARG,
-    INCLUDE_MODULES_CONFIG_ARG,
-    EXCLUDE_TOOLS_CONFIG_ARG,
-]
-"""List of all standard config args for tool filtering."""
-
-STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
-    _readonly_mode_filter,
-    _no_destructive_tools_filter,
-    _module_filter,
-    _tool_exclusion_filter,
-]
-"""List of all standard tool filter functions."""
