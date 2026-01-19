@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Get Release Draft Info (Dry-Run)
-        id: dry_run
+        id: dry-run
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
         env:
           # Needed to retrieve non-public draft release info.
@@ -39,7 +39,7 @@ jobs:
 
       - name: Build package
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.dry_run.outputs.resolved_version }}
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.dry-run.outputs.resolved_version }}
         run: uv build
 
       - name: Create or update draft release
@@ -47,7 +47,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ steps.dry_run.outputs.resolved_version }}
+          version: ${{ steps.dry-run.outputs.resolved_version }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
