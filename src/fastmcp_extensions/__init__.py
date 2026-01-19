@@ -67,6 +67,8 @@ from fastmcp_extensions.tool_filters import (
     READONLY_MODE_CONFIG_ARG,
     STANDARD_CONFIG_ARGS,
     STANDARD_TOOL_FILTERS,
+    # Helper Functions
+    get_annotation,
     # Filter Functions
     module_filter,
     no_destructive_tools_filter,
@@ -109,6 +111,7 @@ __all__ = [
     "PromptDef",
     "ResourceDef",
     "ToolFilterFn",
+    "get_annotation",
     "get_mcp_config",
     "mcp_prompt",
     "mcp_resource",

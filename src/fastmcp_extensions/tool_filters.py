@@ -209,6 +209,30 @@ STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
 # =============================================================================
 
 
+def get_annotation(
+    tool_or_asset: Tool,
+    annotation_name: str,
+    default: bool | str | None = None,
+) -> bool | str | None:
+    """Get an annotation value from a tool or asset.
+
+    This helper hides the messy getattr implementation needed to access
+    annotations stored in pydantic's model_extra.
+
+    Args:
+        tool_or_asset: The Tool (or other MCP asset) to get the annotation from.
+        annotation_name: The name of the annotation to retrieve.
+        default: The default value to return if the annotation is not present.
+
+    Returns:
+        The annotation value, or the default if not present.
+    """
+    annotations = tool_or_asset.annotations
+    if annotations is None:
+        return default
+    return getattr(annotations, annotation_name, default)
+
+
 def _parse_csv_config(value: str) -> list[str]:
     """Parse a comma-separated config value into a list of strings.
 
@@ -243,10 +267,7 @@ def readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     """
     config_value = get_mcp_config(app, CONFIG_READONLY_MODE).lower()
     if config_value in ("1", "true"):
-        annotations = tool.annotations
-        if annotations is None:
-            return False
-        return getattr(annotations, ANNOTATION_READ_ONLY_HINT, False)
+        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, False))
     return True
 
 
@@ -265,10 +286,7 @@ def no_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
     """
     config_value = get_mcp_config(app, CONFIG_NO_DESTRUCTIVE_TOOLS).lower()
     if config_value in ("1", "true"):
-        annotations = tool.annotations
-        if annotations is None:
-            return True  # Allow tools without annotations
-        return not getattr(annotations, ANNOTATION_DESTRUCTIVE_HINT, False)
+        return not bool(get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, False))
     return True
 
 
@@ -299,10 +317,7 @@ def module_filter(tool: Tool, app: FastMCP) -> bool:
         )
 
     # Get the tool's mcp_module from annotations
-    annotations = tool.annotations
-    tool_module = (
-        getattr(annotations, ANNOTATION_MCP_MODULE, None) if annotations else None
-    )
+    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
 
     if exclude_modules:
         # Hide tools from excluded modules
