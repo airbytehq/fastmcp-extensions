@@ -72,7 +72,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
 
@@ -90,6 +90,13 @@ class MCPServerConfigArg:
         default: Default value if not found. Can be a string or a callable returning a string.
         required: If True, resolution will raise an error if not found (after checking default).
         sensitive: If True, the value will be masked in logs/output.
+        normalize_fn: Optional function to transform the resolved value. Useful for
+            parsing values like "Bearer <token>" from Authorization headers.
+            The function receives the raw value and returns the normalized value,
+            or None if the value should be treated as not found (triggering fallback).
+            The function may also raise an exception for invalid input validation.
+            When raising exceptions, avoid including the raw value in error messages
+            as it may contain sensitive credentials.
     """
 
     name: str
@@ -98,6 +105,7 @@ class MCPServerConfigArg:
     default: str | Callable[[], str] | None = None
     required: bool = True
     sensitive: bool = False
+    normalize_fn: Callable[[str], str | None] | None = None
 
 
 @dataclass
@@ -173,17 +181,28 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
     Raises:
         ValueError: If the config is required but no value can be resolved.
     """
+
+    def _apply_normalize(value: str) -> str | None:
+        """Apply normalize_fn if configured, otherwise return value as-is."""
+        if config_arg.normalize_fn is not None:
+            return config_arg.normalize_fn(value)
+        return value
+
     if config_arg.http_header_key:
         headers = get_http_headers()
         if headers:
             header_value = _get_header_value(headers, config_arg.http_header_key)
             if header_value:
-                return header_value
+                normalized = _apply_normalize(header_value)
+                if normalized is not None:
+                    return normalized
 
     if config_arg.env_var:
         env_value = os.environ.get(config_arg.env_var)
         if env_value:
-            return env_value
+            normalized = _apply_normalize(env_value)
+            if normalized is not None:
+                return normalized
 
     if config_arg.default is not None:
         if callable(config_arg.default):
@@ -423,14 +442,19 @@ def mcp_server(
     return app
 
 
-def resolve_config(app: FastMCP, name: str) -> str:
+def resolve_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     """Resolve a configuration value from an MCP server.
 
     This is a convenience function to resolve config values from a FastMCP
-    app created with mcp_server().
+    app created with mcp_server(). It accepts either a Context object (preferred
+    for use in MCP tools) or a FastMCP app instance directly.
+
+    When using Context, the function accesses the app via ctx.fastmcp, which
+    ensures session-aware resolution of HTTP headers.
 
     Args:
-        app: The FastMCP application instance (created with mcp_server()).
+        ctx_or_app: Either a FastMCP Context object (from tool/resource functions)
+            or a FastMCP application instance (created with mcp_server()).
         name: The name of the config argument to resolve.
 
     Returns:
@@ -440,6 +464,17 @@ def resolve_config(app: FastMCP, name: str) -> str:
         AttributeError: If the app was not created with mcp_server().
         KeyError: If the config argument name is not registered.
         ValueError: If the config is required but no value can be resolved.
+
+    Example:
+        ```python
+        @mcp_tool(...)
+        def my_tool(ctx: Context, ...) -> str:
+            api_key = resolve_config(ctx, "api_key")
+            ...
+        ```
     """
+    # Extract the FastMCP app from Context if needed
+    app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
+
     config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
     return config.resolve_config(name)
