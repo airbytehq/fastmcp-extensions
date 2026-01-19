@@ -32,6 +32,7 @@ jobs:
         id: dry_run
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
         env:
+          # Needed to retrieve non-public draft release info.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           dry-run: true
