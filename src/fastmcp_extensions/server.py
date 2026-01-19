@@ -64,164 +64,20 @@ from __future__ import annotations
 
 import importlib.metadata as md
 import inspect
-import os
 import pkgutil
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
-from fastmcp import Context, FastMCP
-from fastmcp.server.dependencies import get_http_headers
+from fastmcp import FastMCP
 
-
-@dataclass
-class MCPServerConfigArg:
-    """Configuration argument for MCP server credential resolution.
-
-    This class defines a configuration argument that can be resolved from
-    HTTP headers or environment variables, with support for sensitive values.
-
-    Attributes:
-        name: Unique name for this config argument (used for resolution).
-        http_header_key: HTTP header name to check first (case-insensitive). Optional.
-        env_var: Environment variable name to check as fallback. Optional.
-        default: Default value if not found. Can be a string or a callable returning a string.
-        required: If True, resolution will raise an error if not found (after checking default).
-        sensitive: If True, the value will be masked in logs/output.
-        normalize_fn: Optional function to transform the resolved value. Useful for
-            parsing values like "Bearer <token>" from Authorization headers.
-            The function receives the raw value and returns the normalized value,
-            or None if the value should be treated as not found (triggering fallback).
-            The function may also raise an exception for invalid input validation.
-            When raising exceptions, avoid including the raw value in error messages
-            as it may contain sensitive credentials.
-    """
-
-    name: str
-    http_header_key: str | None = None
-    env_var: str | None = None
-    default: str | Callable[[], str] | None = None
-    required: bool = True
-    sensitive: bool = False
-    normalize_fn: Callable[[str], str | None] | None = None
-
-
-@dataclass
-class MCPServerConfig:
-    """Configuration for an MCP server created via mcp_server().
-
-    This class stores the configuration passed to mcp_server() and provides
-    methods for credential resolution.
-    """
-
-    name: str
-    package_name: str | None = None
-    advertised_properties: dict[str, Any] = field(default_factory=dict)
-    config_args: list[MCPServerConfigArg] = field(default_factory=list)
-    _config_args_by_name: dict[str, MCPServerConfigArg] = field(
-        default_factory=dict, init=False, repr=False
-    )
-
-    def __post_init__(self) -> None:
-        """Build lookup dict for config args by name."""
-        self._config_args_by_name = {arg.name: arg for arg in self.config_args}
-
-    def get_config(self, name: str) -> str:
-        """Get a configuration value by name.
-
-        Resolution order:
-        1. HTTP headers (case-insensitive)
-        2. Environment variables
-        3. Default value
-
-        Args:
-            name: The name of the config argument to get.
-
-        Returns:
-            The resolved value as a string.
-
-        Raises:
-            KeyError: If the config argument name is not registered.
-            ValueError: If the config is required but no value can be resolved.
-        """
-        if name not in self._config_args_by_name:
-            raise KeyError(f"Unknown config argument: {name}")
-
-        config_arg = self._config_args_by_name[name]
-        return _resolve_config_arg(config_arg)
-
-
-def _get_header_value(headers: dict[str, str], header_name: str) -> str | None:
-    """Get a header value from a headers dict, case-insensitively.
-
-    Args:
-        headers: Dictionary of HTTP headers.
-        header_name: The header name to look for (case-insensitive).
-
-    Returns:
-        The header value if found, None otherwise.
-    """
-    header_name_lower = header_name.lower()
-    for key, value in headers.items():
-        if key.lower() == header_name_lower:
-            return value
-    return None
-
-
-def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
-    """Resolve a single config argument from headers or environment.
-
-    Args:
-        config_arg: The config argument to resolve.
-
-    Returns:
-        The resolved value as a string.
-
-    Raises:
-        ValueError: If the config is required but no value can be resolved.
-    """
-
-    def _apply_normalize(value: str) -> str | None:
-        """Apply normalize_fn if configured, otherwise return value as-is."""
-        if config_arg.normalize_fn is not None:
-            return config_arg.normalize_fn(value)
-        return value
-
-    if config_arg.http_header_key:
-        headers = get_http_headers()
-        if headers:
-            header_value = _get_header_value(headers, config_arg.http_header_key)
-            if header_value:
-                normalized = _apply_normalize(header_value)
-                if normalized is not None:
-                    return normalized
-
-    if config_arg.env_var:
-        env_value = os.environ.get(config_arg.env_var)
-        if env_value:
-            normalized = _apply_normalize(env_value)
-            if normalized is not None:
-                return normalized
-
-    if config_arg.default is not None:
-        if callable(config_arg.default):
-            return config_arg.default()
-        return config_arg.default
-
-    if config_arg.required:
-        sources: list[str] = []
-        if config_arg.http_header_key:
-            sources.append(f"HTTP header '{config_arg.http_header_key}'")
-        if config_arg.env_var:
-            sources.append(f"environment variable '{config_arg.env_var}'")
-        source_str = " or ".join(sources) if sources else "no sources configured"
-        raise ValueError(
-            f"Required config '{config_arg.name}' not found. Set {source_str}."
-        )
-
-    return ""
+from fastmcp_extensions._middleware import ToolFilterMiddleware
+from fastmcp_extensions.server_config import (
+    MCPServerConfig,
+    MCPServerConfigArg,
+)
+from fastmcp_extensions.tool_filters import ToolFilterFn
 
 
 @lru_cache(maxsize=1)
@@ -371,6 +227,8 @@ def mcp_server(
     advertised_properties: dict[str, Any] | None = None,
     auto_discover_assets: bool | Callable[[], list[str]] = False,
     server_config_args: list[MCPServerConfigArg] | None = None,
+    tool_filters: list[ToolFilterFn] | None = None,
+    include_standard_tool_filters: bool = False,
     **fastmcp_kwargs: Any,
 ) -> FastMCP:
     """Create a FastMCP server with built-in server info and credential resolution.
@@ -380,6 +238,8 @@ def mcp_server(
     - Automatic server info resource registration
     - HTTP header credential resolution
     - Optional MCP module auto-discovery
+    - Per-request tool filtering via middleware
+    - Optional standard tool filters (readonly mode, safe mode)
 
     Args:
         name: The name of the MCP server.
@@ -391,6 +251,13 @@ def mcp_server(
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
             Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.
+        tool_filters: List of tool filter functions for per-request tool filtering.
+            Each filter function takes (Tool, FastMCP) and returns True to show
+            the tool, False to hide it. Filters can use get_mcp_config() to access
+            request-specific configuration values from HTTP headers or env vars.
+        include_standard_tool_filters: If True, automatically add standard config args
+            and tool filters for readonly_mode and safe_mode. These filters use
+            tool annotations (readOnlyHint, destructiveHint) to control visibility.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
     Returns:
@@ -398,14 +265,19 @@ def mcp_server(
 
     Example:
         ```python
+        # Simple usage with standard tool filters
+        app = mcp_server(
+            name="my-server",
+            include_standard_tool_filters=True,
+        )
+
+        # Custom usage with additional config args
         from fastmcp_extensions import mcp_server, MCPServerConfigArg
 
         app = mcp_server(
             name="my-mcp-server",
             package_name="my-package",
-            advertised_properties={
-                "docs_url": "https://github.com/org/repo",
-            },
+            include_standard_tool_filters=True,
             server_config_args=[
                 MCPServerConfigArg(
                     name="api_key",
@@ -418,13 +290,25 @@ def mcp_server(
         )
         ```
     """
+    # Late import to avoid circular dependency
+    # (tool_filters imports MCPServerConfigArg and get_mcp_config from this module)
+    from fastmcp_extensions.tool_filters import (
+        STANDARD_CONFIG_ARGS,
+        STANDARD_TOOL_FILTERS,
+    )
+
     app = FastMCP(name, **fastmcp_kwargs)
+
+    # Build the list of config args, including standard ones if requested
+    all_config_args: list[MCPServerConfigArg] = list(server_config_args or [])
+    if include_standard_tool_filters:
+        all_config_args.extend(STANDARD_CONFIG_ARGS)
 
     config = MCPServerConfig(
         name=name,
         package_name=package_name,
         advertised_properties=advertised_properties or {},
-        config_args=server_config_args or [],
+        config_args=all_config_args,
     )
 
     _create_server_info_resource(app, config)
@@ -440,42 +324,13 @@ def mcp_server(
 
     app.x_mcp_server_config = config  # type: ignore[attr-defined]
 
+    # Build the list of tool filters, including standard ones if requested
+    all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])
+    if include_standard_tool_filters:
+        all_tool_filters.extend(STANDARD_TOOL_FILTERS)
+
+    # Register tool filter middleware for each filter function
+    for filter_fn in all_tool_filters:
+        app.add_middleware(ToolFilterMiddleware(app, tool_filter=filter_fn))
+
     return app
-
-
-def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
-    """Get a configuration value from an MCP server.
-
-    This is a convenience function to get config values from a FastMCP
-    app created with mcp_server(). It accepts either a Context object (preferred
-    for use in MCP tools) or a FastMCP app instance directly.
-
-    When using Context, the function accesses the app via ctx.fastmcp, which
-    ensures session-aware resolution of HTTP headers.
-
-    Args:
-        ctx_or_app: Either a FastMCP Context object (from tool/resource functions)
-            or a FastMCP application instance (created with mcp_server()).
-        name: The name of the config argument to get.
-
-    Returns:
-        The resolved value as a string.
-
-    Raises:
-        AttributeError: If the app was not created with mcp_server().
-        KeyError: If the config argument name is not registered.
-        ValueError: If the config is required but no value can be resolved.
-
-    Example:
-        ```python
-        @mcp_tool(...)
-        def my_tool(ctx: Context, ...) -> str:
-            api_key = get_mcp_config(ctx, "api_key")
-            ...
-        ```
-    """
-    # Extract the FastMCP app from Context if needed
-    app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
-
-    config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
-    return config.get_config(name)

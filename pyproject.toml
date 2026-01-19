@@ -96,7 +96,8 @@ ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test framew
 # DEP004=dev-package     # Ignore misplaced dev dependency
 [tool.deptry.per_rule_ignores]
 # uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
-DEP003 = ["uvicorn"]
+# mcp is a transitive dependency through fastmcp, used for MCP protocol types
+DEP003 = ["uvicorn", "mcp"]
 
 [dependency-groups]
 dev = [

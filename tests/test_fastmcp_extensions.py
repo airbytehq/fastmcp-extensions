@@ -5,13 +5,15 @@ import pytest
 
 import fastmcp_extensions
 from fastmcp_extensions import (
+    mcp_prompt,
+    mcp_resource,
+    mcp_tool,
+)
+from fastmcp_extensions.annotations import (
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
-    mcp_prompt,
-    mcp_resource,
-    mcp_tool,
 )
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
@@ -40,10 +42,6 @@ def test_annotation_constants(constant: str, expected_value: str) -> None:
 def test_all_exports() -> None:
     """Test that __all__ contains expected exports."""
     expected_exports = [
-        "DESTRUCTIVE_HINT",
-        "IDEMPOTENT_HINT",
-        "OPEN_WORLD_HINT",
-        "READ_ONLY_HINT",
         "mcp_tool",
         "mcp_prompt",
         "mcp_resource",

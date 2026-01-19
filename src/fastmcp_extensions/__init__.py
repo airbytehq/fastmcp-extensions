@@ -11,12 +11,6 @@ with FastMCP 2.0, including:
 - Prompt text retrieval helpers
 """
 
-from fastmcp_extensions.annotations import (
-    DESTRUCTIVE_HINT,
-    IDEMPOTENT_HINT,
-    OPEN_WORLD_HINT,
-    READ_ONLY_HINT,
-)
 from fastmcp_extensions.decorators import (
     mcp_prompt,
     mcp_resource,
@@ -29,22 +23,20 @@ from fastmcp_extensions.registration import (
     register_mcp_resources,
     register_mcp_tools,
 )
-from fastmcp_extensions.server import (
+from fastmcp_extensions.server import mcp_server
+from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
-    mcp_server,
 )
+from fastmcp_extensions.tool_filters import ToolFilterFn
 
 __all__ = [
-    "DESTRUCTIVE_HINT",
-    "IDEMPOTENT_HINT",
-    "OPEN_WORLD_HINT",
-    "READ_ONLY_HINT",
     "MCPServerConfig",
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
+    "ToolFilterFn",
     "get_mcp_config",
     "mcp_prompt",
     "mcp_resource",
