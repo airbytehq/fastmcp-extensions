@@ -18,10 +18,6 @@ from fastmcp_extensions.annotations import (
     READ_ONLY_HINT,
 )
 from fastmcp_extensions.decorators import (
-    clear_registrations,
-    get_registered_prompts,
-    get_registered_resources,
-    get_registered_tools,
     mcp_prompt,
     mcp_resource,
     mcp_tool,
@@ -49,11 +45,7 @@ __all__ = [
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
-    "clear_registrations",
     "get_mcp_config",
-    "get_registered_prompts",
-    "get_registered_resources",
-    "get_registered_tools",
     "mcp_prompt",
     "mcp_resource",
     "mcp_server",

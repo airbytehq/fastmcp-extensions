@@ -9,15 +9,15 @@ from fastmcp_extensions import (
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
-    clear_registrations,
     mcp_prompt,
     mcp_resource,
     mcp_tool,
 )
 from fastmcp_extensions.decorators import (
-    get_registered_prompts,
-    get_registered_resources,
-    get_registered_tools,
+    _REGISTERED_PROMPTS,
+    _REGISTERED_RESOURCES,
+    _REGISTERED_TOOLS,
+    _clear_registrations,
 )
 
 
@@ -59,50 +59,48 @@ def test_all_exports() -> None:
 @pytest.mark.unit
 def test_mcp_tool_decorator() -> None:
     """Test that mcp_tool decorator registers tools with auto-inferred mcp_module."""
-    clear_registrations()
+    _clear_registrations()
 
     @mcp_tool(read_only=True)
     def my_test_tool() -> str:
         """A test tool."""
         return "test"
 
-    tools = get_registered_tools()
-    assert len(tools) == 1
-    func, annotations = tools[0]
+    assert len(_REGISTERED_TOOLS) == 1
+    func, annotations = _REGISTERED_TOOLS[0]
     assert func.__name__ == "my_test_tool"
     # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
     assert annotations[READ_ONLY_HINT] is True
 
-    clear_registrations()
+    _clear_registrations()
 
 
 @pytest.mark.unit
 def test_mcp_prompt_decorator() -> None:
     """Test that mcp_prompt decorator registers prompts with auto-inferred mcp_module."""
-    clear_registrations()
+    _clear_registrations()
 
     @mcp_prompt("test_prompt", "A test prompt")
     def my_test_prompt() -> list[dict[str, str]]:
         """A test prompt."""
         return [{"role": "user", "content": "Hello"}]
 
-    prompts = get_registered_prompts()
-    assert len(prompts) == 1
-    func, annotations = prompts[0]
+    assert len(_REGISTERED_PROMPTS) == 1
+    func, annotations = _REGISTERED_PROMPTS[0]
     assert func.__name__ == "my_test_prompt"
     assert annotations["name"] == "test_prompt"
     assert annotations["description"] == "A test prompt"
     # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
-    clear_registrations()
+    _clear_registrations()
 
 
 @pytest.mark.unit
 def test_mcp_resource_decorator() -> None:
     """Test that mcp_resource decorator registers resources with auto-inferred mcp_module."""
-    clear_registrations()
+    _clear_registrations()
 
     @mcp_resource(
         uri="test://resource",
@@ -113,9 +111,8 @@ def test_mcp_resource_decorator() -> None:
         """A test resource."""
         return {"key": "value"}
 
-    resources = get_registered_resources()
-    assert len(resources) == 1
-    func, annotations = resources[0]
+    assert len(_REGISTERED_RESOURCES) == 1
+    func, annotations = _REGISTERED_RESOURCES[0]
     assert func.__name__ == "my_test_resource"
     assert annotations["uri"] == "test://resource"
     assert annotations["description"] == "A test resource"
@@ -123,4 +120,4 @@ def test_mcp_resource_decorator() -> None:
     # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
-    clear_registrations()
+    _clear_registrations()

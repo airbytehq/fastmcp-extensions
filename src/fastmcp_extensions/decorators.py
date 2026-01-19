@@ -186,34 +186,7 @@ def mcp_resource(
     return decorator
 
 
-def get_registered_tools() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered tools.
-
-    Returns:
-        List of (function, annotations) tuples for all registered tools.
-    """
-    return _REGISTERED_TOOLS.copy()
-
-
-def get_registered_prompts() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered prompts.
-
-    Returns:
-        List of (function, annotations) tuples for all registered prompts.
-    """
-    return _REGISTERED_PROMPTS.copy()
-
-
-def get_registered_resources() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered resources.
-
-    Returns:
-        List of (function, annotations) tuples for all registered resources.
-    """
-    return _REGISTERED_RESOURCES.copy()
-
-
-def clear_registrations() -> None:
+def _clear_registrations() -> None:
     """Clear all registered tools, prompts, and resources.
 
     This is primarily useful for testing.
