@@ -166,9 +166,9 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Server Factory
 
-- `mcp_server` - Create a FastMCP instance with built-in server info resource
-- `MCPServerConfigArg` - Configuration for credential resolution
-- `get_mcp_config` - Get a credential from HTTP headers or environment variables
+- `mcp_server` - Create a FastMCP instance with built-in server info resource and auto-registration of decorated tools and assets.
+- `MCPServerConfigArg` - Configuration for credential resolution and other server settings.
+- `get_mcp_config` - Get a credential from HTTP headers or environment variables.
 
 ### Annotations
 
