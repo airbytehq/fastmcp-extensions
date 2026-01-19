@@ -11,7 +11,6 @@ with FastMCP 2.0, including:
 - Prompt text retrieval helpers
 """
 
-from fastmcp_extensions._middleware import ToolFilterFn
 from fastmcp_extensions.decorators import (
     mcp_prompt,
     mcp_resource,
@@ -24,12 +23,13 @@ from fastmcp_extensions.registration import (
     register_mcp_resources,
     register_mcp_tools,
 )
-from fastmcp_extensions.server import (
+from fastmcp_extensions.server import mcp_server
+from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
-    mcp_server,
 )
+from fastmcp_extensions.tool_filters import ToolFilterFn
 
 __all__ = [
     "MCPServerConfig",

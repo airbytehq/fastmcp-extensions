@@ -21,27 +21,7 @@ from fastmcp.tools.tool import ToolResult
 from mcp import types as mt
 from mcp.types import Tool
 
-ToolFilterFn = Callable[[Tool, FastMCP], bool]
-"""Type alias for tool filter functions.
-
-A tool filter function takes a Tool object and the FastMCP app,
-and returns True if the tool should be visible, False to hide it.
-
-The FastMCP app is passed so the filter can call get_mcp_config()
-to access request-specific configuration values (from HTTP headers,
-env vars, or defaults).
-
-Example:
-    ```python
-    def readonly_filter(tool: Tool, app: FastMCP) -> bool:
-        if get_mcp_config(app, "readonly_mode") == "1":
-            annotations = tool.annotations
-            if annotations is None:
-                return False
-            return getattr(annotations, "readOnlyHint", False)
-        return True
-    ```
-"""
+from fastmcp_extensions.tool_filters import ToolFilterFn
 
 
 class ToolFilterMiddleware(Middleware):

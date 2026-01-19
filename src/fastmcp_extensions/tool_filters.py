@@ -43,15 +43,34 @@ app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
 from fastmcp import FastMCP
 from mcp.types import Tool
 
-from fastmcp_extensions.server import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
 
-if TYPE_CHECKING:
-    pass
+ToolFilterFn = Callable[[Tool, FastMCP], bool]
+"""Type alias for tool filter functions.
+
+A tool filter function takes a Tool object and the FastMCP app,
+and returns True if the tool should be visible, False to hide it.
+
+The FastMCP app is passed so the filter can call get_mcp_config()
+to access request-specific configuration values (from HTTP headers,
+env vars, or defaults).
+
+Example:
+    ```python
+    def readonly_filter(tool: Tool, app: FastMCP) -> bool:
+        if get_mcp_config(app, "readonly_mode") == "1":
+            annotations = tool.annotations
+            if annotations is None:
+                return False
+            return getattr(annotations, "readOnlyHint", False)
+        return True
+    ```
+"""
 
 # =============================================================================
 # Constants - Config Names
@@ -345,9 +364,6 @@ def tool_exclusion_filter(tool: Tool, app: FastMCP) -> bool:
     exclude_tools = _parse_csv_config(get_mcp_config(app, CONFIG_EXCLUDE_TOOLS))
     return not (exclude_tools and tool.name in exclude_tools)
 
-
-# Import ToolFilterFn here to avoid issues - it's defined in _middleware.py
-from fastmcp_extensions._middleware import ToolFilterFn  # noqa: E402
 
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
     readonly_mode_filter,

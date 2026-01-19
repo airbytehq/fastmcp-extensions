@@ -144,7 +144,7 @@ def test_get_mcp_config_from_http_header() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch.dict(os.environ, {"TEST_API_KEY": "env-key"}), patch(
-        "fastmcp_extensions.server.get_http_headers",
+        "fastmcp_extensions.server_config.get_http_headers",
         return_value={"X-API-Key": "header-key"},
     ):
         value = get_mcp_config(app, "api_key")
@@ -165,7 +165,7 @@ def test_get_mcp_config_header_case_insensitive() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch(
-        "fastmcp_extensions.server.get_http_headers",
+        "fastmcp_extensions.server_config.get_http_headers",
         return_value={"x-api-key": "lowercase-header-key"},
     ):
         value = get_mcp_config(app, "api_key")
@@ -195,7 +195,7 @@ def test_get_mcp_config_required_missing_raises_value_error() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     mock_headers = patch(
-        "fastmcp_extensions.server.get_http_headers", return_value=None
+        "fastmcp_extensions.server_config.get_http_headers", return_value=None
     )
     with mock_headers, pytest.raises(ValueError, match="Required config"):
         get_mcp_config(app, "api_key")
@@ -214,7 +214,7 @@ def test_get_mcp_config_optional_missing_returns_empty_string() -> None:
     ]
     app = mcp_server("test-server", server_config_args=config_args)
 
-    with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
+    with patch("fastmcp_extensions.server_config.get_http_headers", return_value=None):
         value = get_mcp_config(app, "optional_key")
         assert value == ""
 
@@ -250,7 +250,7 @@ def test_get_mcp_config_with_string_default() -> None:
     ]
     app = mcp_server("test-server", server_config_args=config_args)
 
-    with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
+    with patch("fastmcp_extensions.server_config.get_http_headers", return_value=None):
         value = get_mcp_config(app, "api_key")
         assert value == "default-value"
 
@@ -268,7 +268,7 @@ def test_get_mcp_config_with_callable_default() -> None:
     ]
     app = mcp_server("test-server", server_config_args=config_args)
 
-    with patch("fastmcp_extensions.server.get_http_headers", return_value=None):
+    with patch("fastmcp_extensions.server_config.get_http_headers", return_value=None):
         value = get_mcp_config(app, "api_key")
         assert value == "callable-default"
 
@@ -321,7 +321,7 @@ def test_get_mcp_config_with_only_http_header() -> None:
     app = mcp_server("test-server", server_config_args=config_args)
 
     with patch(
-        "fastmcp_extensions.server.get_http_headers",
+        "fastmcp_extensions.server_config.get_http_headers",
         return_value={"X-API-Key": "header-only-value"},
     ):
         value = get_mcp_config(app, "api_key")
