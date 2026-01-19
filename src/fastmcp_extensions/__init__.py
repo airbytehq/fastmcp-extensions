@@ -12,12 +12,6 @@ with FastMCP 2.0, including:
 """
 
 from fastmcp_extensions._middleware import ToolFilterFn
-from fastmcp_extensions.annotations import (
-    DESTRUCTIVE_HINT,
-    IDEMPOTENT_HINT,
-    OPEN_WORLD_HINT,
-    READ_ONLY_HINT,
-)
 from fastmcp_extensions.decorators import (
     mcp_prompt,
     mcp_resource,
@@ -38,10 +32,6 @@ from fastmcp_extensions.server import (
 )
 
 __all__ = [
-    "DESTRUCTIVE_HINT",
-    "IDEMPOTENT_HINT",
-    "OPEN_WORLD_HINT",
-    "READ_ONLY_HINT",
     "MCPServerConfig",
     "MCPServerConfigArg",
     "PromptDef",
