@@ -402,8 +402,10 @@ def test_mcp_server_include_standard_tool_filters_false_skips_standard_filters()
     assert "readonly_mode" not in config_names
     assert "no_destructive_tools" not in config_names
 
-    # Should have no middleware
-    assert len(app.middleware) == 0
+    # Should have no ToolFilterMiddleware (FastMCP v3 may add built-in middleware)
+    from fastmcp_extensions._middleware import ToolFilterMiddleware
+
+    assert not any(isinstance(m, ToolFilterMiddleware) for m in app.middleware)
 
 
 @pytest.mark.unit
