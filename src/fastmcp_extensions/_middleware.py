@@ -106,7 +106,7 @@ class ToolFilterMiddleware(Middleware):
         tool_name = context.message.name
 
         # Look up the tool to check if it should be filtered
-        tool = self._get_tool_by_name(tool_name)
+        tool = await self._get_tool_by_name(tool_name)
         if tool is not None and not self._tool_filter(tool, self._app):
             raise ValueError(
                 f"Tool '{tool_name}' is not available. "
@@ -115,8 +115,8 @@ class ToolFilterMiddleware(Middleware):
 
         return await call_next(context)
 
-    def _get_tool_by_name(self, name: str) -> Tool | None:
-        """Look up a tool by name from the app's tool manager.
+    async def _get_tool_by_name(self, name: str) -> Tool | None:
+        """Look up a tool by name from the app.
 
         Args:
             name: The tool name to look up.
@@ -124,16 +124,8 @@ class ToolFilterMiddleware(Middleware):
         Returns:
             The Tool object if found, None otherwise.
         """
-        # Access FastMCP's internal tool manager to get tool info
-        tool_manager = getattr(self._app, "_tool_manager", None)
-        if tool_manager is None:
-            return None
-
-        # Access the private _tools dict (the public methods are async)
-        tools = getattr(tool_manager, "_tools", {})
-        fast_tool = tools.get(name)
+        fast_tool = await self._app.get_tool(name)
         if fast_tool is None:
             return None
 
-        # Convert FastTool to MCP Tool type
         return fast_tool.to_mcp_tool()
