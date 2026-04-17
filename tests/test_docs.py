@@ -42,6 +42,11 @@ from fastmcp_extensions.utils.docs import (
         pytest.param("path/to/server.py:app", "path.to.server", id="path"),
         pytest.param("path/to/server:app", "path.to.server", id="path-no-py"),
         pytest.param("solo_module:app", "solo_module", id="no-separator"),
+        pytest.param(
+            "src/my_pkg/mcp/server.py:app",
+            "my_pkg.mcp.server",
+            id="src-layout-stripped",
+        ),
     ],
 )
 @pytest.mark.unit

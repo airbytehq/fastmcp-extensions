@@ -136,9 +136,17 @@ def _spec_to_module_name(server_spec: str) -> str:
     Accepts either a file-path spec (`path/to/server.py:app`) or a
     dotted-module spec (`my_package.mcp.server:app`) and returns the
     dotted module name suitable for `importlib.import_module`.
+
+    Strips a leading `src.` component to support src-layout projects — an
+    editable install of `src/my_package/...` exposes `my_package` as
+    importable, not `src.my_package`, so naive path-to-dotted conversion
+    would produce an unimportable name.
     """
     file_part = server_spec.split(":", 1)[0]
-    return file_part.removesuffix(".py").replace("/", ".").replace("\\", ".")
+    dotted = file_part.removesuffix(".py").replace("/", ".").replace("\\", ".")
+    if dotted.startswith("src."):
+        dotted = dotted.removeprefix("src.")
+    return dotted
 
 
 def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
