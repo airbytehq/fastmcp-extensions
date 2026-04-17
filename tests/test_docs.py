@@ -306,7 +306,12 @@ def test_render_index_has_frontmatter_and_module_table() -> None:
     buckets = _bucket_by_module(_FIXTURE_REPORT, fallback_map={})
     page = _render_index(_FIXTURE_REPORT, buckets)
     assert page.startswith("---\n")
-    assert "title: demo-server — MCP server" in page
+    # Front-matter scalars are emitted as double-quoted YAML strings so
+    # values containing YAML-significant characters (e.g. the em-dash in
+    # this title is fine, but real server names often contain colons)
+    # don't break downstream parsers.
+    assert 'title: "demo-server — MCP server"' in page
+    assert 'sidebar_label: "Overview"' in page
     assert "| Module | Tools | Prompts | Resources |" in page
     # Totals line reflects the fixture data.
     assert "**Tools:** 3" in page

@@ -106,6 +106,11 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         )
         raise RuntimeError(msg)
     try:
+        # Capture stdout/stderr so a non-zero exit from `fastmcp inspect` can
+        # be re-raised with useful diagnostic context rather than a bare
+        # `CalledProcessError`. `generate_markdown_docs` (and by extension
+        # the public API) advertises `RuntimeError` as the error type, so
+        # the translation keeps the contract consistent.
         subprocess.run(
             [
                 fastmcp_bin,
@@ -118,6 +123,8 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
             ],
             check=True,
             timeout=_FASTMCP_INSPECT_TIMEOUT_SEC,
+            capture_output=True,
+            text=True,
         )
     except subprocess.TimeoutExpired as ex:
         msg = (
@@ -127,6 +134,17 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
             "Re-run with the server imported manually to investigate."
         )
         raise RuntimeError(msg) from ex
+    except subprocess.CalledProcessError as ex:
+        stderr = (ex.stderr or "").strip()
+        stdout = (ex.stdout or "").strip()
+        parts = [
+            f"`fastmcp inspect {server_spec}` failed with exit code {ex.returncode}.",
+        ]
+        if stderr:
+            parts.append(f"stderr:\n{stderr}")
+        if stdout:
+            parts.append(f"stdout:\n{stdout}")
+        raise RuntimeError("\n\n".join(parts)) from ex
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
@@ -238,14 +256,30 @@ def _fmt_default(schema: dict[str, Any]) -> str:
     return f"`{json.dumps(default)}`"
 
 
+def _yaml_scalar(value: str) -> str:
+    """Serialize a string as a double-quoted YAML scalar.
+
+    Uses `json.dumps` for the quoting, which produces a JSON string — a
+    strict subset of YAML 1.2's double-quoted scalar syntax — so the result
+    is always parseable regardless of whether the input contains colons,
+    hashes, leading indicators, or other YAML-significant characters.
+    Newlines are collapsed to spaces first to keep the scalar single-line.
+    """
+    return json.dumps(value.replace("\n", " ").strip(), ensure_ascii=False)
+
+
 def _frontmatter(title: str, sidebar_label: str, description: str) -> str:
-    """Build a YAML front-matter block for a Docusaurus page."""
-    esc_desc = description.replace("\n", " ").replace('"', '\\"').strip()
+    """Build a YAML front-matter block for a Docusaurus page.
+
+    All three fields are emitted as double-quoted YAML scalars so values
+    containing YAML-significant characters (`:`, `#`, leading `-`/`?`, etc.)
+    don't break downstream YAML parsers.
+    """
     return (
         "---\n"
-        f"title: {title}\n"
-        f"sidebar_label: {sidebar_label}\n"
-        f'description: "{esc_desc}"\n'
+        f"title: {_yaml_scalar(title)}\n"
+        f"sidebar_label: {_yaml_scalar(sidebar_label)}\n"
+        f"description: {_yaml_scalar(description)}\n"
         "---\n\n"
     )
 
@@ -559,16 +593,26 @@ def _prepare_output_dir(output: Path) -> Path:
     (e.g. `docs/mcp-generated/`) that is safe to wipe.
     """
     resolved = output.expanduser().resolve()
+    cwd = Path.cwd().resolve()
+    home = Path.home().resolve()
     unsafe_paths = {
         Path(resolved.anchor).resolve(),
-        Path.cwd().resolve(),
-        Path.home().resolve(),
+        cwd,
+        home,
     }
-    if resolved in unsafe_paths:
+    # `parents` is lazy on every Path, so cheap to enumerate here. Refuse
+    # any path that is an *ancestor* of `cwd` or `$HOME` as well as the
+    # paths themselves — wiping e.g. the parent of cwd would take the
+    # working directory (and usually much else) with it.
+    unsafe_ancestors: set[Path] = set()
+    for anchor in (cwd, home):
+        unsafe_ancestors.update(anchor.parents)
+    if resolved in unsafe_paths or resolved in unsafe_ancestors:
         msg = (
             f"Refusing to rmtree {resolved}: must be a dedicated subdirectory, "
-            "not the filesystem root, cwd, or home directory. Pass an output "
-            "path that is safe to wipe, e.g. `docs/mcp-generated`."
+            "not the filesystem root, cwd, home directory, or any ancestor "
+            "of cwd/home. Pass an output path that is safe to wipe, e.g. "
+            "`docs/mcp-generated`."
         )
         raise RuntimeError(msg)
     if resolved.exists():
