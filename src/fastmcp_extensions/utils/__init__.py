@@ -7,6 +7,7 @@ or used programmatically for testing and describing MCP servers.
 Submodules:
     - test_tool: MCP tool testing utilities (stdio and HTTP transports)
     - describe_server: MCP server description and measurement utilities
+    - docs: Markdown documentation generator for a FastMCP server
 """
 
 from fastmcp_extensions.utils.describe_server import (
@@ -15,6 +16,9 @@ from fastmcp_extensions.utils.describe_server import (
     measure_tool_list,
     measure_tool_list_detailed,
     run_measurement,
+)
+from fastmcp_extensions.utils.docs import (
+    generate_markdown_docs,
 )
 from fastmcp_extensions.utils.test_tool import (
     call_mcp_tool,
@@ -29,6 +33,7 @@ __all__ = [
     "ToolListMeasurement",
     "call_mcp_tool",
     "find_free_port",
+    "generate_markdown_docs",
     "get_tool_details",
     "list_mcp_tools",
     "measure_tool_list",
