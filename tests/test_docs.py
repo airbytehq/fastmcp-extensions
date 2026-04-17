@@ -166,11 +166,35 @@ def test_render_tool_includes_anchor_heading_and_parameters() -> None:
     assert "### do_stuff" in out
     assert "`read-only`" in out
     assert "**Tags:** `beta`" in out
-    assert "#### Parameters" in out
+    # "Parameters" renders as bold text, not an H4 heading, so pdoc's TOC
+    # extractor doesn't surface it as a redundant sibling of the tool's
+    # nav entry in the left sidebar.
+    assert "**Parameters:**" in out
+    assert "#### Parameters" not in out
     assert "`flag`" in out
     # The collapsible input JSON schema block should be included.
     assert "<details>" in out
     assert "Show input JSON schema" in out
+
+
+@pytest.mark.unit
+def test_render_prompt_arguments_block_uses_bold_label() -> None:
+    """A prompt with arguments renders `**Arguments:**` (not an H4 heading)."""
+    out = _render_prompt(
+        {
+            "name": "greet",
+            "description": "Say hello.",
+            "arguments": [
+                {"name": "who", "description": "Name.", "required": True},
+            ],
+        }
+    )
+    assert "### greet" in out
+    # Matches the same bold-not-heading treatment used for `_render_tool`'s
+    # "Parameters" label, for the same pdoc sidebar-noise reason.
+    assert "**Arguments:**" in out
+    assert "#### Arguments" not in out
+    assert "`who`" in out
 
 
 @pytest.mark.unit

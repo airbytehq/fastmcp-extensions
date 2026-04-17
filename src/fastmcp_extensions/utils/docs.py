@@ -332,7 +332,12 @@ def _render_tool(tool: dict[str, Any]) -> str:
         parts.append("**Tags:** " + ", ".join(f"`{t}`" for t in tags) + "\n\n")
     parts.extend(
         [
-            "#### Parameters\n\n",
+            # Rendered as bold text rather than an H4 heading so pdoc's TOC
+            # extractor doesn't surface a redundant "Parameters" entry as a
+            # sibling to the tool in the left sidebar — it would always be
+            # the sole child of the tool heading, which adds noise without
+            # aiding navigation.
+            "**Parameters:**\n\n",
             _render_parameters_table(tool.get("input_schema") or {}),
         ]
     )
@@ -373,7 +378,9 @@ def _render_prompt(prompt: dict[str, Any]) -> str:
     if args:
         parts.extend(
             [
-                "#### Arguments\n\n",
+                # Bold text rather than an H4 heading; see the equivalent
+                # comment in `_render_tool`.
+                "**Arguments:**\n\n",
                 "| Name | Required | Description |\n| --- | --- | --- |\n",
             ]
         )
