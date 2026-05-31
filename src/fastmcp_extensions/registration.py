@@ -8,15 +8,19 @@ with a FastMCP app, filtered by mcp_module.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from fastmcp import FastMCP
+from fastmcp.server.transforms import GetToolNext, Transform
+from fastmcp.tools import Tool
+from fastmcp.utilities.versions import VersionSpec
 
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
+    _REGISTERED_PROVIDERS,
     _REGISTERED_RESOURCES,
     _REGISTERED_TOOLS,
     _normalize_mcp_module,
@@ -40,6 +44,47 @@ class ResourceDef:
     description: str
     mime_type: str
     func: Callable[..., Any]
+
+
+class _ProviderToolAnnotations(Transform):
+    """Transform that fills missing annotations on provider-sourced tools."""
+
+    def __init__(self, annotations: dict[str, Any]) -> None:
+        self._annotations = annotations
+
+    async def list_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
+        return [self._apply_annotations(tool) for tool in tools]
+
+    async def get_tool(
+        self,
+        name: str,
+        call_next: GetToolNext,
+        *,
+        version: VersionSpec | None = None,
+    ) -> Tool | None:
+        tool = await call_next(name, version=version)
+        if tool is None:
+            return None
+        return self._apply_annotations(tool)
+
+    def _apply_annotations(self, tool: Tool) -> Tool:
+        tool_annotations = (
+            tool.annotations.model_dump(exclude_none=True) if tool.annotations else {}
+        )
+        merged_annotations = dict(self._annotations)
+        merged_annotations.update(tool_annotations)
+        tool_annotations_type = next(
+            annotation_type
+            for annotation_type in get_args(
+                type(tool).model_fields["annotations"].annotation
+            )
+            if annotation_type is not type(None)
+        )
+        return tool.model_copy(
+            update={
+                "annotations": tool_annotations_type(**merged_annotations),
+            },
+        )
 
 
 def _get_caller_file_stem() -> str:
@@ -126,6 +171,17 @@ def register_mcp_tools(
         resource_list=_REGISTERED_TOOLS,
         register_fn=_register_fn,
     )
+
+    matching_providers = [
+        (provider_factory, provider_annotations)
+        for provider_factory, provider_annotations in _REGISTERED_PROVIDERS
+        if provider_annotations.get("mcp_module") == _normalize_mcp_module(mcp_module)
+    ]
+
+    for provider_factory, provider_annotations in matching_providers:
+        provider = provider_factory()
+        provider.add_transform(_ProviderToolAnnotations(provider_annotations))
+        app.add_provider(provider)
 
 
 def register_mcp_prompts(

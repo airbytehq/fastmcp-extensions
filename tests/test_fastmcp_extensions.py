@@ -2,12 +2,19 @@
 """Unit tests for the fastmcp_extensions module."""
 
 import pytest
+from fastmcp import FastMCP
+from fastmcp.server.providers import Provider
+from fastmcp.tools import Tool
+from mcp.types import ToolAnnotations
+from pydantic import TypeAdapter
 
 import fastmcp_extensions
 from fastmcp_extensions import (
     mcp_prompt,
+    mcp_provider,
     mcp_resource,
     mcp_tool,
+    register_mcp_tools,
 )
 from fastmcp_extensions.annotations import (
     DESTRUCTIVE_HINT,
@@ -17,6 +24,7 @@ from fastmcp_extensions.annotations import (
 )
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
+    _REGISTERED_PROVIDERS,
     _REGISTERED_RESOURCES,
     _REGISTERED_TOOLS,
     _clear_registrations,
@@ -43,6 +51,7 @@ def test_all_exports() -> None:
     """Test that __all__ contains expected exports."""
     expected_exports = [
         "mcp_tool",
+        "mcp_provider",
         "mcp_prompt",
         "mcp_resource",
         "register_mcp_tools",
@@ -70,6 +79,79 @@ def test_mcp_tool_decorator() -> None:
     # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
     assert annotations[READ_ONLY_HINT] is True
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_provider_decorator() -> None:
+    """Test that mcp_provider decorator registers provider factories."""
+    _clear_registrations()
+
+    class TestProvider(Provider):
+        pass
+
+    @mcp_provider(annotations={"interactive-ui": True})
+    def my_test_provider() -> Provider:
+        """A test provider."""
+        return TestProvider()
+
+    assert len(_REGISTERED_PROVIDERS) == 1
+    func, annotations = _REGISTERED_PROVIDERS[0]
+    assert func.__name__ == "my_test_provider"
+    assert annotations["mcp_module"] == "test_fastmcp_extensions"
+    assert annotations["interactive-ui"] is True
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_register_mcp_tools_registers_providers_with_missing_annotations() -> (
+    None
+):
+    """Test that provider annotations fill missing provider tool annotations."""
+    _clear_registrations()
+
+    class TestProvider(Provider):
+        async def _list_tools(self) -> list[Tool]:
+            def provider_tool() -> str:
+                return "test"
+
+            return [
+                Tool.from_function(
+                    provider_tool,
+                    name="provider_tool",
+                    annotations=TypeAdapter(ToolAnnotations).validate_python(
+                        {
+                            "readOnlyHint": True,
+                            "provider-owned": True,
+                        }
+                    ),
+                )
+            ]
+
+    @mcp_provider(
+        annotations={
+            "interactive-ui": True,
+            "provider-owned": False,
+        }
+    )
+    def my_test_provider() -> Provider:
+        return TestProvider()
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("provider_tool")
+    assert tool is not None
+    assert tool.annotations is not None
+    assert tool.annotations.readOnlyHint is True
+    assert tool.annotations.model_extra == {
+        "interactive-ui": True,
+        "mcp_module": "test_fastmcp_extensions",
+        "provider-owned": True,
+    }
 
     _clear_registrations()
 
