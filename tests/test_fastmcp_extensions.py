@@ -6,7 +6,6 @@ from fastmcp import FastMCP
 from fastmcp.server.providers import Provider
 from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
-from pydantic import TypeAdapter
 
 import fastmcp_extensions
 from fastmcp_extensions import (
@@ -122,7 +121,7 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
                 Tool.from_function(
                     provider_tool,
                     name="provider_tool",
-                    annotations=TypeAdapter(ToolAnnotations).validate_python(
+                    annotations=ToolAnnotations.model_validate(
                         {
                             "readOnlyHint": True,
                             "provider-owned": True,
