@@ -13,6 +13,7 @@ with FastMCP 2.0, including:
 
 from fastmcp_extensions.decorators import (
     mcp_prompt,
+    mcp_provider,
     mcp_resource,
     mcp_tool,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "ToolFilterFn",
     "get_mcp_config",
     "mcp_prompt",
+    "mcp_provider",
     "mcp_resource",
     "mcp_server",
     "mcp_tool",

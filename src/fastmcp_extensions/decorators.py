@@ -9,9 +9,11 @@ on the functions for later use during registration with a FastMCP app.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
+
+from fastmcp.server.providers import Provider
 
 from fastmcp_extensions.annotations import (
     DESTRUCTIVE_HINT,
@@ -21,8 +23,10 @@ from fastmcp_extensions.annotations import (
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
+P = TypeVar("P", bound=Callable[[], Provider])
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+_REGISTERED_PROVIDERS: list[tuple[Callable[[], Provider], dict[str, Any]]] = []
 _REGISTERED_RESOURCES: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _REGISTERED_PROMPTS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 
@@ -104,6 +108,32 @@ def mcp_tool(
             func.__doc__ = ((func.__doc__ or "") + "\n\n" + extra_help_text).rstrip()
 
         _REGISTERED_TOOLS.append((func, annotations))
+        return func
+
+    return decorator
+
+
+def mcp_provider(
+    *,
+    annotations: Mapping[str, object] | None = None,
+) -> Callable[[P], P]:
+    """Decorator to tag an MCP provider factory for deferred registration.
+
+    Args:
+        annotations: Extra annotations to apply to provider-sourced tools.
+
+    Returns:
+        Decorator function that tags the provider factory for registration
+    """
+    mcp_module_str = _get_caller_file_stem()
+
+    provider_annotations: dict[str, Any] = {
+        "mcp_module": mcp_module_str,
+    }
+    provider_annotations.update(annotations or {})
+
+    def decorator(func: P) -> P:
+        _REGISTERED_PROVIDERS.append((func, provider_annotations))
         return func
 
     return decorator
@@ -192,5 +222,6 @@ def _clear_registrations() -> None:
     This is primarily useful for testing.
     """
     _REGISTERED_TOOLS.clear()
+    _REGISTERED_PROVIDERS.clear()
     _REGISTERED_PROMPTS.clear()
     _REGISTERED_RESOURCES.clear()
