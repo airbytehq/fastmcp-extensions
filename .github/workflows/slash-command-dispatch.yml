@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Authenticate as GitHub App (if available)
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         id: get-app-token
         continue-on-error: true
         with:
