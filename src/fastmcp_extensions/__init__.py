@@ -11,6 +11,10 @@ with FastMCP 2.0, including:
 - Prompt text retrieval helpers
 """
 
+from fastmcp_extensions._telemetry_middleware import (
+    ToolCallTelemetryMiddleware,
+    ToolCallTelemetryRecord,
+)
 from fastmcp_extensions.decorators import (
     mcp_prompt,
     mcp_provider,
@@ -37,6 +41,8 @@ __all__ = [
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
+    "ToolCallTelemetryMiddleware",
+    "ToolCallTelemetryRecord",
     "ToolFilterFn",
     "get_mcp_config",
     "mcp_prompt",

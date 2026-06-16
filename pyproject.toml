@@ -29,6 +29,10 @@ Repository = "https://github.com/airbytehq/fastmcp-extensions"
 Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
 
 [project.optional-dependencies]
+telemetry = [
+    "sentry-sdk>=2.0,<3.0",
+    "segment-analytics-python>=2.3,<3.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
@@ -37,6 +41,8 @@ dev = [
     "poethepoet>=0.24.0",
     "deptry>=0.12.0",
     "mypy>=1.8.0",
+    "sentry-sdk>=2.0,<3.0",
+    "segment-analytics-python>=2.3,<3.0",
 ]
 
 [build-system]
@@ -98,6 +104,8 @@ ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test framew
 # uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
 # mcp is a transitive dependency through fastmcp, used for MCP protocol types
 DEP003 = ["uvicorn", "mcp"]
+# sentry-sdk and segment-analytics-python are optional deps in the [telemetry] extra
+DEP002 = ["sentry-sdk", "segment-analytics-python"]
 
 [dependency-groups]
 dev = [
