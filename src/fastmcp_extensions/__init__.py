@@ -9,8 +9,11 @@ with FastMCP 2.0, including:
 - Tool testing utilities
 - Tool list measurement utilities
 - Prompt text retrieval helpers
+- Telemetry middleware for MCP tool call instrumentation
+- Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
 
+from fastmcp_extensions._telemetry import TelemetryRecord, TelemetrySinks
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
@@ -41,6 +44,8 @@ __all__ = [
     "MCPServerConfigArg",
     "PromptDef",
     "ResourceDef",
+    "TelemetryRecord",
+    "TelemetrySinks",
     "ToolCallTelemetryMiddleware",
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
