@@ -171,11 +171,10 @@ def test_print_table(capsys: pytest.CaptureFixture[str]) -> None:
 def test_cli_command_captures_sentry_exception() -> None:
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
-        with patch("fastmcp_extensions._telemetry._HAS_SENTRY", True):
-            app = cli_app(
-                name="test",
-                sentry_dsn="https://fake@sentry.io/1",
-            )
+        app = cli_app(
+            name="test",
+            sentry_dsn="https://fake@sentry.io/1",
+        )
 
         @app.command
         def boom() -> None:
@@ -195,11 +194,10 @@ def test_cli_command_captures_sentry_exception() -> None:
 def test_cli_command_emits_segment_event() -> None:
     mock_analytics = MagicMock()
     with patch("fastmcp_extensions._telemetry._segment_analytics", mock_analytics):
-        with patch("fastmcp_extensions._telemetry._HAS_SEGMENT", True):
-            app = cli_app(
-                name="test",
-                segment_write_key="fake-key",
-            )
+        app = cli_app(
+            name="test",
+            segment_write_key="fake-key",
+        )
 
         @app.command
         def ping() -> None:

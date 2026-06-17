@@ -634,14 +634,14 @@ source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "mcp" },
+    { name = "segment-analytics-python" },
+    { name = "sentry-sdk" },
 ]
 
 [package.optional-dependencies]
 cli = [
     { name = "cyclopts" },
     { name = "rich" },
-    { name = "segment-analytics-python" },
-    { name = "sentry-sdk" },
 ]
 dev = [
     { name = "cyclopts" },
@@ -653,12 +653,6 @@ dev = [
     { name = "pytest-cov" },
     { name = "rich" },
     { name = "ruff" },
-    { name = "segment-analytics-python" },
-    { name = "sentry-sdk" },
-]
-telemetry = [
-    { name = "segment-analytics-python" },
-    { name = "sentry-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -683,14 +677,10 @@ requires-dist = [
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0,<14.0" },
     { name = "rich", marker = "extra == 'dev'", specifier = ">=13.0,<14.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "segment-analytics-python", marker = "extra == 'cli'", specifier = ">=2.3,<3.0" },
-    { name = "segment-analytics-python", marker = "extra == 'dev'", specifier = ">=2.3,<3.0" },
-    { name = "segment-analytics-python", marker = "extra == 'telemetry'", specifier = ">=2.3,<3.0" },
-    { name = "sentry-sdk", marker = "extra == 'cli'", specifier = ">=2.0,<3.0" },
-    { name = "sentry-sdk", marker = "extra == 'dev'", specifier = ">=2.0,<3.0" },
-    { name = "sentry-sdk", marker = "extra == 'telemetry'", specifier = ">=2.0,<3.0" },
+    { name = "segment-analytics-python", specifier = ">=2.3,<3.0" },
+    { name = "sentry-sdk", specifier = ">=2.0,<3.0" },
 ]
-provides-extras = ["cli", "dev", "telemetry"]
+provides-extras = ["cli", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

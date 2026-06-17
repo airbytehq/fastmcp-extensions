@@ -86,18 +86,8 @@ def test_sinks_defaults_no_sentry_no_segment() -> None:
 def test_sinks_with_sentry(caplog: pytest.LogCaptureFixture) -> None:
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
-        with patch("fastmcp_extensions._telemetry._HAS_SENTRY", True):
-            sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
-    assert sinks.sentry_enabled is True
-
-
-def test_sinks_sentry_missing_sdk(caplog: pytest.LogCaptureFixture) -> None:
-    with patch("fastmcp_extensions._telemetry._HAS_SENTRY", False), caplog.at_level(
-        logging.DEBUG
-    ):
         sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
-    assert sinks.sentry_enabled is False
-    assert "sentry-sdk is not installed" in caplog.text
+    assert sinks.sentry_enabled is True
 
 
 def test_sinks_emit_log(caplog: pytest.LogCaptureFixture) -> None:
@@ -119,8 +109,7 @@ def test_sinks_emit_log(caplog: pytest.LogCaptureFixture) -> None:
 def test_sinks_capture_exception_calls_sentry() -> None:
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
-        with patch("fastmcp_extensions._telemetry._HAS_SENTRY", True):
-            sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
+        sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
         exc = ValueError("test")
         sinks.capture_exception(exc)
         mock_sentry.capture_exception.assert_called_once_with(exc)

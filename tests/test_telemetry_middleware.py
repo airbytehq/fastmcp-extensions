@@ -81,20 +81,18 @@ def test_init_with_package_name() -> None:
     assert mw._package_version != "unknown"
 
 
-def test_init_sentry_without_sdk(caplog: pytest.LogCaptureFixture) -> None:
-    with patch("fastmcp_extensions._telemetry._HAS_SENTRY", False):
-        with caplog.at_level(logging.DEBUG):
-            mw = ToolCallTelemetryMiddleware(sentry_dsn="https://fake@sentry.io/1")
-        assert mw._sentry_enabled is False
-        assert "sentry-sdk is not installed" in caplog.text
+def test_init_with_sentry() -> None:
+    with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
+        mock_sentry.is_initialized.return_value = True
+        mw = ToolCallTelemetryMiddleware(sentry_dsn="https://fake@sentry.io/1")
+    assert mw._sentry_enabled is True
 
 
-def test_init_segment_without_sdk(caplog: pytest.LogCaptureFixture) -> None:
-    with patch("fastmcp_extensions._telemetry._HAS_SEGMENT", False):
-        with caplog.at_level(logging.DEBUG):
-            mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
-        assert mw._segment_enabled is False
-        assert "segment-analytics-python is not installed" in caplog.text
+def test_init_with_segment() -> None:
+    mock_analytics = MagicMock()
+    with patch("fastmcp_extensions._telemetry._segment_analytics", mock_analytics):
+        mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
+    assert mw._segment_enabled is True
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +146,7 @@ async def test_on_call_tool_failure(caplog: pytest.LogCaptureFixture) -> None:
 async def test_sentry_breadcrumb_emitted() -> None:
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
-        with patch("fastmcp_extensions._telemetry._HAS_SENTRY", True):
-            mw = ToolCallTelemetryMiddleware(sentry_dsn="https://fake@sentry.io/1")
+        mw = ToolCallTelemetryMiddleware(sentry_dsn="https://fake@sentry.io/1")
 
         ctx = _make_context("sentry_tool")
 
@@ -174,8 +171,7 @@ async def test_segment_event_emitted() -> None:
         "fastmcp_extensions._telemetry._segment_analytics",
         mock_analytics,
     ):
-        with patch("fastmcp_extensions._telemetry._HAS_SEGMENT", True):
-            mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
+        mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
 
         ctx = _make_context("segment_tool")
 

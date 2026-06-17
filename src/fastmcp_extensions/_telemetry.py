@@ -18,27 +18,10 @@ import importlib.metadata as md
 import logging
 from dataclasses import dataclass
 
+import sentry_sdk
+from segment import analytics as _segment_analytics  # type: ignore[import-untyped]
+
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Optional dependency imports (guarded)
-# ---------------------------------------------------------------------------
-
-try:
-    import sentry_sdk
-
-    _HAS_SENTRY = True
-except ImportError:  # pragma: no cover
-    sentry_sdk = None  # type: ignore[assignment]
-    _HAS_SENTRY = False
-
-try:
-    from segment import analytics as _segment_analytics  # type: ignore[import-untyped]
-
-    _HAS_SEGMENT = True
-except ImportError:  # pragma: no cover
-    _segment_analytics = None  # type: ignore[assignment]
-    _HAS_SEGMENT = False
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +62,8 @@ class TelemetryRecord:
 class TelemetrySinks:
     """Manages Sentry and Segment initialisation and event emission.
 
-    Consumers create an instance with optional DSN / write key. Sinks that
-    cannot be enabled (missing SDK or `None` key) are silently skipped.
+    Consumers create an instance with optional DSN / write key. Sinks whose
+    key is `None` are skipped.
     """
 
     def __init__(
@@ -105,27 +88,15 @@ class TelemetrySinks:
         # Sentry
         self.sentry_enabled = False
         if sentry_dsn is not None:
-            if _HAS_SENTRY:
-                _init_sentry(sentry_dsn, package_name)
-                self.sentry_enabled = True
-            else:
-                logger.debug(
-                    "sentry_dsn provided but sentry-sdk is not installed; "
-                    "Sentry telemetry disabled"
-                )
+            _init_sentry(sentry_dsn, package_name)
+            self.sentry_enabled = True
 
         # Segment
         self.segment_enabled = False
         self._segment_user_id = segment_user_id
         if segment_write_key is not None:
-            if _HAS_SEGMENT:
-                _init_segment(segment_write_key)
-                self.segment_enabled = True
-            else:
-                logger.debug(
-                    "segment_write_key provided but segment-analytics-python is not "
-                    "installed; Segment telemetry disabled"
-                )
+            _init_segment(segment_write_key)
+            self.segment_enabled = True
 
     def emit(self, record: TelemetryRecord) -> None:
         """Dispatch a telemetry record to all enabled sinks."""

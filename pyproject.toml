@@ -10,6 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=3.0,<4.0",
     "mcp",
+    "segment-analytics-python>=2.3,<3.0",
+    "sentry-sdk>=2.0,<3.0",
 ]
 license = { file = "LICENSE" }
 keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]
@@ -30,28 +32,20 @@ Repository = "https://github.com/airbytehq/fastmcp-extensions"
 Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
 
 [project.optional-dependencies]
-telemetry = [
-    "sentry-sdk>=2.0,<3.0",
-    "segment-analytics-python>=2.3,<3.0",
-]
 cli = [
     "cyclopts>=4.0.0,<5.0",
     "rich>=13.0,<14.0",
-    "sentry-sdk>=2.0,<3.0",
-    "segment-analytics-python>=2.3,<3.0",
 ]
 dev = [
+    "cyclopts>=4.0.0,<5.0",
+    "deptry>=0.12.0",
+    "mypy>=1.8.0",
+    "poethepoet>=0.24.0",
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0",
-    "ruff>=0.1.0",
-    "poethepoet>=0.24.0",
-    "deptry>=0.12.0",
-    "mypy>=1.8.0",
-    "sentry-sdk>=2.0,<3.0",
-    "segment-analytics-python>=2.3,<3.0",
-    "cyclopts>=4.0.0,<5.0",
     "rich>=13.0,<14.0",
+    "ruff>=0.1.0",
 ]
 
 [build-system]
@@ -105,22 +99,20 @@ known_first_party = [
 ignore = []
 
 [tool.deptry.per_rule_ignores]
-
-# DEP001: missing dependency (imported but not declared in pyproject.toml)
+# DEP001: missing dependency
 DEP001 = []
-
-# DEP002: unused dependency (declared but not imported in source code)
-# sentry-sdk, segment-analytics-python are optional [telemetry] deps imported at runtime
-# cyclopts, rich are optional [cli] deps imported at runtime
-DEP002 = ["sentry-sdk", "segment-analytics-python", "cyclopts", "rich"]
-
-# DEP003: transitive dependency (imported but only available through another package)
+# DEP002: unused dependency
+DEP002 = [
+    "cyclopts",  # optional [cli] extra; deptry can't see imports gated behind the extra
+    "rich",  # optional [cli] extra; deptry can't see imports gated behind the extra
+]
+# DEP003: transitive dependency
 DEP003 = []
-
-# DEP004: misplaced dev dependency (dev-only package imported in non-dev code)
-# pytest is a dev dependency imported in test files
-# uvicorn is a dev dependency used only in test fixtures for HTTP server testing
-DEP004 = ["pytest", "uvicorn"]
+# DEP004: misplaced dev dependency
+DEP004 = [
+    "pytest",  # dev dep imported only in tests/; deptry doesn't exclude test dirs from DEP004
+    "uvicorn",  # dev dep imported only in test fixtures for HTTP server testing
+]
 
 [dependency-groups]
 dev = [
