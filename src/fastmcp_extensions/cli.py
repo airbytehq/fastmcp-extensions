@@ -14,7 +14,7 @@ pip install "fastmcp-extensions[cli]"
 Usage:
 
 ```python
-from fastmcp_extensions._cli import cli_app
+from fastmcp_extensions.cli import cli_app
 
 app = cli_app(
     name="my-tool",

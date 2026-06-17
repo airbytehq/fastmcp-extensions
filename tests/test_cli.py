@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fastmcp_extensions._cli import (
+from fastmcp_extensions.cli import (
     App,
     TelemetryApp,
     cli_app,

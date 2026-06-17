@@ -195,7 +195,7 @@ def _init_sentry(dsn: str, package_name: str | None) -> None:
     """Initialise Sentry if it has not already been initialised."""
     if sentry_sdk.is_initialized():
         return
-    release = f"{package_name}@{md.version(package_name)}" if package_name else None
+    release = f"{package_name}@{resolve_version(package_name)}" if package_name else None
     sentry_sdk.init(
         dsn=dsn,
         release=release,
