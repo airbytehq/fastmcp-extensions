@@ -9,6 +9,10 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=3.0,<4.0",
+    "mcp",  # transitive dep of fastmcp; declared because we also import it directly
+    "segment-analytics-python>=2.3,<3.0",
+    "sentry-sdk>=2.0,<3.0",
+    "uvicorn",  # transitive dep of fastmcp; declared because we also import it directly
 ]
 license = { file = "LICENSE" }
 keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]
@@ -29,14 +33,20 @@ Repository = "https://github.com/airbytehq/fastmcp-extensions"
 Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
 
 [project.optional-dependencies]
+cli = [
+    "cyclopts>=4.0.0,<5.0",
+    "rich>=13.0,<14.0",
+]
 dev = [
+    "cyclopts>=4.0.0,<5.0",
+    "rich>=13.0,<14.0",
+    "deptry>=0.12.0",
+    "mypy>=1.8.0",
+    "poethepoet>=0.24.0",
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0",
     "ruff>=0.1.0",
-    "poethepoet>=0.24.0",
-    "deptry>=0.12.0",
-    "mypy>=1.8.0",
 ]
 
 [build-system]
@@ -68,6 +78,7 @@ exclude = [
     ".*dist.*",
     ".*build.*",
     ".*docs.*",
+    "tests/.*",
 ]
 
 # Additional excludes beyond defaults
@@ -86,18 +97,18 @@ known_first_party = [
     "fastmcp_extensions",
 ]
 
-# To ignore specific error codes globally, uncomment and modify:
-ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
-
-# To ignore specific packages for specific rules:
-# DEP001=package-name    # Ignore missing dependency
-# DEP002=unused-package  # Ignore unused dependency  
-# DEP003=transitive-dep  # Ignore transitive dependency
-# DEP004=dev-package     # Ignore misplaced dev dependency
 [tool.deptry.per_rule_ignores]
-# uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
-# mcp is a transitive dependency through fastmcp, used for MCP protocol types
-DEP003 = ["uvicorn", "mcp"]
+DEP001 = [  # imported undeclared dependencies
+]
+
+DEP002 = [  # declared dependencies not imported
+]
+
+DEP003 = [  # imported undeclared transitive dependencies
+]
+
+DEP004 = [  # imported dev dependency in main code
+]
 
 [dependency-groups]
 dev = [
