@@ -110,8 +110,8 @@ DEP002 = [
 DEP003 = []
 # DEP004: misplaced dev dependency
 DEP004 = [
-    "pytest",  # only imported in tests/, never shipped; deptry can't scope DEP004 by directory
-    "uvicorn",  # only imported in test fixtures, never shipped; deptry can't scope DEP004 by directory
+    "pytest",  # imported in tests/ only, not in src/; false positive because deptry scans all .py files
+    "uvicorn",  # imported in tests/test_server.py only, not in src/; false positive because deptry scans all .py files
 ]
 
 [dependency-groups]
