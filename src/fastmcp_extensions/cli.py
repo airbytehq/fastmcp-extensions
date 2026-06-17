@@ -5,12 +5,6 @@ Provides a `cli_app` factory that creates a Cyclopts `App` with automatic
 Sentry / Segment telemetry on every command invocation, plus a set of
 Rich-based output helpers.
 
-Install the CLI extra for Cyclopts support:
-
-```bash
-pip install "fastmcp-extensions[cli]"
-```
-
 Usage:
 
 ```python
@@ -48,16 +42,11 @@ from fastmcp_extensions._telemetry import (
 )
 
 # ---------------------------------------------------------------------------
-# Rich console helpers (lazy-imported to avoid hard dep when unused)
+# Rich console helpers
 # ---------------------------------------------------------------------------
 
-try:
-    from rich.console import Console
-    from rich.table import Table
-
-    _HAS_RICH = True
-except ImportError:  # pragma: no cover
-    _HAS_RICH = False
+from rich.console import Console
+from rich.table import Table
 
 _console: Console | None = None
 _error_console: Console | None = None
@@ -89,26 +78,17 @@ def print_json(data: Any) -> None:
 
 def print_error(message: str) -> None:
     """Print an error message to stderr."""
-    if _HAS_RICH:
-        _get_error_console().print(f"[red]Error:[/red] {message}")
-    else:  # pragma: no cover
-        print(f"Error: {message}", file=sys.stderr)
+    _get_error_console().print(f"[red]Error:[/red] {message}")
 
 
 def print_success(message: str) -> None:
     """Print a success message to stdout."""
-    if _HAS_RICH:
-        _get_console().print(f"[green]{message}[/green]")
-    else:  # pragma: no cover
-        print(message)
+    _get_console().print(f"[green]{message}[/green]")
 
 
 def print_warning(message: str) -> None:
     """Print a warning message to stdout."""
-    if _HAS_RICH:
-        _get_console().print(f"[yellow]Warning:[/yellow] {message}")
-    else:  # pragma: no cover
-        print(f"Warning: {message}")
+    _get_console().print(f"[yellow]Warning:[/yellow] {message}")
 
 
 def print_table(
