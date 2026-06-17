@@ -64,7 +64,7 @@ class ToolCallTelemetryMiddleware(Middleware):
     Telemetry is emitted to up to three sinks:
 
     1. **Structured JSON log** at `INFO` level (always on).
-    2. **Sentry breadcrumb** (`mcp.tool_call` category) when `sentry_dsn` is set.
+    2. **Sentry breadcrumb** (`mcp_tool_call` category) when `sentry_dsn` is set.
     3. **Segment event** (`mcp_tool_call`) when `segment_write_key` is set.
 
     Example:

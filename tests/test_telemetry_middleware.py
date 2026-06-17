@@ -94,7 +94,7 @@ def test_init_segment_without_sdk(caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.DEBUG):
             mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
         assert mw._segment_enabled is False
-        assert "analytics-python is not installed" in caplog.text
+        assert "segment-analytics-python is not installed" in caplog.text
 
 
 # ---------------------------------------------------------------------------
