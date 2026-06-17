@@ -8,10 +8,8 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "cyclopts>=4.0.0,<5.0",
     "fastmcp>=3.0,<4.0",
     "mcp",  # transitive dep of fastmcp; declared because we also import it directly
-    "rich>=13.0,<14.0",
     "segment-analytics-python>=2.3,<3.0",
     "sentry-sdk>=2.0,<3.0",
     "uvicorn",  # transitive dep of fastmcp; declared because we also import it directly
@@ -35,7 +33,13 @@ Repository = "https://github.com/airbytehq/fastmcp-extensions"
 Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
 
 [project.optional-dependencies]
+cli = [
+    "cyclopts>=4.0.0,<5.0",
+    "rich>=13.0,<14.0",
+]
 dev = [
+    "cyclopts>=4.0.0,<5.0",
+    "rich>=13.0,<14.0",
     "deptry>=0.12.0",
     "mypy>=1.8.0",
     "poethepoet>=0.24.0",
@@ -98,6 +102,8 @@ DEP001 = [  # imported undeclared dependencies
 ]
 
 DEP002 = [  # declared dependencies not imported
+    "cyclopts",  # imported in cli.py; gated behind [cli] extra so deptry can't see it
+    "rich",  # imported in cli.py; gated behind [cli] extra so deptry can't see it
 ]
 
 DEP003 = [  # imported undeclared transitive dependencies

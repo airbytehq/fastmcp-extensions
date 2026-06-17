@@ -34,7 +34,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, NoReturn
 
-# CLI module deps — only imported when consumers explicitly use `fastmcp_extensions.cli`:
+# Requires the [cli] extra; only imported when consumers use `fastmcp_extensions.cli`:
 from cyclopts import App as _CycloptsApp
 from rich.console import Console
 from rich.table import Table
