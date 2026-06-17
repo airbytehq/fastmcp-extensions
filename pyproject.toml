@@ -10,11 +10,11 @@ requires-python = ">=3.10"
 dependencies = [
     "cyclopts>=4.0.0,<5.0",
     "fastmcp>=3.0,<4.0",
-    "mcp",
+    "mcp",  # transitive dep of fastmcp; declared because we also import it directly
     "rich>=13.0,<14.0",
     "segment-analytics-python>=2.3,<3.0",
     "sentry-sdk>=2.0,<3.0",
-    "uvicorn",
+    "uvicorn",  # transitive dep of fastmcp; declared because we also import it directly
 ]
 license = { file = "LICENSE" }
 keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]

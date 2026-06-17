@@ -17,6 +17,7 @@ app = cli_app(
     segment_write_key="hnWfMdE...",
 )
 
+
 @app.command
 def greet(name: str) -> None:
     print_success(f"Hello, {name}!")
@@ -35,18 +36,17 @@ from typing import Any, NoReturn
 
 from cyclopts import App as _CycloptsApp
 
+# ---------------------------------------------------------------------------
+# Rich console helpers
+# ---------------------------------------------------------------------------
+from rich.console import Console
+from rich.table import Table
+
 from fastmcp_extensions._telemetry import (
     TelemetryRecord,
     TelemetrySinks,
     resolve_version,
 )
-
-# ---------------------------------------------------------------------------
-# Rich console helpers
-# ---------------------------------------------------------------------------
-
-from rich.console import Console
-from rich.table import Table
 
 _console: Console | None = None
 _error_console: Console | None = None
