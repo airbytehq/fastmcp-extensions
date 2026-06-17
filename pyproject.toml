@@ -97,17 +97,18 @@ known_first_party = [
 ]
 
 [tool.deptry.per_rule_ignores]
-# DEP001: missing dependency
-DEP001 = []
-# DEP002: unused dependency
-DEP002 = [
+DEP001 = [  # undeclared dependencies
+]
+
+DEP002 = [  # declared dependencies not imported
     "cyclopts",  # imported in cli.py; false positive because [cli] extra gating hides it from deptry
     "rich",  # imported in cli.py; false positive because [cli] extra gating hides it from deptry
 ]
-# DEP003: transitive dependency
-DEP003 = []
-# DEP004: misplaced dev dependency
-DEP004 = [
+
+DEP003 = [  # imported undeclared transitive dependencies
+]
+
+DEP004 = [  # imported dev dependency in main code
     "uvicorn",  # imported in utils/test_tool.py, a testing utility shipped in src/ for consumer use
 ]
 
