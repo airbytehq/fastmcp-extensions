@@ -103,11 +103,6 @@ known_first_party = [
 # To ignore specific error codes globally, uncomment and modify:
 ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
 
-# To ignore specific packages for specific rules:
-# DEP001=package-name    # Ignore missing dependency
-# DEP002=unused-package  # Ignore unused dependency  
-# DEP003=transitive-dep  # Ignore transitive dependency
-# DEP004=dev-package     # Ignore misplaced dev dependency
 [tool.deptry.per_rule_ignores]
 
 # DEP001: missing dependency (imported but not declared in pyproject.toml)
@@ -122,6 +117,9 @@ DEP002 = ["sentry-sdk", "segment-analytics-python", "cyclopts", "rich"]
 # uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
 # mcp is a transitive dependency through fastmcp, used for MCP protocol types
 DEP003 = ["uvicorn", "mcp"]
+
+# DEP004: misplaced dev dependency (dev-only package imported in non-dev code)
+DEP004 = []
 
 [dependency-groups]
 dev = [
