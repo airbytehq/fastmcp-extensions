@@ -101,7 +101,7 @@ known_first_party = [
 ]
 
 # To ignore specific error codes globally, uncomment and modify:
-ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test frameworks like pytest)
+ignore = []
 
 [tool.deptry.per_rule_ignores]
 
@@ -119,7 +119,8 @@ DEP002 = ["sentry-sdk", "segment-analytics-python", "cyclopts", "rich"]
 DEP003 = ["uvicorn", "mcp"]
 
 # DEP004: misplaced dev dependency (dev-only package imported in non-dev code)
-DEP004 = []
+# pytest is a dev dependency imported in test files
+DEP004 = ["pytest"]
 
 [dependency-groups]
 dev = [
