@@ -633,6 +633,7 @@ name = "fastmcp-extensions"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
+    { name = "mcp" },
 ]
 
 [package.optional-dependencies]
@@ -664,6 +665,7 @@ telemetry = [
 dev = [
     { name = "pdoc3" },
     { name = "poethepoet" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -672,6 +674,7 @@ requires-dist = [
     { name = "cyclopts", marker = "extra == 'dev'", specifier = ">=4.0.0,<5.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.12.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
+    { name = "mcp" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
@@ -693,6 +696,7 @@ provides-extras = ["cli", "dev", "telemetry"]
 dev = [
     { name = "pdoc3", specifier = ">=0.11.6" },
     { name = "poethepoet", specifier = ">=0.37.0" },
+    { name = "uvicorn" },
 ]
 
 [[package]]

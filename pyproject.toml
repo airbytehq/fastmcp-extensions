@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=3.0,<4.0",
+    "mcp",
 ]
 license = { file = "LICENSE" }
 keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]
@@ -114,16 +115,16 @@ DEP001 = []
 DEP002 = ["sentry-sdk", "segment-analytics-python", "cyclopts", "rich"]
 
 # DEP003: transitive dependency (imported but only available through another package)
-# uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
-# mcp is a transitive dependency through fastmcp, used for MCP protocol types
-DEP003 = ["uvicorn", "mcp"]
+DEP003 = []
 
 # DEP004: misplaced dev dependency (dev-only package imported in non-dev code)
 # pytest is a dev dependency imported in test files
-DEP004 = ["pytest"]
+# uvicorn is a dev dependency used only in test fixtures for HTTP server testing
+DEP004 = ["pytest", "uvicorn"]
 
 [dependency-groups]
 dev = [
     "pdoc3>=0.11.6",
     "poethepoet>=0.37.0",
+    "uvicorn",
 ]
