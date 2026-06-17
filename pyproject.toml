@@ -102,8 +102,6 @@ DEP001 = [  # imported undeclared dependencies
 ]
 
 DEP002 = [  # declared dependencies not imported
-    "cyclopts",  # imported in cli.py; gated behind [cli] extra so deptry can't see it
-    "rich",  # imported in cli.py; gated behind [cli] extra so deptry can't see it
 ]
 
 DEP003 = [  # imported undeclared transitive dependencies
