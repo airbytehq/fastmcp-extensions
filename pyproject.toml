@@ -12,6 +12,7 @@ dependencies = [
     "mcp",
     "segment-analytics-python>=2.3,<3.0",
     "sentry-sdk>=2.0,<3.0",
+    "uvicorn",
 ]
 license = { file = "LICENSE" }
 keywords = ["fastmcp", "mcp", "model-context-protocol", "extensions", "utilities"]
@@ -109,12 +110,10 @@ DEP003 = [  # imported undeclared transitive dependencies
 ]
 
 DEP004 = [  # imported dev dependency in main code
-    "uvicorn",  # imported in utils/test_tool.py, a testing utility shipped in src/ for consumer use
 ]
 
 [dependency-groups]
 dev = [
     "pdoc3>=0.11.6",
     "poethepoet>=0.37.0",
-    "uvicorn",
 ]

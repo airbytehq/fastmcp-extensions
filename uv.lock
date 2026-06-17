@@ -636,6 +636,7 @@ dependencies = [
     { name = "mcp" },
     { name = "segment-analytics-python" },
     { name = "sentry-sdk" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -659,7 +660,6 @@ dev = [
 dev = [
     { name = "pdoc3" },
     { name = "poethepoet" },
-    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -679,6 +679,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "segment-analytics-python", specifier = ">=2.3,<3.0" },
     { name = "sentry-sdk", specifier = ">=2.0,<3.0" },
+    { name = "uvicorn" },
 ]
 provides-extras = ["cli", "dev"]
 
@@ -686,7 +687,6 @@ provides-extras = ["cli", "dev"]
 dev = [
     { name = "pdoc3", specifier = ">=0.11.6" },
     { name = "poethepoet", specifier = ">=0.37.0" },
-    { name = "uvicorn" },
 ]
 
 [[package]]
