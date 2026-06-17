@@ -77,6 +77,7 @@ exclude = [
     ".*dist.*",
     ".*build.*",
     ".*docs.*",
+    "tests/.*",
 ]
 
 # Additional excludes beyond defaults
@@ -110,8 +111,7 @@ DEP002 = [
 DEP003 = []
 # DEP004: misplaced dev dependency
 DEP004 = [
-    "pytest",  # imported in tests/ only, not in src/; false positive because deptry scans all .py files
-    "uvicorn",  # imported in tests/test_server.py only, not in src/; false positive because deptry scans all .py files
+    "uvicorn",  # imported in utils/test_tool.py, a testing utility shipped in src/ for consumer use
 ]
 
 [dependency-groups]
