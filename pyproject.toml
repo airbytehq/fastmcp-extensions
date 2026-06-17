@@ -97,7 +97,7 @@ known_first_party = [
 ]
 
 [tool.deptry.per_rule_ignores]
-DEP001 = [  # undeclared dependencies
+DEP001 = [  # imported undeclared dependencies
 ]
 
 DEP002 = [  # declared dependencies not imported
