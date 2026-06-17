@@ -96,9 +96,6 @@ known_first_party = [
     "fastmcp_extensions",
 ]
 
-# To ignore specific error codes globally, uncomment and modify:
-ignore = []
-
 [tool.deptry.per_rule_ignores]
 # DEP001: missing dependency
 DEP001 = []
