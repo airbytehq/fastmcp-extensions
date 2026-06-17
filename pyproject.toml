@@ -109,12 +109,15 @@ ignore = ["DEP004"]  # Ignore misplaced dev dependencies (common for test framew
 # DEP003=transitive-dep  # Ignore transitive dependency
 # DEP004=dev-package     # Ignore misplaced dev dependency
 [tool.deptry.per_rule_ignores]
+
 # DEP001: missing dependency (imported but not declared in pyproject.toml)
 DEP001 = []
+
 # DEP002: unused dependency (declared but not imported in source code)
 # sentry-sdk, segment-analytics-python are optional [telemetry] deps imported at runtime
 # cyclopts, rich are optional [cli] deps imported at runtime
 DEP002 = ["sentry-sdk", "segment-analytics-python", "cyclopts", "rich"]
+
 # DEP003: transitive dependency (imported but only available through another package)
 # uvicorn is a transitive dependency through fastmcp, used for HTTP server testing
 # mcp is a transitive dependency through fastmcp, used for MCP protocol types
