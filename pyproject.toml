@@ -103,15 +103,15 @@ ignore = []
 DEP001 = []
 # DEP002: unused dependency
 DEP002 = [
-    "cyclopts",  # optional [cli] extra; deptry can't see imports gated behind the extra
-    "rich",  # optional [cli] extra; deptry can't see imports gated behind the extra
+    "cyclopts",  # imported in cli.py; false positive because [cli] extra gating hides it from deptry
+    "rich",  # imported in cli.py; false positive because [cli] extra gating hides it from deptry
 ]
 # DEP003: transitive dependency
 DEP003 = []
 # DEP004: misplaced dev dependency
 DEP004 = [
-    "pytest",  # dev dep imported only in tests/; deptry doesn't exclude test dirs from DEP004
-    "uvicorn",  # dev dep imported only in test fixtures for HTTP server testing
+    "pytest",  # only imported in tests/, never shipped; deptry can't scope DEP004 by directory
+    "uvicorn",  # only imported in test fixtures, never shipped; deptry can't scope DEP004 by directory
 ]
 
 [dependency-groups]
