@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create draft release (not ready)
-        id: draft
+        id: not-ready-draft
         uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,7 +38,7 @@ jobs:
 
       - name: Build package
         env:
-          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.draft.outputs.resolved-version }}
+          UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.not-ready-draft.outputs.resolved-version }}
         run: uv build
 
       - name: Attach assets and finalize draft
@@ -46,7 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ steps.draft.outputs.resolved-version }}
+          version: ${{ steps.not-ready-draft.outputs.resolved-version }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
