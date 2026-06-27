@@ -30,7 +30,7 @@ jobs:
 
       - name: Get Release Draft Info (Dry-Run)
         id: dry-run
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
+        uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
         env:
           # Needed to retrieve non-public draft release info.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -42,12 +42,20 @@ jobs:
           UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.dry-run.outputs.resolved-version }}
         run: uv build
 
-      - name: Create or update draft release
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
+      - name: Create draft release with assets (not ready)
+        uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          not-ready: true
           version: ${{ steps.dry-run.outputs.resolved-version }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
+
+      - name: Finalize draft release (remove banner)
+        uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version: ${{ steps.dry-run.outputs.resolved-version }}
