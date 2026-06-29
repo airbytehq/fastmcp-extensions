@@ -6,13 +6,17 @@ from unittest.mock import patch
 
 import pytest
 from fastmcp import FastMCP
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from fastmcp_extensions import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
     mcp_server,
+)
+from fastmcp_extensions.tool_filters import (
+    _parse_csv_config,
+    no_client_filesystem_filter,
 )
 
 
@@ -465,45 +469,91 @@ def test_mcp_server_include_standard_tool_filters_includes_module_config_args() 
 
 
 @pytest.mark.unit
-def test_parse_csv_config_empty_string() -> None:
-    """Test _parse_csv_config with empty string."""
-    from fastmcp_extensions.tool_filters import _parse_csv_config
+def test_mcp_server_include_standard_tool_filters_includes_no_client_filesystem() -> (
+    None
+):
+    """Test that `include_standard_tool_filters=True` adds `no_client_filesystem` config arg."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
 
+    config = app.x_mcp_server_config
+    config_names = [arg.name for arg in config.config_args]
+
+    assert "no_client_filesystem" in config_names
+
+
+@pytest.mark.parametrize(
+    "config_value,has_annotation,expected_visible",
+    [
+        pytest.param("", True, True, id="no_config_set-annotated-visible"),
+        pytest.param("", False, True, id="no_config_set-unannotated-visible"),
+        pytest.param("1", True, False, id="config_1-annotated-hidden"),
+        pytest.param("true", True, False, id="config_true-annotated-hidden"),
+        pytest.param("TRUE", True, False, id="config_TRUE-annotated-hidden"),
+        pytest.param("1", False, True, id="config_1-unannotated-visible"),
+        pytest.param("0", True, True, id="config_0-annotated-visible"),
+        pytest.param("false", True, True, id="config_false-annotated-visible"),
+    ],
+)
+@pytest.mark.unit
+def test_no_client_filesystem_filter(
+    config_value: str,
+    has_annotation: bool,
+    expected_visible: bool,
+) -> None:
+    """Test `no_client_filesystem_filter` hides annotated tools when config is enabled."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
+
+    annotations_kwargs: dict[str, object] = {}
+    if has_annotation:
+        annotations_kwargs["requiresClientFilesystem"] = True
+
+    tool = Tool(
+        name="local_tool",
+        description="A tool requiring client filesystem",
+        inputSchema={"type": "object", "properties": {}},
+        annotations=ToolAnnotations(**annotations_kwargs),
+    )
+
+    env_patch = {"MCP_NO_CLIENT_FILESYSTEM": config_value} if config_value else {}
+    with patch.dict(os.environ, env_patch, clear=False), patch(
+        "fastmcp_extensions.server_config.get_http_headers",
+        return_value=None,
+    ):
+        result = no_client_filesystem_filter(tool, app)
+
+    assert result is expected_visible
+
+
+@pytest.mark.unit
+def test_parse_csv_config_empty_string() -> None:
+    """Test `_parse_csv_config` with empty string."""
     result = _parse_csv_config("")
     assert result == []
 
 
 @pytest.mark.unit
 def test_parse_csv_config_single_value() -> None:
-    """Test _parse_csv_config with single value."""
-    from fastmcp_extensions.tool_filters import _parse_csv_config
-
+    """Test `_parse_csv_config` with single value."""
     result = _parse_csv_config("module1")
     assert result == ["module1"]
 
 
 @pytest.mark.unit
 def test_parse_csv_config_multiple_values() -> None:
-    """Test _parse_csv_config with multiple values."""
-    from fastmcp_extensions.tool_filters import _parse_csv_config
-
+    """Test `_parse_csv_config` with multiple values."""
     result = _parse_csv_config("module1,module2,module3")
     assert result == ["module1", "module2", "module3"]
 
 
 @pytest.mark.unit
 def test_parse_csv_config_trims_whitespace() -> None:
-    """Test _parse_csv_config trims whitespace from values."""
-    from fastmcp_extensions.tool_filters import _parse_csv_config
-
+    """Test `_parse_csv_config` trims whitespace from values."""
     result = _parse_csv_config("  module1  ,  module2  ,  module3  ")
     assert result == ["module1", "module2", "module3"]
 
 
 @pytest.mark.unit
 def test_parse_csv_config_filters_empty_values() -> None:
-    """Test _parse_csv_config filters out empty values."""
-    from fastmcp_extensions.tool_filters import _parse_csv_config
-
+    """Test `_parse_csv_config` filters out empty values."""
     result = _parse_csv_config("module1,,module2,  ,module3")
     assert result == ["module1", "module2", "module3"]
