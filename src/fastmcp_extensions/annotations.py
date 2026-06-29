@@ -49,3 +49,18 @@ When False, the tool only operates on local state or resources.
 
 FastMCP default if not specified: True
 """
+
+REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
+"""Indicates that the tool requires access to the client's local filesystem.
+
+When `True`, the tool depends on the MCP client having a local filesystem
+available (e.g., reading/writing files, scanning directories, accessing a
+local git checkout). In hosted environments where the client has no local
+filesystem, tools with this annotation should be hidden.
+
+This is a custom annotation (not part of the MCP spec). The MCP spec's
+`ToolAnnotations` model uses `extra="allow"`, so custom annotations are
+supported.
+
+Default if not specified: `False` (no client filesystem required).
+"""
