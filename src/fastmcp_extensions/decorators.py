@@ -20,6 +20,7 @@ from fastmcp_extensions.annotations import (
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
+    REQUIRES_CLIENT_FILESYSTEM,
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -67,6 +68,7 @@ def mcp_tool(
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = False,
+    requires_client_filesystem: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -82,6 +84,8 @@ def mcp_tool(
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
         open_world: If True, tool interacts with external systems (default: False)
+        requires_client_filesystem: If True, tool requires the client to have a
+            local filesystem available (default: False)
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -102,6 +106,8 @@ def mcp_tool(
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
     }
+    if requires_client_filesystem:
+        annotations[REQUIRES_CLIENT_FILESYSTEM] = True
 
     def decorator(func: F) -> F:
         if extra_help_text:

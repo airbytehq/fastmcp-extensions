@@ -91,6 +91,9 @@ CONFIG_INCLUDE_MODULES = "include_modules"
 CONFIG_EXCLUDE_TOOLS = "exclude_tools"
 """Config name for excluding specific tools by name."""
 
+CONFIG_NO_CLIENT_FILESYSTEM = "no_client_filesystem"
+"""Config name for hiding tools that require client filesystem access."""
+
 # =============================================================================
 # Constants - Environment Variables
 # =============================================================================
@@ -109,6 +112,9 @@ ENV_INCLUDE_MODULES = "MCP_INCLUDE_MODULES"
 
 ENV_EXCLUDE_TOOLS = "MCP_EXCLUDE_TOOLS"
 """Environment variable for excluding specific tools by name."""
+
+ENV_NO_CLIENT_FILESYSTEM = "MCP_NO_CLIENT_FILESYSTEM"
+"""Environment variable for hiding tools that require client filesystem access."""
 
 # =============================================================================
 # Constants - HTTP Headers
@@ -129,6 +135,9 @@ HEADER_INCLUDE_MODULES = "X-MCP-Include-Modules"
 HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 """HTTP header for excluding specific tools by name."""
 
+HEADER_NO_CLIENT_FILESYSTEM = "X-MCP-No-Client-Filesystem"
+"""HTTP header for hiding tools that require client filesystem access."""
+
 # =============================================================================
 # Constants - Annotation Keys
 # =============================================================================
@@ -141,6 +150,9 @@ ANNOTATION_DESTRUCTIVE_HINT = "destructiveHint"
 
 ANNOTATION_MCP_MODULE = "mcp_module"
 """Annotation key for MCP module name (set by @mcp_tool decorator)."""
+
+ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
+"""Annotation key for client filesystem requirement."""
 
 # =============================================================================
 # Standard Config Args
@@ -213,12 +225,30 @@ Comma-separated list of tool names to exclude. These tools will be hidden.
 Can be set via X-MCP-Exclude-Tools HTTP header or MCP_EXCLUDE_TOOLS env var.
 """
 
+NO_CLIENT_FILESYSTEM_CONFIG_ARG = MCPServerConfigArg(
+    name=CONFIG_NO_CLIENT_FILESYSTEM,
+    http_header_key=HEADER_NO_CLIENT_FILESYSTEM,
+    env_var=ENV_NO_CLIENT_FILESYSTEM,
+    default="0",
+    required=False,
+)
+"""Standard config arg for hiding tools that require client filesystem access.
+
+When set to `1` or `true`, tools annotated with `requiresClientFilesystem=True`
+will be hidden. Use this in hosted/remote environments where the client has
+no local filesystem.
+
+Can be set via `X-MCP-No-Client-Filesystem` HTTP header or
+`MCP_NO_CLIENT_FILESYSTEM` env var.
+"""
+
 STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
     READONLY_MODE_CONFIG_ARG,
     NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
     EXCLUDE_MODULES_CONFIG_ARG,
     INCLUDE_MODULES_CONFIG_ARG,
     EXCLUDE_TOOLS_CONFIG_ARG,
+    NO_CLIENT_FILESYSTEM_CONFIG_ARG,
 ]
 """List of all standard config args for tool filtering."""
 
@@ -365,10 +395,33 @@ def tool_exclusion_filter(tool: Tool, app: FastMCP) -> bool:
     return not (exclude_tools and tool.name in exclude_tools)
 
 
+def no_client_filesystem_filter(tool: Tool, app: FastMCP) -> bool:
+    """Filter tools based on `no_client_filesystem` config.
+
+    When `no_client_filesystem` is `1` or `true`, hide tools annotated with
+    `requiresClientFilesystem=True`. Use this in hosted/remote environments
+    where the MCP client has no local filesystem.
+
+    Args:
+        tool: The tool to check.
+        app: The FastMCP app instance.
+
+    Returns:
+        `True` if the tool should be visible, `False` to hide it.
+    """
+    config_value = get_mcp_config(app, CONFIG_NO_CLIENT_FILESYSTEM).lower()
+    if config_value in ("1", "true"):
+        return not bool(
+            get_annotation(tool, ANNOTATION_REQUIRES_CLIENT_FILESYSTEM, False)
+        )
+    return True
+
+
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
     readonly_mode_filter,
     no_destructive_tools_filter,
     module_filter,
     tool_exclusion_filter,
+    no_client_filesystem_filter,
 ]
 """List of all standard tool filter functions."""
