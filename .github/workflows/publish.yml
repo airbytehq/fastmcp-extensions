@@ -24,7 +24,7 @@ jobs:
       url: https://pypi.org/p/fastmcp-extensions/
     steps:
       - name: Download release assets
-        uses: robinraju/release-downloader@v1.12
+        uses: robinraju/release-downloader@v1.13
         with:
           tag: ${{ github.event.release.tag_name }}
           fileName: "*"
@@ -32,4 +32,4 @@ jobs:
 
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.0
