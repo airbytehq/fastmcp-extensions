@@ -67,21 +67,30 @@ jobs:
           echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
           echo "Computed prerelease version: $PRERELEASE_VERSION"
 
+      - name: Authenticate as GitHub App
+        uses: actions/create-github-app-token@v2
+        id: get-app-token
+        with:
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
       - name: Trigger publish workflow
         id: trigger-publish
         uses: the-actions-org/workflow-dispatch@v4
         with:
           workflow: publish.yml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # Use refs/pull/<PR>/head for fork compatibility
-          ref: refs/pull/${{ github.event.inputs.pr }}/head
+          token: ${{ steps.get-app-token.outputs.token }}
+          # Run publish.yml from main so the OIDC attestation matches the
+          # PyPI trusted publisher config; build the PR head via git_ref.
+          ref: main
           wait-for-completion: true
-          wait-for-completion-timeout: 10m
+          wait-for-completion-timeout: 30m
           display-workflow-run-url: false
           inputs: >-
             {
-              "version": "${{ steps.version.outputs.version }}",
-              "publish_to_pypi": "true"
+              "git_ref": "refs/pull/${{ github.event.inputs.pr }}/head",
+              "version_override": "${{ steps.version.outputs.version }}",
+              "publish": "true"
             }
 
       - name: Append success comment
@@ -92,15 +101,15 @@ jobs:
           issue-number: ${{ github.event.inputs.pr }}
           reactions: rocket
           body: |
-            > **Prerelease Published to TestPyPI**
+            > **Prerelease Published to PyPI**
             >
             > Version: `${{ steps.version.outputs.version }}`
             > [View publish workflow](${{ steps.trigger-publish.outputs.workflow-url }})
             >
             > Install and test with any of the following:
             > ```bash
-            > uv tool install fastmcp-extensions==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
-            > uv add fastmcp-extensions==${{ steps.version.outputs.version }} --index-url https://test.pypi.org/simple/
+            > uv add fastmcp-extensions==${{ steps.version.outputs.version }}
+            > pip install fastmcp-extensions==${{ steps.version.outputs.version }}
             > ```
 
       - name: Append failure comment
