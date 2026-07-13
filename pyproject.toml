@@ -12,6 +12,7 @@ dependencies = [
     "mcp",  # transitive dep of fastmcp; declared because we also import it directly
     "segment-analytics-python>=2.3,<3.0",
     "sentry-sdk>=2.0,<3.0",
+    "starlette",  # transitive dep of fastmcp; declared because we also import it directly
     "uvicorn",  # transitive dep of fastmcp; declared because we also import it directly
 ]
 license = { file = "LICENSE" }
