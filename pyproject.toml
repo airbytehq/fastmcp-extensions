@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=3.0,<4.0",
+    "httpx",  # transitive dep of fastmcp; declared because we also import it directly
     "mcp",  # transitive dep of fastmcp; declared because we also import it directly
     "segment-analytics-python>=2.3,<3.0",
     "sentry-sdk>=2.0,<3.0",
