@@ -77,6 +77,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 
+SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
+
 
 @dataclass
 class OIDCAuthConfig:
@@ -381,9 +383,16 @@ def fetch_client_credentials_token(
     stable `client_id` / `client_secret` — no browser and no refresh token
     required. The returned token is sent as `Authorization: Bearer <token>`.
 
-    Raises `httpx.HTTPStatusError` if the token endpoint returns an error, and
-    `ValueError` if the response contains no `access_token`.
+    Raises `httpx.HTTPStatusError` if the token endpoint returns an error,
+    `ValueError` if the response contains no `access_token`, and `ValueError`
+    if `credentials.auth_method` is not one of `SUPPORTED_CLIENT_AUTH_METHODS`.
     """
+    if credentials.auth_method not in SUPPORTED_CLIENT_AUTH_METHODS:
+        raise ValueError(
+            f"Unsupported auth_method {credentials.auth_method!r}; expected one "
+            f"of {SUPPORTED_CLIENT_AUTH_METHODS}."
+        )
+
     data: dict[str, str] = {"grant_type": "client_credentials"}
     if credentials.scope:
         data["scope"] = credentials.scope

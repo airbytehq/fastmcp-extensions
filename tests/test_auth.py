@@ -156,18 +156,18 @@ def _token_transport(captured: dict[str, object]) -> httpx.MockTransport:
 @pytest.mark.unit
 def test_fetch_client_credentials_token_post_includes_body_creds() -> None:
     captured: dict[str, object] = {}
-    client = httpx.Client(transport=_token_transport(captured))
 
-    token = fetch_client_credentials_token(
-        ClientCredentials(
-            token_url="https://idp.example/token",
-            client_id="cid",
-            client_secret="sec",
-            scope="read:things",
-            audience="mcp-api",
-        ),
-        http_client=client,
-    )
+    with httpx.Client(transport=_token_transport(captured)) as client:
+        token = fetch_client_credentials_token(
+            ClientCredentials(
+                token_url="https://idp.example/token",
+                client_id="cid",
+                client_secret="sec",
+                scope="read:things",
+                audience="mcp-api",
+            ),
+            http_client=client,
+        )
 
     assert token == "minted-token"
     body = str(captured["body"])
@@ -182,17 +182,17 @@ def test_fetch_client_credentials_token_post_includes_body_creds() -> None:
 @pytest.mark.unit
 def test_fetch_client_credentials_token_basic_auth() -> None:
     captured: dict[str, object] = {}
-    client = httpx.Client(transport=_token_transport(captured))
 
-    token = fetch_client_credentials_token(
-        ClientCredentials(
-            token_url="https://idp.example/token",
-            client_id="cid",
-            client_secret="sec",
-            auth_method="client_secret_basic",
-        ),
-        http_client=client,
-    )
+    with httpx.Client(transport=_token_transport(captured)) as client:
+        token = fetch_client_credentials_token(
+            ClientCredentials(
+                token_url="https://idp.example/token",
+                client_id="cid",
+                client_secret="sec",
+                auth_method="client_secret_basic",
+            ),
+            http_client=client,
+        )
 
     assert token == "minted-token"
     assert str(captured["authorization"]).startswith("Basic ")
@@ -200,12 +200,26 @@ def test_fetch_client_credentials_token_basic_auth() -> None:
 
 
 @pytest.mark.unit
+def test_fetch_client_credentials_token_unsupported_auth_method_raises() -> None:
+    with pytest.raises(ValueError, match="Unsupported auth_method"):
+        fetch_client_credentials_token(
+            ClientCredentials(
+                token_url="https://idp.example/token",
+                client_id="cid",
+                client_secret="sec",
+                auth_method="private_key_jwt",
+            ),
+        )
+
+
+@pytest.mark.unit
 def test_fetch_client_credentials_token_missing_token_raises() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"token_type": "bearer"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    with pytest.raises(ValueError, match="access_token"):
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client, pytest.raises(
+        ValueError, match="access_token"
+    ):
         fetch_client_credentials_token(
             ClientCredentials(
                 token_url="https://idp.example/token",
@@ -221,8 +235,9 @@ def test_fetch_client_credentials_token_http_error_raises() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "invalid_client"})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    with pytest.raises(httpx.HTTPStatusError):
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client, pytest.raises(
+        httpx.HTTPStatusError
+    ):
         fetch_client_credentials_token(
             ClientCredentials(
                 token_url="https://idp.example/token",
