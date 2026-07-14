@@ -18,6 +18,15 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
 )
+from fastmcp_extensions.auth import (
+    ClientCredentials,
+    IntrospectionAuthConfig,
+    JWTAuthConfig,
+    OIDCAuthConfig,
+    build_mcp_auth,
+    fetch_client_credentials_token,
+    resolve_mcp_auth,
+)
 from fastmcp_extensions.decorators import (
     mcp_prompt,
     mcp_provider,
@@ -40,8 +49,12 @@ from fastmcp_extensions.server_config import (
 from fastmcp_extensions.tool_filters import ToolFilterFn
 
 __all__ = [
+    "ClientCredentials",
+    "IntrospectionAuthConfig",
+    "JWTAuthConfig",
     "MCPServerConfig",
     "MCPServerConfigArg",
+    "OIDCAuthConfig",
     "PromptDef",
     "ResourceDef",
     "TelemetryRecord",
@@ -49,6 +62,8 @@ __all__ = [
     "ToolCallTelemetryMiddleware",
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
+    "build_mcp_auth",
+    "fetch_client_credentials_token",
     "get_mcp_config",
     "mcp_prompt",
     "mcp_provider",
@@ -58,4 +73,5 @@ __all__ = [
     "register_mcp_prompts",
     "register_mcp_resources",
     "register_mcp_tools",
+    "resolve_mcp_auth",
 ]
