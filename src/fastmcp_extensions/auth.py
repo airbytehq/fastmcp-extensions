@@ -79,22 +79,6 @@ DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 
 SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
-_TRUTHY_VALUES = frozenset({"1", "true", "yes"})
-
-AIRBYTE_CLOUD_REALM_ISSUER = (
-    "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
-)
-"""Issuer of Airbyte Cloud application (client-credentials) access tokens."""
-
-AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
-"""JWKS endpoint for verifying Airbyte Cloud application tokens."""
-
-AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
-"""Audience claim carried by Airbyte Cloud application tokens (Keycloak default)."""
-
-AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
-"""Signing algorithm used for Airbyte Cloud application tokens."""
-
 
 @dataclass
 class OIDCAuthConfig:
@@ -282,6 +266,8 @@ def _split_scopes(raw: str | None) -> list[str] | None:
 
 def resolve_mcp_auth(
     env: Mapping[str, str] | None = None,
+    *,
+    jwt_defaults: JWTAuthConfig | None = None,
 ) -> AuthProvider | None:
     """Build an `AuthProvider` from a standard set of environment variables.
 
@@ -300,12 +286,15 @@ def resolve_mcp_auth(
     - `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`)
     - `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE` (optional but recommended)
     - `MCP_AUTH_ALGORITHM` (optional)
-    - `MCP_AUTH_AIRBYTE_CLOUD` (`1`/`true`/`yes`): opt into Airbyte Cloud realm
-      defaults — fills `MCP_AUTH_JWKS_URI`, `MCP_AUTH_ISSUER`,
-      `MCP_AUTH_AUDIENCE`, and `MCP_AUTH_ALGORITHM` with the values Airbyte
-      Cloud uses for application (client-credentials) tokens, so the same token
-      a client mints for the Cloud API also authenticates MCP transport. Any of
-      those variables set explicitly overrides the corresponding default.
+
+    `jwt_defaults` lets a caller supply a batteries-included JWT verifier realm
+    (issuer / JWKS URI / audience / algorithm) without baking any provider
+    literals into this library. The headless verifier is configured whenever
+    `jwt_defaults` is given *or* an `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY`
+    is set; each `MCP_AUTH_*` variable overrides the matching `jwt_defaults`
+    field, so a deployment can point at its own realm while still getting the
+    supplied defaults for anything it leaves unset. Adopters gate this behind
+    their own env flag by passing `jwt_defaults` only when that flag is set.
 
     Headless opaque-token introspection (`IntrospectionTokenVerifier`):
 
@@ -351,35 +340,40 @@ def resolve_mcp_auth(
         )
 
     jwt: JWTAuthConfig | None = None
-    use_cloud_defaults = (
-        env.get("MCP_AUTH_AIRBYTE_CLOUD") or ""
-    ).strip().lower() in _TRUTHY_VALUES
     jwks_uri = env.get("MCP_AUTH_JWKS_URI") or ""
     jwt_public_key = env.get("MCP_AUTH_JWT_PUBLIC_KEY") or ""
-    if use_cloud_defaults and not jwks_uri and not jwt_public_key:
-        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
-    if jwks_uri or jwt_public_key:
+    if jwks_uri or jwt_public_key or jwt_defaults is not None:
+        resolved_jwks = (
+            jwks_uri or (jwt_defaults.jwks_uri if jwt_defaults else None) or None
+        )
+        resolved_public_key = (
+            jwt_public_key
+            or (jwt_defaults.public_key if jwt_defaults else None)
+            or None
+        )
         issuer = env.get("MCP_AUTH_ISSUER") or (
-            AIRBYTE_CLOUD_REALM_ISSUER if use_cloud_defaults else None
+            jwt_defaults.issuer if jwt_defaults else None
         )
         audience = env.get("MCP_AUTH_AUDIENCE") or (
-            AIRBYTE_CLOUD_JWT_AUDIENCE if use_cloud_defaults else None
+            jwt_defaults.audience if jwt_defaults else None
         )
         algorithm = env.get("MCP_AUTH_ALGORITHM") or (
-            AIRBYTE_CLOUD_JWT_ALGORITHM if use_cloud_defaults else None
+            jwt_defaults.algorithm if jwt_defaults else None
         )
         logger.info(
             "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
-            jwks_uri or "<static public key>",
+            resolved_jwks or "<static public key>",
             issuer,
             audience,
         )
         jwt = JWTAuthConfig(
-            jwks_uri=jwks_uri or None,
-            public_key=jwt_public_key or None,
+            jwks_uri=resolved_jwks,
+            public_key=resolved_public_key,
             issuer=issuer,
             audience=audience,
             algorithm=algorithm,
+            required_scopes=jwt_defaults.required_scopes if jwt_defaults else None,
+            base_url=(jwt_defaults.base_url if jwt_defaults else None) or base_url,
         )
 
     introspection: IntrospectionAuthConfig | None = None

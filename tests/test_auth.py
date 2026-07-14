@@ -13,9 +13,6 @@ from fastmcp.server.auth.providers.jwt import (
 )
 
 from fastmcp_extensions.auth import (
-    AIRBYTE_CLOUD_JWKS_URI,
-    AIRBYTE_CLOUD_JWT_AUDIENCE,
-    AIRBYTE_CLOUD_REALM_ISSUER,
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
@@ -129,25 +126,39 @@ def test_resolve_mcp_auth_headless_jwt_from_env() -> None:
 
 
 @pytest.mark.unit
-def test_resolve_mcp_auth_airbyte_cloud_defaults() -> None:
-    auth = resolve_mcp_auth(env={"MCP_AUTH_AIRBYTE_CLOUD": "true"})
+def test_resolve_mcp_auth_jwt_defaults_applied() -> None:
+    auth = resolve_mcp_auth(
+        env={},
+        jwt_defaults=JWTAuthConfig(
+            jwks_uri="https://realm.example/jwks.json",
+            issuer="https://realm.example/",
+            audience="realm-aud",
+        ),
+    )
     assert isinstance(auth, JWTVerifier)
-    assert auth.jwks_uri == AIRBYTE_CLOUD_JWKS_URI
-    assert auth.issuer == AIRBYTE_CLOUD_REALM_ISSUER
-    assert auth.audience == AIRBYTE_CLOUD_JWT_AUDIENCE
+    assert auth.jwks_uri == "https://realm.example/jwks.json"
+    assert auth.issuer == "https://realm.example/"
+    assert auth.audience == "realm-aud"
 
 
 @pytest.mark.unit
-def test_resolve_mcp_auth_explicit_env_overrides_cloud_defaults() -> None:
+def test_resolve_mcp_auth_env_overrides_jwt_defaults() -> None:
     auth = resolve_mcp_auth(
-        env={
-            "MCP_AUTH_AIRBYTE_CLOUD": "1",
-            "MCP_AUTH_ISSUER": "https://custom.example/",
-        }
+        env={"MCP_AUTH_ISSUER": "https://custom.example/"},
+        jwt_defaults=JWTAuthConfig(
+            jwks_uri="https://realm.example/jwks.json",
+            issuer="https://realm.example/",
+            audience="realm-aud",
+        ),
     )
     assert isinstance(auth, JWTVerifier)
-    assert auth.jwks_uri == AIRBYTE_CLOUD_JWKS_URI
+    assert auth.jwks_uri == "https://realm.example/jwks.json"
     assert auth.issuer == "https://custom.example/"
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_none_without_jwt_defaults_or_env() -> None:
+    assert resolve_mcp_auth(env={}, jwt_defaults=None) is None
 
 
 @pytest.mark.unit
