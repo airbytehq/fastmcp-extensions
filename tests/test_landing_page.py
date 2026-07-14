@@ -60,6 +60,28 @@ def test_render_escapes_endpoint_and_docs_urls() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("field", ["docs_url", "powered_by_url"])
+def test_render_rejects_unsafe_href_scheme(field: str) -> None:
+    """`javascript:`/`data:` URLs in href fields raise instead of rendering."""
+    kwargs = {
+        "title": "S",
+        "endpoint_url": "https://e/mcp",
+        field: "javascript:alert(1)",
+    }
+    with pytest.raises(ValueError, match="Unsafe URL scheme"):
+        render_default_landing_html(LandingPageContent(**kwargs))
+
+
+@pytest.mark.unit
+def test_render_allows_relative_docs_url() -> None:
+    """Relative (scheme-less) href URLs are permitted."""
+    html = render_default_landing_html(
+        LandingPageContent(title="S", endpoint_url="https://e/mcp", docs_url="/docs")
+    )
+    assert 'href="/docs"' in html
+
+
+@pytest.mark.unit
 def test_register_adds_get_route() -> None:
     """register_landing_page registers a GET route at the given path."""
     app = FastMCP("t")

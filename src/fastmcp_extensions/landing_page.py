@@ -48,6 +48,7 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from starlette.responses import HTMLResponse
 
@@ -56,6 +57,22 @@ if TYPE_CHECKING:
 
     from fastmcp import FastMCP
     from starlette.requests import Request
+
+SAFE_URL_SCHEMES = frozenset({"http", "https"})
+
+
+def _safe_href(url: str) -> str:
+    """Return an HTML-escaped URL safe to place in an `href` attribute.
+
+    Rejects dangerous schemes such as `javascript:` or `data:` that survive
+    HTML escaping. Relative URLs (no scheme) and `http`/`https` are allowed.
+    """
+    scheme = urlsplit(url).scheme.lower()
+    if scheme and scheme not in SAFE_URL_SCHEMES:
+        msg = f"Unsafe URL scheme {scheme!r}; only http, https, or relative URLs are allowed."
+        raise ValueError(msg)
+    return html.escape(url)
+
 
 DEFAULT_DESCRIPTION = (
     "This URL is an <strong>MCP endpoint</strong>, not a web page. Add it to an "
@@ -90,17 +107,19 @@ class LandingPageContent:
 def render_default_landing_html(content: LandingPageContent) -> str:
     """Render the built-in branded landing page for an MCP endpoint.
 
-    The `endpoint_url`, `docs_url`, and `powered_by_url` values are HTML-escaped.
-    The `description` is emitted as-is (see `LandingPageContent`).
+    The `endpoint_url` is HTML-escaped for text display, and `docs_url` /
+    `powered_by_url` are validated and escaped for use in `href` attributes
+    (schemes other than `http`/`https`/relative raise `ValueError`). The
+    `description` is emitted as-is (see `LandingPageContent`).
     """
     safe_title = html.escape(content.title)
     safe_url = html.escape(content.endpoint_url)
-    safe_powered_by = html.escape(content.powered_by_url)
+    safe_powered_by = _safe_href(content.powered_by_url)
     description = content.description or DEFAULT_DESCRIPTION
 
     docs_button = ""
     if content.docs_url:
-        safe_docs = html.escape(content.docs_url)
+        safe_docs = _safe_href(content.docs_url)
         docs_button = f'<a class="btn" href="{safe_docs}">Setup instructions &rarr;</a>'
 
     return f"""<!DOCTYPE html>
