@@ -33,6 +33,11 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
+from fastmcp_extensions.landing_page import (
+    LandingPageContent,
+    register_landing_page,
+    render_default_landing_html,
+)
 from fastmcp_extensions.registration import (
     PromptDef,
     ResourceDef,
@@ -52,6 +57,7 @@ __all__ = [
     "ClientCredentials",
     "IntrospectionAuthConfig",
     "JWTAuthConfig",
+    "LandingPageContent",
     "MCPServerConfig",
     "MCPServerConfigArg",
     "OIDCAuthConfig",
@@ -70,8 +76,10 @@ __all__ = [
     "mcp_resource",
     "mcp_server",
     "mcp_tool",
+    "register_landing_page",
     "register_mcp_prompts",
     "register_mcp_resources",
     "register_mcp_tools",
+    "render_default_landing_html",
     "resolve_mcp_auth",
 ]

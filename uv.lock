@@ -637,6 +637,7 @@ dependencies = [
     { name = "mcp" },
     { name = "segment-analytics-python" },
     { name = "sentry-sdk" },
+    { name = "starlette" },
     { name = "uvicorn" },
 ]
 
@@ -681,6 +682,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "segment-analytics-python", specifier = ">=2.3,<3.0" },
     { name = "sentry-sdk", specifier = ">=2.0,<3.0" },
+    { name = "starlette" },
     { name = "uvicorn" },
 ]
 provides-extras = ["cli", "dev"]
