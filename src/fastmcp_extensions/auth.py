@@ -73,6 +73,8 @@ from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import IntrospectionTokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier, StaticTokenVerifier
 
+from fastmcp_extensions.utils.env import get_env
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
@@ -315,13 +317,13 @@ def resolve_mcp_auth(
     caller can decide whether to run unauthenticated.
     """
     env = os.environ if env is None else env
-    base_url = env.get("MCP_SERVER_URL") or None
-    required_scopes = _split_scopes(env.get("MCP_AUTH_REQUIRED_SCOPES"))
+    base_url = get_env(env, "MCP_SERVER_URL")
+    required_scopes = _split_scopes(get_env(env, "MCP_AUTH_REQUIRED_SCOPES"))
 
     oidc: OIDCAuthConfig | None = None
-    oidc_config_url = env.get("OIDC_CONFIG_URL") or ""
-    oidc_client_id = env.get("OIDC_CLIENT_ID") or ""
-    oidc_client_secret = env.get("OIDC_CLIENT_SECRET") or ""
+    oidc_config_url = get_env(env, "OIDC_CONFIG_URL", "")
+    oidc_client_id = get_env(env, "OIDC_CLIENT_ID", "")
+    oidc_client_secret = get_env(env, "OIDC_CLIENT_SECRET", "")
     if oidc_config_url and oidc_client_id and oidc_client_secret:
         logger.info(
             "Interactive OIDC auth enabled (config_url=%s, base_url=%s)",
@@ -333,7 +335,7 @@ def resolve_mcp_auth(
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,
-            audience=env.get("OIDC_AUDIENCE") or None,
+            audience=get_env(env, "OIDC_AUDIENCE"),
         )
     elif oidc_config_url:
         logger.warning(
@@ -343,8 +345,8 @@ def resolve_mcp_auth(
         )
 
     jwt: JWTAuthConfig | None = None
-    jwks_uri = env.get("MCP_AUTH_JWKS_URI") or ""
-    jwt_public_key = env.get("MCP_AUTH_JWT_PUBLIC_KEY") or ""
+    jwks_uri = get_env(env, "MCP_AUTH_JWKS_URI", "")
+    jwt_public_key = get_env(env, "MCP_AUTH_JWT_PUBLIC_KEY", "")
     if jwks_uri or jwt_public_key or jwt_defaults is not None:
         resolved_jwks = (
             jwks_uri or (jwt_defaults.jwks_uri if jwt_defaults else None) or None
@@ -354,13 +356,13 @@ def resolve_mcp_auth(
             or (jwt_defaults.public_key if jwt_defaults else None)
             or None
         )
-        issuer = env.get("MCP_AUTH_ISSUER") or (
+        issuer = get_env(env, "MCP_AUTH_ISSUER") or (
             jwt_defaults.issuer if jwt_defaults else None
         )
-        audience = env.get("MCP_AUTH_AUDIENCE") or (
+        audience = get_env(env, "MCP_AUTH_AUDIENCE") or (
             jwt_defaults.audience if jwt_defaults else None
         )
-        algorithm = env.get("MCP_AUTH_ALGORITHM") or (
+        algorithm = get_env(env, "MCP_AUTH_ALGORITHM") or (
             jwt_defaults.algorithm if jwt_defaults else None
         )
         logger.info(
@@ -381,12 +383,13 @@ def resolve_mcp_auth(
         )
 
     introspection: IntrospectionAuthConfig | None = None
-    if env.get("MCP_AUTH_INTROSPECTION_URL"):
-        client_id = env.get("MCP_AUTH_INTROSPECTION_CLIENT_ID") or env.get(
-            "OIDC_CLIENT_ID"
+    introspection_url = get_env(env, "MCP_AUTH_INTROSPECTION_URL")
+    if introspection_url:
+        client_id = get_env(env, "MCP_AUTH_INTROSPECTION_CLIENT_ID") or get_env(
+            env, "OIDC_CLIENT_ID"
         )
-        client_secret = env.get("MCP_AUTH_INTROSPECTION_CLIENT_SECRET") or env.get(
-            "OIDC_CLIENT_SECRET"
+        client_secret = get_env(env, "MCP_AUTH_INTROSPECTION_CLIENT_SECRET") or get_env(
+            env, "OIDC_CLIENT_SECRET"
         )
         if not client_id or not client_secret:
             raise ValueError(
@@ -396,7 +399,7 @@ def resolve_mcp_auth(
                 "OIDC_CLIENT_SECRET)."
             )
         introspection = IntrospectionAuthConfig(
-            introspection_url=env["MCP_AUTH_INTROSPECTION_URL"],
+            introspection_url=introspection_url,
             client_id=client_id,
             client_secret=client_secret,
         )
