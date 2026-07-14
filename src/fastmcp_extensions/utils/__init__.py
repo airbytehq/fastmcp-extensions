@@ -8,6 +8,7 @@ Submodules:
     - test_tool: MCP tool testing utilities (stdio and HTTP transports)
     - describe_server: MCP server description and measurement utilities
     - docs: Markdown documentation generator for a FastMCP server
+    - env: Environment-variable helpers for resolving server configuration
 """
 
 from fastmcp_extensions.utils.describe_server import (
@@ -19,6 +20,9 @@ from fastmcp_extensions.utils.describe_server import (
 )
 from fastmcp_extensions.utils.docs import (
     generate_markdown_docs,
+)
+from fastmcp_extensions.utils.env import (
+    get_env,
 )
 from fastmcp_extensions.utils.test_tool import (
     call_mcp_tool,
@@ -34,6 +38,7 @@ __all__ = [
     "call_mcp_tool",
     "find_free_port",
     "generate_markdown_docs",
+    "get_env",
     "get_tool_details",
     "list_mcp_tools",
     "measure_tool_list",

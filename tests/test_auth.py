@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the reusable MCP auth factory and token-exchange helper."""
 
+import logging
+
 import httpx
 import pytest
 from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
@@ -121,6 +123,57 @@ def test_resolve_mcp_auth_headless_jwt_from_env() -> None:
         }
     )
     assert isinstance(auth, JWTVerifier)
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_jwt_defaults_applied() -> None:
+    auth = resolve_mcp_auth(
+        env={},
+        jwt_defaults=JWTAuthConfig(
+            jwks_uri="https://realm.example/jwks.json",
+            issuer="https://realm.example/",
+            audience="realm-aud",
+        ),
+    )
+    assert isinstance(auth, JWTVerifier)
+    assert auth.jwks_uri == "https://realm.example/jwks.json"
+    assert auth.issuer == "https://realm.example/"
+    assert auth.audience == "realm-aud"
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_env_overrides_jwt_defaults() -> None:
+    auth = resolve_mcp_auth(
+        env={"MCP_AUTH_ISSUER": "https://custom.example/"},
+        jwt_defaults=JWTAuthConfig(
+            jwks_uri="https://realm.example/jwks.json",
+            issuer="https://realm.example/",
+            audience="realm-aud",
+        ),
+    )
+    assert isinstance(auth, JWTVerifier)
+    assert auth.jwks_uri == "https://realm.example/jwks.json"
+    assert auth.issuer == "https://custom.example/"
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_none_without_jwt_defaults_or_env() -> None:
+    assert resolve_mcp_auth(env={}, jwt_defaults=None) is None
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_partial_oidc_warns_and_disables(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        auth = resolve_mcp_auth(
+            env={"OIDC_CONFIG_URL": "https://idp.example/.well-known/openid"}
+        )
+    assert auth is None
+    assert any(
+        "Incomplete interactive OIDC configuration" in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.unit
