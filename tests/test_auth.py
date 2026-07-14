@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the reusable MCP auth factory and token-exchange helper."""
 
+import logging
+
 import httpx
 import pytest
 from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
@@ -11,6 +13,9 @@ from fastmcp.server.auth.providers.jwt import (
 )
 
 from fastmcp_extensions.auth import (
+    AIRBYTE_CLOUD_JWKS_URI,
+    AIRBYTE_CLOUD_JWT_AUDIENCE,
+    AIRBYTE_CLOUD_REALM_ISSUER,
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
@@ -121,6 +126,43 @@ def test_resolve_mcp_auth_headless_jwt_from_env() -> None:
         }
     )
     assert isinstance(auth, JWTVerifier)
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_airbyte_cloud_defaults() -> None:
+    auth = resolve_mcp_auth(env={"MCP_AUTH_AIRBYTE_CLOUD": "true"})
+    assert isinstance(auth, JWTVerifier)
+    assert auth.jwks_uri == AIRBYTE_CLOUD_JWKS_URI
+    assert auth.issuer == AIRBYTE_CLOUD_REALM_ISSUER
+    assert auth.audience == AIRBYTE_CLOUD_JWT_AUDIENCE
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_explicit_env_overrides_cloud_defaults() -> None:
+    auth = resolve_mcp_auth(
+        env={
+            "MCP_AUTH_AIRBYTE_CLOUD": "1",
+            "MCP_AUTH_ISSUER": "https://custom.example/",
+        }
+    )
+    assert isinstance(auth, JWTVerifier)
+    assert auth.jwks_uri == AIRBYTE_CLOUD_JWKS_URI
+    assert auth.issuer == "https://custom.example/"
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_partial_oidc_warns_and_disables(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        auth = resolve_mcp_auth(
+            env={"OIDC_CONFIG_URL": "https://idp.example/.well-known/openid"}
+        )
+    assert auth is None
+    assert any(
+        "Incomplete interactive OIDC configuration" in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.unit

@@ -19,6 +19,10 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryRecord,
 )
 from fastmcp_extensions.auth import (
+    AIRBYTE_CLOUD_JWKS_URI,
+    AIRBYTE_CLOUD_JWT_ALGORITHM,
+    AIRBYTE_CLOUD_JWT_AUDIENCE,
+    AIRBYTE_CLOUD_REALM_ISSUER,
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
@@ -49,6 +53,10 @@ from fastmcp_extensions.server_config import (
 from fastmcp_extensions.tool_filters import ToolFilterFn
 
 __all__ = [
+    "AIRBYTE_CLOUD_JWKS_URI",
+    "AIRBYTE_CLOUD_JWT_ALGORITHM",
+    "AIRBYTE_CLOUD_JWT_AUDIENCE",
+    "AIRBYTE_CLOUD_REALM_ISSUER",
     "ClientCredentials",
     "IntrospectionAuthConfig",
     "JWTAuthConfig",

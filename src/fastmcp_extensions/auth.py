@@ -79,6 +79,22 @@ DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 
 SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
+_TRUTHY_VALUES = frozenset({"1", "true", "yes"})
+
+AIRBYTE_CLOUD_REALM_ISSUER = (
+    "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
+)
+"""Issuer of Airbyte Cloud application (client-credentials) access tokens."""
+
+AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
+"""JWKS endpoint for verifying Airbyte Cloud application tokens."""
+
+AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
+"""Audience claim carried by Airbyte Cloud application tokens (Keycloak default)."""
+
+AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
+"""Signing algorithm used for Airbyte Cloud application tokens."""
+
 
 @dataclass
 class OIDCAuthConfig:
@@ -284,6 +300,12 @@ def resolve_mcp_auth(
     - `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`)
     - `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE` (optional but recommended)
     - `MCP_AUTH_ALGORITHM` (optional)
+    - `MCP_AUTH_AIRBYTE_CLOUD` (`1`/`true`/`yes`): opt into Airbyte Cloud realm
+      defaults — fills `MCP_AUTH_JWKS_URI`, `MCP_AUTH_ISSUER`,
+      `MCP_AUTH_AUDIENCE`, and `MCP_AUTH_ALGORITHM` with the values Airbyte
+      Cloud uses for application (client-credentials) tokens, so the same token
+      a client mints for the Cloud API also authenticates MCP transport. Any of
+      those variables set explicitly overrides the corresponding default.
 
     Headless opaque-token introspection (`IntrospectionTokenVerifier`):
 
@@ -295,30 +317,69 @@ def resolve_mcp_auth(
 
     - `MCP_AUTH_REQUIRED_SCOPES` (comma or space separated)
 
-    Returns `None` when no auth is configured.
+    Interactive OIDC requires all of `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
+    `OIDC_CLIENT_SECRET`; when some but not all are set a warning is logged and
+    interactive auth is left disabled. Returns `None` when no auth is
+    configured, so an HTTP caller can decide whether to run unauthenticated.
     """
     env = os.environ if env is None else env
     base_url = env.get("MCP_SERVER_URL") or None
     required_scopes = _split_scopes(env.get("MCP_AUTH_REQUIRED_SCOPES"))
 
     oidc: OIDCAuthConfig | None = None
-    if env.get("OIDC_CONFIG_URL") and env.get("OIDC_CLIENT_ID"):
+    oidc_config_url = env.get("OIDC_CONFIG_URL") or ""
+    oidc_client_id = env.get("OIDC_CLIENT_ID") or ""
+    oidc_client_secret = env.get("OIDC_CLIENT_SECRET") or ""
+    if oidc_config_url and oidc_client_id and oidc_client_secret:
+        logger.info(
+            "Interactive OIDC auth enabled (config_url=%s, base_url=%s)",
+            oidc_config_url,
+            base_url,
+        )
         oidc = OIDCAuthConfig(
-            config_url=env["OIDC_CONFIG_URL"],
-            client_id=env["OIDC_CLIENT_ID"],
-            client_secret=env.get("OIDC_CLIENT_SECRET") or None,
+            config_url=oidc_config_url,
+            client_id=oidc_client_id,
+            client_secret=oidc_client_secret,
             base_url=base_url,
             audience=env.get("OIDC_AUDIENCE") or None,
         )
+    elif oidc_config_url or oidc_client_id or oidc_client_secret:
+        logger.warning(
+            "Incomplete interactive OIDC configuration: set all of "
+            "OIDC_CONFIG_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET to enable "
+            "it. Interactive OIDC auth is disabled."
+        )
 
     jwt: JWTAuthConfig | None = None
-    if env.get("MCP_AUTH_JWKS_URI") or env.get("MCP_AUTH_JWT_PUBLIC_KEY"):
+    use_cloud_defaults = (
+        env.get("MCP_AUTH_AIRBYTE_CLOUD") or ""
+    ).strip().lower() in _TRUTHY_VALUES
+    jwks_uri = env.get("MCP_AUTH_JWKS_URI") or ""
+    jwt_public_key = env.get("MCP_AUTH_JWT_PUBLIC_KEY") or ""
+    if use_cloud_defaults and not jwks_uri and not jwt_public_key:
+        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
+    if jwks_uri or jwt_public_key:
+        issuer = env.get("MCP_AUTH_ISSUER") or (
+            AIRBYTE_CLOUD_REALM_ISSUER if use_cloud_defaults else None
+        )
+        audience = env.get("MCP_AUTH_AUDIENCE") or (
+            AIRBYTE_CLOUD_JWT_AUDIENCE if use_cloud_defaults else None
+        )
+        algorithm = env.get("MCP_AUTH_ALGORITHM") or (
+            AIRBYTE_CLOUD_JWT_ALGORITHM if use_cloud_defaults else None
+        )
+        logger.info(
+            "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
+            jwks_uri or "<static public key>",
+            issuer,
+            audience,
+        )
         jwt = JWTAuthConfig(
-            jwks_uri=env.get("MCP_AUTH_JWKS_URI") or None,
-            public_key=env.get("MCP_AUTH_JWT_PUBLIC_KEY") or None,
-            issuer=env.get("MCP_AUTH_ISSUER") or None,
-            audience=env.get("MCP_AUTH_AUDIENCE") or None,
-            algorithm=env.get("MCP_AUTH_ALGORITHM") or None,
+            jwks_uri=jwks_uri or None,
+            public_key=jwt_public_key or None,
+            issuer=issuer,
+            audience=audience,
+            algorithm=algorithm,
         )
 
     introspection: IntrospectionAuthConfig | None = None
