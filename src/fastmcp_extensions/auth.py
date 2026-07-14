@@ -307,9 +307,12 @@ def resolve_mcp_auth(
     - `MCP_AUTH_REQUIRED_SCOPES` (comma or space separated)
 
     Interactive OIDC requires all of `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
-    `OIDC_CLIENT_SECRET`; when some but not all are set a warning is logged and
-    interactive auth is left disabled. Returns `None` when no auth is
-    configured, so an HTTP caller can decide whether to run unauthenticated.
+    `OIDC_CLIENT_SECRET`; when `OIDC_CONFIG_URL` is set but the client
+    credentials are missing a warning is logged and interactive auth is left
+    disabled. (`OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` without `OIDC_CONFIG_URL`
+    are treated as introspection fallback credentials, not partial OIDC, so
+    they do not warn.) Returns `None` when no auth is configured, so an HTTP
+    caller can decide whether to run unauthenticated.
     """
     env = os.environ if env is None else env
     base_url = env.get("MCP_SERVER_URL") or None
@@ -332,11 +335,11 @@ def resolve_mcp_auth(
             base_url=base_url,
             audience=env.get("OIDC_AUDIENCE") or None,
         )
-    elif oidc_config_url or oidc_client_id or oidc_client_secret:
+    elif oidc_config_url:
         logger.warning(
-            "Incomplete interactive OIDC configuration: set all of "
-            "OIDC_CONFIG_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET to enable "
-            "it. Interactive OIDC auth is disabled."
+            "Incomplete interactive OIDC configuration: OIDC_CONFIG_URL is set "
+            "but OIDC_CLIENT_ID and/or OIDC_CLIENT_SECRET are missing. "
+            "Interactive OIDC auth is disabled."
         )
 
     jwt: JWTAuthConfig | None = None
@@ -372,8 +375,9 @@ def resolve_mcp_auth(
             issuer=issuer,
             audience=audience,
             algorithm=algorithm,
-            required_scopes=jwt_defaults.required_scopes if jwt_defaults else None,
-            base_url=(jwt_defaults.base_url if jwt_defaults else None) or base_url,
+            required_scopes=required_scopes
+            or (jwt_defaults.required_scopes if jwt_defaults else None),
+            base_url=base_url or (jwt_defaults.base_url if jwt_defaults else None),
         )
 
     introspection: IntrospectionAuthConfig | None = None
