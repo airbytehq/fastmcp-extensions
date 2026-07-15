@@ -16,7 +16,9 @@ from fastmcp_extensions.auth import (
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
+    OIDCAuthConfig,
     _assemble_auth,
+    _env_bool,
     build_mcp_auth,
     fetch_client_credentials_token,
     resolve_mcp_auth,
@@ -174,6 +176,101 @@ def test_resolve_mcp_auth_partial_oidc_warns_and_disables(
         "Incomplete interactive OIDC configuration" in record.message
         for record in caplog.records
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        pytest.param(None, False, id="unset_uses_default"),
+        pytest.param("", False, id="empty_uses_default"),
+        pytest.param("true", True, id="true"),
+        pytest.param("TRUE", True, id="true_uppercase"),
+        pytest.param("1", True, id="one"),
+        pytest.param("yes", True, id="yes"),
+        pytest.param("on", True, id="on"),
+        pytest.param("false", False, id="false"),
+        pytest.param("0", False, id="zero"),
+        pytest.param(" no ", False, id="no_whitespace"),
+    ],
+)
+def test_env_bool(raw: str | None, expected: bool) -> None:
+    env = {} if raw is None else {"FLAG": raw}
+    assert _env_bool(env, "FLAG", default=False) is expected
+
+
+@pytest.mark.unit
+def test_env_bool_invalid_raises() -> None:
+    with pytest.raises(ValueError, match="Invalid boolean value for FLAG"):
+        _env_bool({"FLAG": "maybe"}, "FLAG", default=False)
+
+
+class _CapturingOIDCProxy:
+    """Stand-in for `OIDCProxy` that records kwargs without network I/O.
+
+    The real `OIDCProxy` fetches the OIDC discovery document at construction,
+    so these plumbing tests substitute this fake to assert what
+    `_build_oidc_proxy` / `resolve_mcp_auth` pass through.
+    """
+
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_kwargs,expected",
+    [
+        pytest.param({}, False, id="default_false"),
+        pytest.param({"forward_resource": True}, True, id="explicit_true"),
+        pytest.param({"forward_resource": False}, False, id="explicit_false"),
+    ],
+)
+def test_build_mcp_auth_forwards_resource_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    config_kwargs: dict[str, bool],
+    expected: bool,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = build_mcp_auth(
+        oidc=OIDCAuthConfig(
+            config_url="https://idp.example/.well-known/openid-configuration",
+            client_id="cid",
+            client_secret="sec",
+            base_url="https://mcp.example",
+            **config_kwargs,
+        )
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["forward_resource"] is expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "env_value,expected",
+    [
+        pytest.param(None, False, id="unset_defaults_false"),
+        pytest.param("true", True, id="env_true"),
+        pytest.param("false", False, id="env_false"),
+    ],
+)
+def test_resolve_mcp_auth_oidc_forward_resource_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    env_value: str | None,
+    expected: bool,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    env = {
+        "OIDC_CONFIG_URL": "https://idp.example/.well-known/openid-configuration",
+        "OIDC_CLIENT_ID": "cid",
+        "OIDC_CLIENT_SECRET": "sec",
+        "MCP_SERVER_URL": "https://mcp.example",
+    }
+    if env_value is not None:
+        env["OIDC_FORWARD_RESOURCE"] = env_value
+    auth = resolve_mcp_auth(env=env)
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["forward_resource"] is expected
 
 
 @pytest.mark.unit

@@ -98,6 +98,24 @@ class OIDCAuthConfig:
     base_url: str | None = None
     audience: str | None = None
     required_scopes: list[str] | None = None
+    forward_resource: bool = False
+    """Whether to forward the client's RFC 8707 `resource` indicator to the
+    upstream IdP token request.
+
+    MCP clients send `resource=<this MCP server's URL>` so the issued token is
+    audience-bound to the MCP server. `OIDCProxy` swaps that MCP-facing token
+    for the **upstream** access token and exposes the upstream token to tools
+    (via `get_access_token`), which servers then reuse as the bearer for
+    downstream first-party APIs. If the `resource` indicator is forwarded, the
+    upstream IdP narrows the upstream token's audience to the MCP server, and
+    the downstream API rejects it (`401`).
+
+    Defaults to `False` so the upstream token keeps its default audience and
+    stays valid for downstream API calls — the token-reuse pattern this factory
+    is built for. Set to `True` only when the upstream token is never reused
+    downstream and strict per-resource audience binding is required. Mirrors
+    `OIDCProxy(forward_resource=...)`, whose own default is `True`.
+    """
 
 
 @dataclass
@@ -182,6 +200,7 @@ def _build_oidc_proxy(config: OIDCAuthConfig, base_url: str | None) -> OIDCProxy
         base_url=resolved_base_url,
         audience=config.audience,
         required_scopes=config.required_scopes,
+        forward_resource=config.forward_resource,
     )
 
 
@@ -266,6 +285,31 @@ def _split_scopes(raw: str | None) -> list[str] | None:
     return scopes or None
 
 
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_FALSY = frozenset({"0", "false", "no", "off"})
+
+
+def _env_bool(env: Mapping[str, str], key: str, *, default: bool) -> bool:
+    """Parse a boolean env var, returning `default` when unset or empty.
+
+    Accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (case-insensitive).
+    Raises `ValueError` for any other non-empty value so a typo fails loudly
+    instead of silently falling back to the default.
+    """
+    raw = get_env(env, key)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in _TRUTHY:
+        return True
+    if normalized in _FALSY:
+        return False
+    raise ValueError(
+        f"Invalid boolean value for {key}: {raw!r}. "
+        f"Expected one of {sorted(_TRUTHY | _FALSY)}."
+    )
+
+
 def resolve_mcp_auth(
     env: Mapping[str, str] | None = None,
     *,
@@ -336,6 +380,7 @@ def resolve_mcp_auth(
             client_secret=oidc_client_secret,
             base_url=base_url,
             audience=get_env(env, "OIDC_AUDIENCE"),
+            forward_resource=_env_bool(env, "OIDC_FORWARD_RESOURCE", default=False),
         )
     elif oidc_config_url:
         logger.warning(
