@@ -115,6 +115,10 @@ class OIDCAuthConfig:
     is built for. Set to `True` only when the upstream token is never reused
     downstream and strict per-resource audience binding is required. Mirrors
     `OIDCProxy(forward_resource=...)`, whose own default is `True`.
+
+    Via the env-based entry point (`resolve_mcp_auth`), set this with the
+    `OIDC_FORWARD_RESOURCE` environment variable (accepts `1`/`true`/`yes`/`on`
+    and `0`/`false`/`no`/`off`, case-insensitive).
     """
 
 
@@ -300,6 +304,8 @@ def _env_bool(env: Mapping[str, str], key: str, *, default: bool) -> bool:
     if raw is None:
         return default
     normalized = raw.strip().lower()
+    if not normalized:
+        return default
     if normalized in _TRUTHY:
         return True
     if normalized in _FALSY:

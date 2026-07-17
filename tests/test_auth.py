@@ -184,6 +184,7 @@ def test_resolve_mcp_auth_partial_oidc_warns_and_disables(
     [
         pytest.param(None, False, id="unset_uses_default"),
         pytest.param("", False, id="empty_uses_default"),
+        pytest.param("   ", False, id="whitespace_only_uses_default"),
         pytest.param("true", True, id="true"),
         pytest.param("TRUE", True, id="true_uppercase"),
         pytest.param("1", True, id="one"),
