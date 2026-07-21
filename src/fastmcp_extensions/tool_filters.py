@@ -46,6 +46,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
@@ -94,6 +95,15 @@ CONFIG_EXCLUDE_TOOLS = "exclude_tools"
 CONFIG_NO_CLIENT_FILESYSTEM = "no_client_filesystem"
 """Config name for hiding tools that require client filesystem access."""
 
+CONFIG_TRUSTED_EXECUTION = "trusted_execution"
+"""Config name for the trusted-execution master gate.
+
+When disabled (the default), tools annotated `requiresClientFilesystem=True`
+(local connector execution, filesystem reads, cache/SQL, smoke tests) are hidden.
+Granular filters such as `no_client_filesystem` layer *under* this gate and can
+only further-restrict, never widen.
+"""
+
 # =============================================================================
 # Constants - Environment Variables
 # =============================================================================
@@ -116,6 +126,15 @@ ENV_EXCLUDE_TOOLS = "MCP_EXCLUDE_TOOLS"
 ENV_NO_CLIENT_FILESYSTEM = "MCP_NO_CLIENT_FILESYSTEM"
 """Environment variable for hiding tools that require client filesystem access."""
 
+ENV_TRUSTED_EXECUTION = "MCP_TRUSTED_EXECUTION"
+"""Environment variable for the trusted-execution master gate (generic default).
+
+This is the library's generic default env var. A host application may back the
+`trusted_execution` config with its own env var by supplying a replacement
+`MCPServerConfigArg` named `trusted_execution` (host-supplied config args take
+precedence over the standard ones); see `TRUSTED_EXECUTION_CONFIG_ARG`.
+"""
+
 # =============================================================================
 # Constants - HTTP Headers
 # =============================================================================
@@ -123,7 +142,7 @@ ENV_NO_CLIENT_FILESYSTEM = "MCP_NO_CLIENT_FILESYSTEM"
 HEADER_READONLY_MODE = "X-MCP-Readonly-Mode"
 """HTTP header for read-only mode."""
 
-HEADER_NO_DESTRUCTIVE_TOOLS = "X-No-Destructive-Tools"
+HEADER_NO_DESTRUCTIVE_TOOLS = "X-MCP-No-Destructive-Tools"
 """HTTP header for hiding destructive tools."""
 
 HEADER_EXCLUDE_MODULES = "X-MCP-Exclude-Modules"
@@ -135,8 +154,13 @@ HEADER_INCLUDE_MODULES = "X-MCP-Include-Modules"
 HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 """HTTP header for excluding specific tools by name."""
 
-HEADER_NO_CLIENT_FILESYSTEM = "X-MCP-No-Client-Filesystem"
-"""HTTP header for hiding tools that require client filesystem access."""
+# NOTE: `no_client_filesystem` and `trusted_execution` deliberately have no HTTP
+# header. They govern the backend host's filesystem/execution exposure profile,
+# which must be server-determined and never caller-controlled: a header source
+# would let a remote caller change the security footprint of the deployment.
+# The self-restricting filters above (readonly, no-destructive, module/tool
+# exclusion) keep their headers because a caller can only narrow their own
+# surface with them, never widen the host's.
 
 # =============================================================================
 # Constants - Annotation Keys
@@ -227,7 +251,6 @@ Can be set via X-MCP-Exclude-Tools HTTP header or MCP_EXCLUDE_TOOLS env var.
 
 NO_CLIENT_FILESYSTEM_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_NO_CLIENT_FILESYSTEM,
-    http_header_key=HEADER_NO_CLIENT_FILESYSTEM,
     env_var=ENV_NO_CLIENT_FILESYSTEM,
     default="0",
     required=False,
@@ -238,8 +261,28 @@ When set to `1` or `true`, tools annotated with `requiresClientFilesystem=True`
 will be hidden. Use this in hosted/remote environments where the client has
 no local filesystem.
 
-Can be set via `X-MCP-No-Client-Filesystem` HTTP header or
-`MCP_NO_CLIENT_FILESYSTEM` env var.
+Resolved from the `MCP_NO_CLIENT_FILESYSTEM` env var only. It has no HTTP header
+source on purpose: it governs the backend host's filesystem-exposure profile,
+which must not be caller-controllable.
+"""
+
+TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
+    name=CONFIG_TRUSTED_EXECUTION,
+    env_var=ENV_TRUSTED_EXECUTION,
+    default="0",
+    required=False,
+)
+"""Standard config arg for the trusted-execution master gate.
+
+Defaults to `0` (untrusted) on every transport, so a copied stdio registration
+grants no filesystem/execution capability until an operator explicitly opts in.
+Resolved from the `MCP_TRUSTED_EXECUTION` env var only, with no HTTP header
+source: the gate widens the tool surface, so it must never be caller-controlled.
+
+A host application may back this config with a different env var by supplying its
+own `MCPServerConfigArg(name="trusted_execution", env_var="...")` in
+`server_config_args`; host-supplied config args take precedence over the standard
+ones of the same name.
 """
 
 STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
@@ -249,6 +292,7 @@ STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
     INCLUDE_MODULES_CONFIG_ARG,
     EXCLUDE_TOOLS_CONFIG_ARG,
     NO_CLIENT_FILESYSTEM_CONFIG_ARG,
+    TRUSTED_EXECUTION_CONFIG_ARG,
 ]
 """List of all standard config args for tool filtering."""
 
@@ -361,8 +405,10 @@ def module_filter(tool: Tool, app: FastMCP) -> bool:
 
     if exclude_modules and include_modules:
         raise ValueError(
-            "Cannot specify both exclude_modules and include_modules. "
-            "These options are mutually exclusive."
+            "Incompatible module filter configuration: both `exclude_modules` and "
+            "`include_modules` are set, but they are mutually exclusive. "
+            "Remediation: configure only one of them (clear the other) and restart "
+            "the server."
         )
 
     # Get the tool's mcp_module from annotations
@@ -417,11 +463,95 @@ def no_client_filesystem_filter(tool: Tool, app: FastMCP) -> bool:
     return True
 
 
+def _is_truthy(value: str | None) -> bool:
+    """Return whether a config string represents an enabled/true value."""
+    return (value or "").strip().lower() in ("1", "true", "yes")
+
+
+def _is_http_transport_request() -> bool:
+    """Return whether the current call is being served over the HTTP transport.
+
+    `get_http_request` raises `RuntimeError` when there is no active HTTP request
+    (for example on the stdio transport), which is how we distinguish transports.
+    """
+    try:
+        get_http_request()
+    except RuntimeError:
+        return False
+    return True
+
+
+def is_trusted_execution_enabled(app: FastMCP) -> bool:
+    """Return whether trusted execution is enabled via server configuration.
+
+    Reads the `trusted_execution` config, which resolves from the server
+    environment only (there is deliberately no HTTP-header source: the gate
+    *widens* the tool surface, so it must never be caller-controlled). Defaults
+    to `False` when unset.
+    """
+    return _is_truthy(get_mcp_config(app, CONFIG_TRUSTED_EXECUTION))
+
+
+def trusted_execution_filter(tool: Tool, app: FastMCP) -> bool:
+    """Master gate hiding client-filesystem/exec tools unless trusted execution is on.
+
+    Trusted execution defaults to *off* on every transport, so a tool annotated
+    `requiresClientFilesystem=True` (local connector execution, filesystem reads,
+    cache/SQL, smoke tests) is hidden unless an operator explicitly enables the
+    gate via server configuration.
+
+    The gate is *permanently incompatible* with the HTTP transport: when the
+    current call is served over HTTP the gate is forced off regardless of
+    configuration, so a hosted deployment can never expose the local/exec
+    surface even if the env var is set. Granular filters such as
+    `no_client_filesystem_filter` layer *under* this gate -- because filters
+    compose with logical AND, they can only further-restrict, never widen.
+
+    Args:
+        tool: The tool to check.
+        app: The FastMCP app instance.
+
+    Returns:
+        `True` if the tool should be visible, `False` to hide it.
+    """
+    if is_trusted_execution_enabled(app) and not _is_http_transport_request():
+        return True
+    return not bool(get_annotation(tool, ANNOTATION_REQUIRES_CLIENT_FILESYSTEM, False))
+
+
+def assert_http_trusted_execution_disabled(app: FastMCP) -> None:
+    """Hard-fail when trusted execution is enabled; call from an HTTP entrypoint.
+
+    Invoke this from the HTTP transport entrypoint *before* serving. Trusted
+    execution grants local filesystem and connector-execution capability and is
+    permanently incompatible with HTTP/hosted access, so an explicit opt-in on an
+    HTTP server is a configuration error to surface loudly rather than silently
+    ignore. The `trusted_execution_filter` independently forces the gate off
+    per-request under HTTP, so this is a defense-in-depth startup guard.
+
+    Args:
+        app: The FastMCP app instance.
+
+    Raises:
+        RuntimeError: If trusted execution is enabled in the environment.
+    """
+    if is_trusted_execution_enabled(app):
+        raise RuntimeError(
+            "Trusted execution is enabled but is permanently incompatible with the "
+            "HTTP transport. Trusted execution grants local filesystem and connector "
+            "execution capability, which must never be reachable by a remote HTTP "
+            "caller. Remediation: unset the trusted-execution environment variable "
+            "(or set it to '0') for this HTTP/hosted deployment. Trusted execution is "
+            "only available on the stdio transport."
+        )
+
+
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
     readonly_mode_filter,
     no_destructive_tools_filter,
     module_filter,
     tool_exclusion_filter,
     no_client_filesystem_filter,
+    trusted_execution_filter,
 ]
 """List of all standard tool filter functions."""
