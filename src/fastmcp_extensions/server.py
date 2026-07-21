@@ -299,10 +299,16 @@ def mcp_server(
 
     app = FastMCP(name, **fastmcp_kwargs)
 
-    # Build the list of config args, including standard ones if requested
+    # Build the list of config args, including standard ones if requested.
+    # Host-supplied args take precedence over standard args of the same name, so
+    # a host can back a standard config (e.g. `trusted_execution`) with its own
+    # env var by supplying a replacement `MCPServerConfigArg`.
     all_config_args: list[MCPServerConfigArg] = list(server_config_args or [])
     if include_standard_tool_filters:
-        all_config_args.extend(STANDARD_CONFIG_ARGS)
+        provided_names = {arg.name for arg in all_config_args}
+        all_config_args.extend(
+            arg for arg in STANDARD_CONFIG_ARGS if arg.name not in provided_names
+        )
 
     config = MCPServerConfig(
         name=name,

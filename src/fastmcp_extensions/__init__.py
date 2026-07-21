@@ -51,7 +51,11 @@ from fastmcp_extensions.server_config import (
     MCPServerConfigArg,
     get_mcp_config,
 )
-from fastmcp_extensions.tool_filters import ToolFilterFn
+from fastmcp_extensions.tool_filters import (
+    ToolFilterFn,
+    assert_http_trusted_execution_disabled,
+    is_trusted_execution_enabled,
+)
 
 __all__ = [
     "ClientCredentials",
@@ -68,9 +72,11 @@ __all__ = [
     "ToolCallTelemetryMiddleware",
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
+    "assert_http_trusted_execution_disabled",
     "build_mcp_auth",
     "fetch_client_credentials_token",
     "get_mcp_config",
+    "is_trusted_execution_enabled",
     "mcp_prompt",
     "mcp_provider",
     "mcp_resource",
