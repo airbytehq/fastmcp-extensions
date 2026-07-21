@@ -49,7 +49,9 @@ def _make_tool(*, requires_client_filesystem: bool) -> Tool:
 
 def _stdio_transport() -> object:
     """Patch the HTTP-request lookup to simulate the stdio (non-HTTP) transport."""
-    return patch(_HTTP_REQUEST_PATH, side_effect=RuntimeError("No active HTTP request found."))
+    return patch(
+        _HTTP_REQUEST_PATH, side_effect=RuntimeError("No active HTTP request found.")
+    )
 
 
 def _http_transport() -> object:
@@ -215,7 +217,9 @@ def test_trusted_execution_filter_stdio(
     """On stdio the gate hides filesystem tools unless trusted execution is on."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
     tool = _make_tool(requires_client_filesystem=requires_fs)
-    with patch.dict(os.environ, {"MCP_TRUSTED_EXECUTION": trusted_value}), _stdio_transport():
+    with patch.dict(
+        os.environ, {"MCP_TRUSTED_EXECUTION": trusted_value}
+    ), _stdio_transport():
         assert trusted_execution_filter(tool, app) is expected_visible
 
 
