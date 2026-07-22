@@ -23,9 +23,14 @@ from fastmcp_extensions.auth import (
     IntrospectionAuthConfig,
     JWTAuthConfig,
     OIDCAuthConfig,
+    build_client_credentials_post_kwargs,
     build_mcp_auth,
     fetch_client_credentials_token,
     resolve_mcp_auth,
+)
+from fastmcp_extensions.client_credentials_middleware import (
+    ClientCredentialsExchangeMiddleware,
+    wrap_client_credentials,
 )
 from fastmcp_extensions.decorators import (
     mcp_prompt,
@@ -55,6 +60,7 @@ from fastmcp_extensions.tool_filters import ToolFilterFn
 
 __all__ = [
     "ClientCredentials",
+    "ClientCredentialsExchangeMiddleware",
     "IntrospectionAuthConfig",
     "JWTAuthConfig",
     "LandingPageContent",
@@ -68,6 +74,7 @@ __all__ = [
     "ToolCallTelemetryMiddleware",
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
+    "build_client_credentials_post_kwargs",
     "build_mcp_auth",
     "fetch_client_credentials_token",
     "get_mcp_config",
@@ -82,4 +89,5 @@ __all__ = [
     "register_mcp_tools",
     "render_default_landing_html",
     "resolve_mcp_auth",
+    "wrap_client_credentials",
 ]
