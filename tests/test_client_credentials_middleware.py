@@ -289,6 +289,10 @@ async def test_mint_token_success_posts_client_secret_post(
             id="non-json-body",
         ),
         pytest.param(
+            lambda _r: httpx.Response(200, json=["not", "an", "object"]),
+            id="non-object-json-body",
+        ),
+        pytest.param(
             lambda _r: httpx.Response(200, json={"token_type": "bearer"}),
             id="missing-access-token",
         ),

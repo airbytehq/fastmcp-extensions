@@ -546,6 +546,8 @@ def fetch_client_credentials_token(
         if owns_client:
             client.close()
 
+    if not isinstance(payload, dict):
+        raise ValueError("Token endpoint response was not a JSON object.")
     access_token = payload.get("access_token")
     if not access_token or not isinstance(access_token, str):
         raise ValueError("Token endpoint response did not contain an 'access_token'.")

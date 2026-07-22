@@ -125,33 +125,57 @@ class ClientCredentialsExchangeMiddleware:
         self._timeout_seconds = timeout_seconds
         # Maps a per-credential cache key to `(access_token, expiry_deadline)`,
         # where the deadline is a `time.monotonic()` value (not a wall-clock
-        # epoch). Expired entries are pruned under `_locks_guard` so the cache
-        # can't grow unbounded from a high-cardinality stream of credentials.
+        # epoch). Expired entries are pruned under `_locks_guard`, so the cache
+        # stays bounded to the credentials that are currently unexpired or in
+        # flight rather than accumulating every credential ever seen.
         self._token_cache: dict[str, tuple[str, float]] = {}
         # A lock per credential so a slow/unreachable token endpoint stalls only
         # the affected credential, not all Basic-auth traffic. `_locks_guard`
         # serializes creation of the per-credential locks themselves.
         self._locks: dict[str, asyncio.Lock] = {}
+        # In-flight reference count per credential lock, maintained under
+        # `_locks_guard`. A lock that has been handed out to a request but not
+        # yet acquired has a nonzero count, so pruning can't evict it out from
+        # under that request — which would otherwise let a second request build
+        # a different lock for the same credential and mint concurrently.
+        self._lock_refs: dict[str, int] = {}
         self._locks_guard = asyncio.Lock()
 
     async def _lock_for(self, cache_key: str) -> asyncio.Lock:
-        """Return the lock dedicated to `cache_key`, creating it on first use."""
+        """Return the lock dedicated to `cache_key`, creating it on first use.
+
+        Increments the in-flight reference count for `cache_key` so the returned
+        lock survives pruning until the caller releases it via `_release_lock`.
+        """
         async with self._locks_guard:
             self._prune_expired(time.monotonic(), keep=cache_key)
             lock = self._locks.get(cache_key)
             if lock is None:
                 lock = asyncio.Lock()
                 self._locks[cache_key] = lock
+            self._lock_refs[cache_key] = self._lock_refs.get(cache_key, 0) + 1
             return lock
+
+    async def _release_lock(self, cache_key: str) -> None:
+        """Drop one in-flight reference to `cache_key`'s lock; caller acquired it."""
+        async with self._locks_guard:
+            remaining = self._lock_refs.get(cache_key, 0) - 1
+            if remaining > 0:
+                self._lock_refs[cache_key] = remaining
+            else:
+                self._lock_refs.pop(cache_key, None)
 
     def _prune_expired(self, now: float, *, keep: str) -> None:
         """Drop expired token entries and their idle locks; caller holds the guard.
 
         Keeps the cache and lock dicts bounded to credentials that are currently
         cached or in flight, so an unbounded stream of distinct Basic credentials
-        can't leak memory. `keep` is the key whose lock is about to be used: its
-        lock is never pruned, but its token-cache entry still is when expired
-        (the caller re-mints under that lock, so a stale entry there is moot).
+        can't leak memory. A lock is pruned only when it has no in-flight
+        references (`_lock_refs`), is unlocked, and has no cache entry — so a lock
+        handed out to a request in progress is never evicted. `keep` is the key
+        whose lock is about to be used: its token-cache entry is still pruned when
+        expired (the caller re-mints under the lock, so a stale entry there is
+        moot).
         """
         expired = [
             key for key, (_, deadline) in self._token_cache.items() if deadline <= now
@@ -161,7 +185,10 @@ class ClientCredentialsExchangeMiddleware:
         stale_locks = [
             key
             for key, lock in self._locks.items()
-            if key != keep and key not in self._token_cache and not lock.locked()
+            if key != keep
+            and key not in self._token_cache
+            and not lock.locked()
+            and self._lock_refs.get(key, 0) == 0
         ]
         for key in stale_locks:
             del self._locks[key]
@@ -193,25 +220,30 @@ class ClientCredentialsExchangeMiddleware:
         cache_key = _cache_key(client_id, client_secret)
 
         lock = await self._lock_for(cache_key)
-        async with lock:
-            # Read the clock inside the lock so a delayed lock acquisition can't
-            # treat an already-expired cached token as still valid.
-            now = time.monotonic()
-            cached = self._token_cache.get(cache_key)
-            if cached is not None and cached[1] > now:
-                return cached[0]
+        try:
+            async with lock:
+                # Read the clock inside the lock so a delayed lock acquisition
+                # can't treat an already-expired cached token as still valid.
+                now = time.monotonic()
+                cached = self._token_cache.get(cache_key)
+                if cached is not None and cached[1] > now:
+                    return cached[0]
 
-            minted = await self._mint_token(client_id, client_secret)
-            if minted is None:
-                return None
+                minted = await self._mint_token(client_id, client_secret)
+                if minted is None:
+                    return None
 
-            # Base the expiry deadline on a fresh reading taken after the mint
-            # round-trip, so network latency isn't charged against the token's
-            # usable lifetime.
-            token, expires_in = minted
-            expiry = time.monotonic() + max(expires_in - self._expiry_margin_seconds, 0)
-            self._token_cache[cache_key] = (token, expiry)
-            return token
+                # Base the expiry deadline on a fresh reading taken after the
+                # mint round-trip, so network latency isn't charged against the
+                # token's usable lifetime.
+                token, expires_in = minted
+                expiry = time.monotonic() + max(
+                    expires_in - self._expiry_margin_seconds, 0
+                )
+                self._token_cache[cache_key] = (token, expiry)
+                return token
+        finally:
+            await self._release_lock(cache_key)
 
     async def _mint_token(
         self, client_id: str, client_secret: str
@@ -260,6 +292,12 @@ class ClientCredentialsExchangeMiddleware:
             logger.warning(
                 "Client-credentials token endpoint returned a non-JSON body; "
                 "passing request through for the verifier to reject."
+            )
+            return None
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Client-credentials token endpoint returned a non-object JSON "
+                "body; passing request through for the verifier to reject."
             )
             return None
         access_token = payload.get("access_token")
