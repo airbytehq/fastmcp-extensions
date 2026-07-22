@@ -484,21 +484,15 @@ class ClientCredentials:
     extra_params: dict[str, str] = field(default_factory=dict)
 
 
-def fetch_client_credentials_token(
+def build_client_credentials_post_kwargs(
     credentials: ClientCredentials,
-    *,
-    http_client: httpx.Client | None = None,
-    timeout_seconds: int = DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS,
-) -> str:
-    """Perform a client credentials grant and return the access token.
+) -> dict[str, Any]:
+    """Return the `httpx.post` kwargs for a client credentials grant request.
 
-    Headless clients call this to mint their own short-lived bearer token from
-    stable `client_id` / `client_secret` — no browser and no refresh token
-    required. The returned token is sent as `Authorization: Bearer <token>`.
-
-    Raises `httpx.HTTPStatusError` if the token endpoint returns an error,
-    `ValueError` if the response contains no `access_token`, and `ValueError`
-    if `credentials.auth_method` is not one of `SUPPORTED_CLIENT_AUTH_METHODS`.
+    Shapes the request per `credentials.auth_method`: `client_secret_post` puts
+    the credentials in the form body, `client_secret_basic` sends them via HTTP
+    Basic auth. Scope, audience, and `extra_params` are added when set. Raises
+    `ValueError` if `auth_method` is not one of `SUPPORTED_CLIENT_AUTH_METHODS`.
     """
     if credentials.auth_method not in SUPPORTED_CLIENT_AUTH_METHODS:
         raise ValueError(
@@ -521,6 +515,26 @@ def fetch_client_credentials_token(
     else:
         data["client_id"] = credentials.client_id
         data["client_secret"] = credentials.client_secret
+    return post_kwargs
+
+
+def fetch_client_credentials_token(
+    credentials: ClientCredentials,
+    *,
+    http_client: httpx.Client | None = None,
+    timeout_seconds: int = DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS,
+) -> str:
+    """Perform a client credentials grant and return the access token.
+
+    Headless clients call this to mint their own short-lived bearer token from
+    stable `client_id` / `client_secret` — no browser and no refresh token
+    required. The returned token is sent as `Authorization: Bearer <token>`.
+
+    Raises `httpx.HTTPStatusError` if the token endpoint returns an error,
+    `ValueError` if the response contains no `access_token`, and `ValueError`
+    if `credentials.auth_method` is not one of `SUPPORTED_CLIENT_AUTH_METHODS`.
+    """
+    post_kwargs = build_client_credentials_post_kwargs(credentials)
 
     owns_client = http_client is None
     client = http_client or httpx.Client(timeout=timeout_seconds)
@@ -532,6 +546,8 @@ def fetch_client_credentials_token(
         if owns_client:
             client.close()
 
+    if not isinstance(payload, dict):
+        raise ValueError("Token endpoint response was not a JSON object.")
     access_token = payload.get("access_token")
     if not access_token or not isinstance(access_token, str):
         raise ValueError("Token endpoint response did not contain an 'access_token'.")

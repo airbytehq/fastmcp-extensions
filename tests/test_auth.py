@@ -382,6 +382,24 @@ def test_fetch_client_credentials_token_missing_token_raises() -> None:
 
 
 @pytest.mark.unit
+def test_fetch_client_credentials_token_non_object_json_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["not", "an", "object"])
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client, pytest.raises(
+        ValueError, match="JSON object"
+    ):
+        fetch_client_credentials_token(
+            ClientCredentials(
+                token_url="https://idp.example/token",
+                client_id="cid",
+                client_secret="sec",
+            ),
+            http_client=client,
+        )
+
+
+@pytest.mark.unit
 def test_fetch_client_credentials_token_http_error_raises() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "invalid_client"})
