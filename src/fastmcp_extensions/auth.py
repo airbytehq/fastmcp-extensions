@@ -99,6 +99,28 @@ class OIDCAuthConfig:
     base_url: str | None = None
     audience: str | None = None
     required_scopes: list[str] | None = None
+    enable_cimd: bool = False
+    """Whether to advertise and accept the Client ID Metadata Document (CIMD)
+    flow, in which a client passes a URL as its `client_id` and the server
+    fetches that document to resolve the client.
+
+    Defaults to `False`. CIMD is an experimental extension to Dynamic Client
+    Registration (DCR): when enabled, `OIDCProxy` advertises
+    `client_id_metadata_document_supported: true`, and compliant clients (e.g.
+    Goose Desktop) will send a URL `client_id` instead of registering via DCR.
+    On a proxied deployment whose OAuth-proxy state lives in the default
+    encrypted `FileTreeStore` (e.g. Cloud Run), resolving and persisting the
+    synthetic CIMD client — which has no fixed redirect URIs — fails and the
+    `/authorize` request returns HTTP 500, so the advertised capability is a
+    trap for those clients. Leaving CIMD off makes them fall back to DCR
+    (`/register`), which is the mandated baseline and works on those
+    deployments. Mirrors `OIDCProxy(enable_cimd=...)`, whose own default is
+    `True`.
+
+    Via the env-based entry point (`resolve_mcp_auth`), set this with the
+    `OIDC_ENABLE_CIMD` environment variable (accepts `1`/`true`/`yes`/`on` and
+    `0`/`false`/`no`/`off`, case-insensitive).
+    """
     forward_resource: bool = False
     """Whether to forward the client's RFC 8707 `resource` indicator to the
     upstream IdP token request.
@@ -219,6 +241,7 @@ def _build_oidc_proxy(config: OIDCAuthConfig, base_url: str | None) -> OIDCProxy
         "base_url": resolved_base_url,
         "audience": config.audience,
         "required_scopes": config.required_scopes,
+        "enable_cimd": config.enable_cimd,
         "forward_resource": config.forward_resource,
     }
     if config.client_storage is not None:
@@ -353,6 +376,8 @@ def resolve_mcp_auth(
     - `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
     - `MCP_SERVER_URL` (base URL for redirect callbacks)
     - `OIDC_AUDIENCE` (optional)
+    - `OIDC_ENABLE_CIMD` (optional bool, default off)
+    - `OIDC_FORWARD_RESOURCE` (optional bool, default off)
 
     `oidc_client_storage` supplies a durable, shared backend for the interactive
     `OIDCProxy`'s OAuth state (see `OIDCAuthConfig.client_storage`). It is passed
@@ -415,6 +440,7 @@ def resolve_mcp_auth(
             base_url=base_url,
             audience=get_env(env, "OIDC_AUDIENCE"),
             client_storage=oidc_client_storage,
+            enable_cimd=_env_bool(env, "OIDC_ENABLE_CIMD", default=False),
             forward_resource=_env_bool(env, "OIDC_FORWARD_RESOURCE", default=False),
         )
     elif oidc_config_url:
