@@ -275,6 +275,62 @@ def test_resolve_mcp_auth_oidc_forward_resource_from_env(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_kwargs,expected",
+    [
+        pytest.param({}, False, id="default_false"),
+        pytest.param({"enable_cimd": True}, True, id="explicit_true"),
+        pytest.param({"enable_cimd": False}, False, id="explicit_false"),
+    ],
+)
+def test_build_mcp_auth_forwards_enable_cimd_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    config_kwargs: dict[str, bool],
+    expected: bool,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = build_mcp_auth(
+        oidc=OIDCAuthConfig(
+            config_url="https://idp.example/.well-known/openid-configuration",
+            client_id="cid",
+            client_secret="sec",
+            base_url="https://mcp.example",
+            **config_kwargs,
+        )
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["enable_cimd"] is expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "env_value,expected",
+    [
+        pytest.param(None, False, id="unset_defaults_false"),
+        pytest.param("true", True, id="env_true"),
+        pytest.param("false", False, id="env_false"),
+    ],
+)
+def test_resolve_mcp_auth_oidc_enable_cimd_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    env_value: str | None,
+    expected: bool,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    env = {
+        "OIDC_CONFIG_URL": "https://idp.example/.well-known/openid-configuration",
+        "OIDC_CLIENT_ID": "cid",
+        "OIDC_CLIENT_SECRET": "sec",
+        "MCP_SERVER_URL": "https://mcp.example",
+    }
+    if env_value is not None:
+        env["OIDC_ENABLE_CIMD"] = env_value
+    auth = resolve_mcp_auth(env=env)
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["enable_cimd"] is expected
+
+
+@pytest.mark.unit
 def test_oidc_auth_config_is_keyword_only() -> None:
     # The auth config dataclasses are `kw_only=True`, so a boolean (or any
     # value) can never silently bind to the wrong field via positional args.
