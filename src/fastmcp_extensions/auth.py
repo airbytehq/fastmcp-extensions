@@ -63,7 +63,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Mapping
+import pkgutil
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,6 +80,19 @@ from fastmcp_extensions.utils.env import get_env
 logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
+
+OIDC_CLIENT_STORAGE_FACTORY_ENV = "MCP_OIDC_CLIENT_STORAGE_FACTORY"
+"""Env var naming a zero-argument factory that builds the interactive
+`OIDCProxy`'s durable OAuth-state store.
+
+Format is a `pkgutil`-style target (`package.module:callable` or
+`package.module.callable`). When set and no store is passed explicitly to
+`resolve_mcp_auth`, the named callable is imported and invoked to produce an
+`AsyncKeyValue` (or `None`). This keeps the library backend-agnostic: the
+deployment owns the concrete backend and its infrastructure-specific config
+(project, database, encryption, etc.) inside the factory, while this library
+only resolves and calls it.
+"""
 
 SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
@@ -359,6 +373,33 @@ def _env_bool(env: Mapping[str, str], key: str, *, default: bool) -> bool:
     )
 
 
+def _resolve_oidc_client_storage(
+    env: Mapping[str, str],
+    explicit: AsyncKeyValue | None,
+) -> AsyncKeyValue | None:
+    """Resolve the interactive `OIDCProxy`'s durable store.
+
+    An `explicit` store passed by the caller always wins. Otherwise, if
+    `MCP_OIDC_CLIENT_STORAGE_FACTORY` names a factory, it is imported and
+    invoked to build one; a misconfigured target raises so a durability
+    misconfiguration fails loudly at startup rather than silently degrading to
+    the in-memory default. When neither is provided, returns `None` and
+    `OIDCProxy` keeps its in-memory store.
+    """
+    if explicit is not None:
+        return explicit
+    factory_target = get_env(env, OIDC_CLIENT_STORAGE_FACTORY_ENV, "")
+    if not factory_target:
+        return None
+    factory: Callable[[], AsyncKeyValue | None] = pkgutil.resolve_name(factory_target)
+    logger.info(
+        "Building OIDC client storage from factory %s (%s)",
+        factory_target,
+        OIDC_CLIENT_STORAGE_FACTORY_ENV,
+    )
+    return factory()
+
+
 def resolve_mcp_auth(
     env: Mapping[str, str] | None = None,
     *,
@@ -383,8 +424,14 @@ def resolve_mcp_auth(
     `OIDCProxy`'s OAuth state (see `OIDCAuthConfig.client_storage`). It is passed
     as an object rather than resolved from env because this library stays
     backend-agnostic — the caller constructs the store (e.g. a Fernet-wrapped
-    Redis store) and injects it. When `None`, `OIDCProxy` keeps its default
-    in-memory store, so refresh tokens do not survive restarts or span replicas.
+    Firestore store) and injects it. A caller that cannot inject the object
+    (e.g. a shared entrypoint whose `app` is built at import time) can instead
+    set `MCP_OIDC_CLIENT_STORAGE_FACTORY` to a `pkgutil`-style factory target
+    (`package.module:callable`); it is imported and invoked to build the store,
+    keeping all backend-specific config inside the deployment's factory. An
+    explicit `oidc_client_storage` argument takes precedence over the env
+    factory. When neither is provided, `OIDCProxy` keeps its default in-memory
+    store, so refresh tokens do not survive restarts or span replicas.
 
     Headless JWT bearer verification (`JWTVerifier`):
 
@@ -439,7 +486,7 @@ def resolve_mcp_auth(
             client_secret=oidc_client_secret,
             base_url=base_url,
             audience=get_env(env, "OIDC_AUDIENCE"),
-            client_storage=oidc_client_storage,
+            client_storage=_resolve_oidc_client_storage(env, oidc_client_storage),
             enable_cimd=_env_bool(env, "OIDC_ENABLE_CIMD", default=False),
             forward_resource=_env_bool(env, "OIDC_FORWARD_RESOURCE", default=False),
         )

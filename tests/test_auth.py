@@ -397,6 +397,79 @@ def test_resolve_mcp_auth_forwards_client_storage(
     assert auth.kwargs["client_storage"] is store
 
 
+_FACTORY_STORE = object()
+
+
+def _build_factory_store() -> object:
+    """Test factory target resolved via `MCP_OIDC_CLIENT_STORAGE_FACTORY`."""
+    return _FACTORY_STORE
+
+
+def _build_none_store() -> None:
+    """Test factory target that opts out of a durable store."""
+    return None
+
+
+def _oidc_env() -> dict[str, str]:
+    return {
+        "OIDC_CONFIG_URL": "https://idp.example/.well-known/openid-configuration",
+        "OIDC_CLIENT_ID": "cid",
+        "OIDC_CLIENT_SECRET": "sec",
+        "MCP_SERVER_URL": "https://mcp.example",
+    }
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_builds_client_storage_from_factory_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = resolve_mcp_auth(
+        env=_oidc_env()
+        | {"MCP_OIDC_CLIENT_STORAGE_FACTORY": f"{__name__}:_build_factory_store"},
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["client_storage"] is _FACTORY_STORE
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_explicit_storage_wins_over_factory_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    explicit = object()
+    auth = resolve_mcp_auth(
+        env=_oidc_env()
+        | {"MCP_OIDC_CLIENT_STORAGE_FACTORY": f"{__name__}:_build_factory_store"},
+        oidc_client_storage=explicit,  # type: ignore[arg-type]
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["client_storage"] is explicit
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_factory_env_may_return_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = resolve_mcp_auth(
+        env=_oidc_env()
+        | {"MCP_OIDC_CLIENT_STORAGE_FACTORY": f"{__name__}:_build_none_store"},
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    # A `None`-returning factory leaves OIDCProxy on its default in-memory store.
+    assert "client_storage" not in auth.kwargs
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_invalid_factory_env_raises() -> None:
+    with pytest.raises((ImportError, AttributeError)):
+        resolve_mcp_auth(
+            env=_oidc_env()
+            | {"MCP_OIDC_CLIENT_STORAGE_FACTORY": "no.such.module:build"},
+        )
+
+
 @pytest.mark.unit
 def test_resolve_mcp_auth_introspection_falls_back_to_oidc_client() -> None:
     auth = resolve_mcp_auth(
