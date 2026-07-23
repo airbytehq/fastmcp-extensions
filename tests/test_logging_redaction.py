@@ -209,3 +209,7 @@ def test_installed_filter_scrubs_emitted_child_record(
     finally:
         caplog.handler.removeFilter(installed)
         root.removeFilter(installed)
+        # install_authorization_redaction("") also attaches to root's own
+        # handlers; strip it there too so redaction can't leak into later tests.
+        for handler in root.handlers:
+            handler.removeFilter(installed)
