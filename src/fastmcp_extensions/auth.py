@@ -99,20 +99,6 @@ class OIDCAuthConfig:
     base_url: str | None = None
     audience: str | None = None
     required_scopes: list[str] | None = None
-    client_storage: AsyncKeyValue | None = None
-    """Durable backend for `OIDCProxy`'s OAuth state (upstream access + refresh
-    tokens, JTI mappings, and dynamic client registrations).
-
-    `OIDCProxy` defaults to an in-process store, so its refresh tokens are lost
-    on restart and are not shared across replicas — every restart or scale event
-    forces interactive users to re-authenticate. Supplying a shared, durable,
-    encrypted `key_value.aio.protocols.key_value.AsyncKeyValue` (e.g. a
-    Fernet-wrapped Redis store) makes long-lived sessions survive restarts and
-    work across replicas. Leave `None` to keep `OIDCProxy`'s default in-memory
-    behavior (fine for single-instance local dev). This library stays backend-
-    agnostic: the caller constructs the store and injects it here (or via
-    `resolve_mcp_auth`'s `oidc_client_storage` argument).
-    """
     forward_resource: bool = False
     """Whether to forward the client's RFC 8707 `resource` indicator to the
     upstream IdP token request.
@@ -134,6 +120,23 @@ class OIDCAuthConfig:
     Via the env-based entry point (`resolve_mcp_auth`), set this with the
     `OIDC_FORWARD_RESOURCE` environment variable (accepts `1`/`true`/`yes`/`on`
     and `0`/`false`/`no`/`off`, case-insensitive).
+    """
+    client_storage: AsyncKeyValue | None = None
+    """Durable backend for `OIDCProxy`'s OAuth state (upstream access + refresh
+    tokens, JTI mappings, and dynamic client registrations).
+
+    `OIDCProxy` defaults to an in-process store, so its refresh tokens are lost
+    on restart and are not shared across replicas — every restart or scale event
+    forces interactive users to re-authenticate. Supplying a shared, durable,
+    encrypted `key_value.aio.protocols.key_value.AsyncKeyValue` (e.g. a
+    Fernet-wrapped Redis store) makes long-lived sessions survive restarts and
+    work across replicas. Leave `None` to keep `OIDCProxy`'s default in-memory
+    behavior (fine for single-instance local dev). This library stays backend-
+    agnostic: the caller constructs the store and injects it here (or via
+    `resolve_mcp_auth`'s `oidc_client_storage` argument).
+
+    Kept last in the field order so it stays keyword-only in practice and
+    does not shift the positional argument order of the preceding fields.
     """
 
 
