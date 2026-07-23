@@ -78,6 +78,41 @@ _CLIENT_SECRET = "s3cr3t-value_ABC.123"
             id="client_id_left_legible",
         ),
         pytest.param(
+            "headers={'cookie': 'session=abc123'}",
+            f"headers={{'cookie': '{logging_redaction.REDACTION_PLACEHOLDER}'}}",
+            id="cookie_dict_repr",
+        ),
+        pytest.param(
+            "Set-Cookie: session=abc123",
+            f"Set-Cookie: {logging_redaction.REDACTION_PLACEHOLDER}",
+            id="set_cookie_header_line",
+        ),
+        pytest.param(
+            "[(b'x-api-key', b'sk-live-123')]",
+            f"[(b'x-api-key', b'{logging_redaction.REDACTION_PLACEHOLDER}')]",
+            id="x_api_key_asgi_byte_tuple",
+        ),
+        pytest.param(
+            "x-auth-token=tok_abc123",
+            f"x-auth-token={logging_redaction.REDACTION_PLACEHOLDER}",
+            id="x_auth_token_kwarg",
+        ),
+        pytest.param(
+            "headers={'access_token': 'at_xyz'}",
+            f"headers={{'access_token': '{logging_redaction.REDACTION_PLACEHOLDER}'}}",
+            id="access_token_dict_repr",
+        ),
+        pytest.param(
+            "password=hunter2",
+            f"password={logging_redaction.REDACTION_PLACEHOLDER}",
+            id="password_kwarg",
+        ),
+        pytest.param(
+            "token_count=1024 and next_token=cursor42",
+            "token_count=1024 and next_token=cursor42",
+            id="token_lookalikes_left_legible",
+        ),
+        pytest.param(
             "nothing sensitive here",
             "nothing sensitive here",
             id="no_credential_untouched",

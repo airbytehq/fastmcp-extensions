@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Redact `Authorization` credentials from log output.
+"""Redact credential values from log output.
 
 MCP transport auth rides the `Authorization` header — a `Bearer <token>` for the
 headless path, and (with the opt-in client-credentials path) a
@@ -11,10 +11,14 @@ request headers), the credential leaks verbatim into logs.
 
 This module installs a generic `logging.Filter` that scrubs credential values
 out of log records before a handler emits them, while leaving the auth *scheme*
-(`Bearer` / `Basic`) and the `Client-Secret` header *name* visible so the log
-still reads sensibly. It is provider-neutral: it keys off the standard HTTP auth
-schemes, the `authorization` header name, and the `client-secret` header name,
-not on any issuer, realm, or app-specific value.
+(`Bearer` / `Basic`) and the credential-header *names* visible so the log still
+reads sensibly. It is provider-neutral: it keys off the standard HTTP auth
+schemes, the `authorization` header name, and a name-based deny-list of other
+headers/fields that carry a credential — `Cookie`, `Set-Cookie`,
+`Proxy-Authorization`, and any name ending in `secret` / `password` /
+`api-key` / `auth-token` / `access-token` (so `Client-Secret`, `X-Api-Key`, ...
+are all covered). It never keys off an issuer, realm, or app-specific value, and
+deliberately leaves plain identifiers such as `Client-Id` legible.
 
 Redaction is defense-in-depth, not a substitute for not logging credentials in
 the first place, and it cannot scrub records emitted by processes it does not
@@ -54,20 +58,43 @@ _AUTHORIZATION_KEY_RE = re.compile(
     r"([A-Za-z0-9\-._~+/]+={0,2})",
 )
 
-# The separate-header client-credentials form carries the secret in a
-# `Client-Secret` header (underscore variant tolerated). Two forms are matched:
-# a key/value repr or raw header line (`'client-secret': 'shh'`,
-# `client-secret: shh`, `client-secret=shh`), and the ASGI byte-tuple form
-# (`(b'client-secret', b'shh')`) where the key and value are separated by a
-# comma rather than a colon. The header *name* is preserved; only the value
-# token is redacted. The `Client-Id` header is an identifier, not a secret, so
-# it is deliberately left legible.
-_CLIENT_SECRET_KEY_RE = re.compile(
-    r"(?i)(client[-_]secret\b[\"']?[ \t]*[:=][ \t]*[\"']?)"
+# Beyond `Authorization`, a handful of other headers/fields routinely carry a
+# credential and must be scrubbed by *name* (their value is opaque, with no
+# scheme keyword to anchor on). This fragment matches such a name as a whole
+# hyphen/underscore-delimited token, case-insensitively:
+#
+# - the well-known credential headers `Cookie`, `Set-Cookie`, and
+#   `Proxy-Authorization`;
+# - any name ending in `secret`, `password`, or `passwd` (so `Client-Secret`,
+#   `client_secret`, `app-secret`, ... all match);
+# - any name ending in an `api-key` / `auth-token` / `access-token` word
+#   (hyphen, underscore, or run-together), covering `X-Api-Key`, `api_key`,
+#   `X-Auth-Token`, `access_token`, ...
+#
+# A trailing `\b` (added by the callers below) keeps unrelated identifiers like
+# `token_count` or `next_token` from matching, since the sensitive word must be
+# the final segment of the name. `Client-Id` is deliberately *not* covered: it
+# is an identifier, not a secret, so it stays legible in logs.
+_SENSITIVE_NAME = (
+    r"(?:cookie|set-cookie|proxy-authorization"
+    r"|[\w-]*(?:secret|password|passwd)"
+    r"|[\w-]*(?:api[-_]?key|auth[-_]?token|access[-_]?token))"
+)
+
+# Two shapes carry the value: a key/value repr or raw header line
+# (`'client-secret': 'shh'`, `Cookie: session=abc`, `x-api-key=shh`), and the
+# ASGI byte-tuple form (`(b'client-secret', b'shh')`) where the name and value
+# are comma-separated rather than colon-separated. The name is preserved; only
+# the value token is redacted. The value class stops at the first
+# quote/whitespace/delimiter, so surrounding repr punctuation survives (and a
+# multi-value `Cookie` line only has its first pair redacted, which is an
+# accepted limit — these logs are not a real cookie-leak vector).
+_SENSITIVE_KEY_RE = re.compile(
+    rf"(?i)({_SENSITIVE_NAME}\b[\"']?[ \t]*[:=][ \t]*[\"']?)"
     r"([^\s\"',)&;]+)",
 )
-_CLIENT_SECRET_TUPLE_RE = re.compile(
-    r"(?i)(b?[\"']client[-_]secret[\"'][ \t]*,[ \t]*b?[\"'])"
+_SENSITIVE_TUPLE_RE = re.compile(
+    rf"(?i)(b?[\"']{_SENSITIVE_NAME}[\"'][ \t]*,[ \t]*b?[\"'])"
     r"([^\"']*)"
     r"([\"'])",
 )
@@ -88,11 +115,11 @@ def redact_authorization(text: str) -> str:
         rf"\1{REDACTION_PLACEHOLDER}",
         redacted,
     )
-    redacted = _CLIENT_SECRET_TUPLE_RE.sub(
+    redacted = _SENSITIVE_TUPLE_RE.sub(
         rf"\1{REDACTION_PLACEHOLDER}\3",
         redacted,
     )
-    return _CLIENT_SECRET_KEY_RE.sub(
+    return _SENSITIVE_KEY_RE.sub(
         rf"\1{REDACTION_PLACEHOLDER}",
         redacted,
     )
