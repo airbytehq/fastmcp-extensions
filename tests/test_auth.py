@@ -275,6 +275,62 @@ def test_resolve_mcp_auth_oidc_forward_resource_from_env(
 
 
 @pytest.mark.unit
+def test_build_mcp_auth_omits_client_storage_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = build_mcp_auth(
+        oidc=OIDCAuthConfig(
+            config_url="https://idp.example/.well-known/openid-configuration",
+            client_id="cid",
+            client_secret="sec",
+            base_url="https://mcp.example",
+        )
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    # Left unset so OIDCProxy keeps its own default in-memory store.
+    assert "client_storage" not in auth.kwargs
+
+
+@pytest.mark.unit
+def test_build_mcp_auth_forwards_client_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    store = object()
+    auth = build_mcp_auth(
+        oidc=OIDCAuthConfig(
+            config_url="https://idp.example/.well-known/openid-configuration",
+            client_id="cid",
+            client_secret="sec",
+            base_url="https://mcp.example",
+            client_storage=store,  # type: ignore[arg-type]
+        )
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["client_storage"] is store
+
+
+@pytest.mark.unit
+def test_resolve_mcp_auth_forwards_client_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    store = object()
+    auth = resolve_mcp_auth(
+        env={
+            "OIDC_CONFIG_URL": "https://idp.example/.well-known/openid-configuration",
+            "OIDC_CLIENT_ID": "cid",
+            "OIDC_CLIENT_SECRET": "sec",
+            "MCP_SERVER_URL": "https://mcp.example",
+        },
+        oidc_client_storage=store,  # type: ignore[arg-type]
+    )
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["client_storage"] is store
+
+
+@pytest.mark.unit
 def test_resolve_mcp_auth_introspection_falls_back_to_oidc_client() -> None:
     auth = resolve_mcp_auth(
         env={
