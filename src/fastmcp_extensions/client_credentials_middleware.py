@@ -1,5 +1,9 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Opt-in HTTP Basic client-credentials transport auth for MCP servers.
+"""Opt-in client-credentials transport auth for MCP servers.
+
+Accepts long-lived client credentials via HTTP Basic or the separate
+`Client-Id` / `Client-Secret` headers and exchanges them server-side for a
+short-lived bearer token.
 
 The headless bearer path (`JWTVerifier`) verifies an already-minted, short-lived
 access token. That works for MCP clients that run the OAuth flow and refresh
@@ -81,8 +85,8 @@ def wrap_client_credentials(
 
     Returns `app` unchanged when `enabled` is falsy, so the standard bearer/OIDC
     transport auth is the only path. When enabled, returns `app` wrapped as the
-    outermost ASGI layer so the Basic-to-Bearer rewrite happens before FastMCP's
-    auth verifier runs.
+    outermost ASGI layer so the credentials-to-Bearer rewrite happens before
+    FastMCP's auth verifier runs.
 
     The caller owns the opt-in decision and the endpoint: `enabled` and
     `token_url` are passed in (e.g. resolved from the server's own branded env
@@ -205,7 +209,7 @@ class ClientCredentialsExchangeMiddleware:
             del self._locks[key]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Rewrite a Basic-auth HTTP request to Bearer, then delegate downstream."""
+        """Rewrite a credential-bearing HTTP request to Bearer, then delegate downstream."""
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
