@@ -4,15 +4,17 @@
 MCP transport auth rides the `Authorization` header — a `Bearer <token>` for the
 headless path, and (with the opt-in client-credentials path) a
 `Basic base64(client_id:client_secret)` carrying a long-lived secret on *every*
-request. If any log record echoes that header (a middleware debug line, an ASGI
-scope dump, an exception traceback that captured request headers), the credential
-leaks verbatim into logs.
+request. That same client-credentials path also accepts the secret in a separate
+`Client-Secret` request header. If any log record echoes those headers (a
+middleware debug line, an ASGI scope dump, an exception traceback that captured
+request headers), the credential leaks verbatim into logs.
 
 This module installs a generic `logging.Filter` that scrubs credential values
 out of log records before a handler emits them, while leaving the auth *scheme*
-(`Bearer` / `Basic`) visible so the log still reads sensibly. It is
-provider-neutral: it keys off the standard HTTP auth schemes and the
-`authorization` header name, not on any issuer, realm, or app-specific value.
+(`Bearer` / `Basic`) and the `Client-Secret` header *name* visible so the log
+still reads sensibly. It is provider-neutral: it keys off the standard HTTP auth
+schemes, the `authorization` header name, and the `client-secret` header name,
+not on any issuer, realm, or app-specific value.
 
 Redaction is defense-in-depth, not a substitute for not logging credentials in
 the first place, and it cannot scrub records emitted by processes it does not
@@ -52,6 +54,24 @@ _AUTHORIZATION_KEY_RE = re.compile(
     r"([A-Za-z0-9\-._~+/]+={0,2})",
 )
 
+# The separate-header client-credentials form carries the secret in a
+# `Client-Secret` header (underscore variant tolerated). Two forms are matched:
+# a key/value repr or raw header line (`'client-secret': 'shh'`,
+# `client-secret: shh`, `client-secret=shh`), and the ASGI byte-tuple form
+# (`(b'client-secret', b'shh')`) where the key and value are separated by a
+# comma rather than a colon. The header *name* is preserved; only the value
+# token is redacted. The `Client-Id` header is an identifier, not a secret, so
+# it is deliberately left legible.
+_CLIENT_SECRET_KEY_RE = re.compile(
+    r"(?i)(client[-_]secret\b[\"']?[ \t]*[:=][ \t]*[\"']?)"
+    r"([^\s\"',)&;]+)",
+)
+_CLIENT_SECRET_TUPLE_RE = re.compile(
+    r"(?i)(b?[\"']client[-_]secret[\"'][ \t]*,[ \t]*b?[\"'])"
+    r"([^\"']*)"
+    r"([\"'])",
+)
+
 
 def redact_authorization(text: str) -> str:
     """Return `text` with any `Authorization` credential value replaced.
@@ -64,7 +84,15 @@ def redact_authorization(text: str) -> str:
         rf"\1\2{REDACTION_PLACEHOLDER}",
         text,
     )
-    return _AUTHORIZATION_KEY_RE.sub(
+    redacted = _AUTHORIZATION_KEY_RE.sub(
+        rf"\1{REDACTION_PLACEHOLDER}",
+        redacted,
+    )
+    redacted = _CLIENT_SECRET_TUPLE_RE.sub(
+        rf"\1{REDACTION_PLACEHOLDER}\3",
+        redacted,
+    )
+    return _CLIENT_SECRET_KEY_RE.sub(
         rf"\1{REDACTION_PLACEHOLDER}",
         redacted,
     )

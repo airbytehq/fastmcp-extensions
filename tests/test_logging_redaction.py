@@ -13,6 +13,7 @@ from fastmcp_extensions import logging_redaction
 
 _SECRET = base64.b64encode(b"my-client-id:super-secret-value").decode()
 _JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl-x_y"
+_CLIENT_SECRET = "s3cr3t-value_ABC.123"
 
 
 @pytest.mark.parametrize(
@@ -50,6 +51,31 @@ _JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl-x_y"
             f"authorization={_JWT}",
             f"authorization={logging_redaction.REDACTION_PLACEHOLDER}",
             id="key_without_scheme",
+        ),
+        pytest.param(
+            f"Client-Secret: {_CLIENT_SECRET}",
+            f"Client-Secret: {logging_redaction.REDACTION_PLACEHOLDER}",
+            id="client_secret_header_line",
+        ),
+        pytest.param(
+            f"headers={{'client-secret': '{_CLIENT_SECRET}'}}",
+            f"headers={{'client-secret': '{logging_redaction.REDACTION_PLACEHOLDER}'}}",
+            id="client_secret_dict_repr",
+        ),
+        pytest.param(
+            f"[(b'client-secret', b'{_CLIENT_SECRET}')]",
+            f"[(b'client-secret', b'{logging_redaction.REDACTION_PLACEHOLDER}')]",
+            id="client_secret_asgi_byte_tuple",
+        ),
+        pytest.param(
+            f"client_secret={_CLIENT_SECRET}",
+            f"client_secret={logging_redaction.REDACTION_PLACEHOLDER}",
+            id="client_secret_underscore_kwarg",
+        ),
+        pytest.param(
+            "[(b'client-id', b'my-client-id')]",
+            "[(b'client-id', b'my-client-id')]",
+            id="client_id_left_legible",
         ),
         pytest.param(
             "nothing sensitive here",
