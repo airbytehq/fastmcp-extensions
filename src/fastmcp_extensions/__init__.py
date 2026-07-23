@@ -43,6 +43,12 @@ from fastmcp_extensions.landing_page import (
     register_landing_page,
     render_default_landing_html,
 )
+from fastmcp_extensions.logging_redaction import (
+    REDACTION_PLACEHOLDER,
+    AuthorizationRedactionFilter,
+    install_authorization_redaction,
+    redact_authorization,
+)
 from fastmcp_extensions.registration import (
     PromptDef,
     ResourceDef,
@@ -63,6 +69,8 @@ from fastmcp_extensions.tool_filters import (
 )
 
 __all__ = [
+    "REDACTION_PLACEHOLDER",
+    "AuthorizationRedactionFilter",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
     "IntrospectionAuthConfig",
@@ -83,12 +91,14 @@ __all__ = [
     "build_mcp_auth",
     "fetch_client_credentials_token",
     "get_mcp_config",
+    "install_authorization_redaction",
     "is_trusted_execution_enabled",
     "mcp_prompt",
     "mcp_provider",
     "mcp_resource",
     "mcp_server",
     "mcp_tool",
+    "redact_authorization",
     "register_landing_page",
     "register_mcp_prompts",
     "register_mcp_resources",
