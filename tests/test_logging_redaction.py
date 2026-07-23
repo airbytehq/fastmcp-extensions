@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 
 import pytest
@@ -89,7 +90,7 @@ def test_filter_redacts_percent_arg_message() -> None:
     )
 
 
-def test_filter_redacts_exception_text() -> None:
+def test_filter_redacts_already_formatted_exception_text() -> None:
     """Already-formatted exception text is scrubbed too."""
     record = logging.LogRecord(
         name="test",
@@ -106,6 +107,33 @@ def test_filter_redacts_exception_text() -> None:
     assert redaction_filter.filter(record) is True
     assert _SECRET not in record.exc_text
     assert lr.REDACTION_PLACEHOLDER in record.exc_text
+
+
+def test_filter_redacts_exception_traceback_at_emit_time() -> None:
+    """A credential in a traceback is scrubbed through the real emit pipeline.
+
+    Exercises emit-time ordering (filter runs before the formatter renders
+    `exc_info`), which a pre-populated `exc_text` test cannot catch.
+    """
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(lr.AuthorizationRedactionFilter())
+    logger = logging.getLogger("test.exc.emit")
+    logger.handlers.clear()
+    logger.filters.clear()
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    try:
+        raise ValueError(f"boom Authorization: Basic {_SECRET}")
+    except ValueError:
+        logger.exception("request failed")
+
+    output = stream.getvalue()
+    assert "Traceback" in output
+    assert _SECRET not in output
+    assert lr.REDACTION_PLACEHOLDER in output
 
 
 def test_filter_keeps_clean_record_message_unchanged() -> None:
@@ -149,11 +177,18 @@ def test_install_is_idempotent() -> None:
     handler = logging.StreamHandler()
     logger.addHandler(handler)
 
-    first = lr.install_authorization_redaction(name)
+    lr.install_authorization_redaction(name)
     lr.install_authorization_redaction(name)
 
-    assert logger.filters.count(first) == 1
-    assert handler.filters.count(first) == 1
+    def _redaction_filter_count(target: logging.Logger | logging.Handler) -> int:
+        return sum(
+            isinstance(f, lr.AuthorizationRedactionFilter) for f in target.filters
+        )
+
+    # A fresh instance is built per call, so counting by type (not identity)
+    # is what actually proves repeated installs don't stack duplicates.
+    assert _redaction_filter_count(logger) == 1
+    assert _redaction_filter_count(handler) == 1
 
 
 def test_installed_filter_scrubs_emitted_child_record(

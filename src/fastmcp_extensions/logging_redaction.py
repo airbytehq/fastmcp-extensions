@@ -76,7 +76,18 @@ class AuthorizationRedactionFilter(logging.Filter):
     Attach to a handler (or logger) so credential values never reach the
     emitted output. The filter always returns `True` — it mutates the record
     in place rather than dropping it. It rewrites the fully-rendered message
-    (collapsing any `%`-args) and any already-formatted exception text.
+    (collapsing any `%`-args), the exception traceback, and any `stack_info`.
+
+    A credential can ride inside an exception traceback (a handler that logged
+    `logger.exception(...)` after capturing request headers). Filters run
+    *before* a handler's formatter renders `exc_info` into `exc_text`, so at
+    filter time `exc_text` is usually empty. To close that gap the filter
+    renders the traceback itself, redacts it, and caches the result on
+    `record.exc_text`; `logging.Formatter.format` reuses a pre-populated
+    `exc_text` instead of re-rendering, so the emitted traceback is the redacted
+    one. (This uses the default traceback rendering rather than a custom
+    formatter's `formatException`, which is an acceptable trade-off for not
+    leaking credentials.)
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -87,8 +98,13 @@ class AuthorizationRedactionFilter(logging.Filter):
             record.msg = redacted
             record.args = None
 
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
         if record.exc_text:
             record.exc_text = redact_authorization(record.exc_text)
+
+        if record.stack_info:
+            record.stack_info = redact_authorization(record.stack_info)
 
         return True
 
@@ -104,17 +120,34 @@ def install_authorization_redaction(
     child loggers, whereas ancestor *handlers* (and their filters) do — so
     filtering the root logger's handlers catches records from child loggers too.
 
+    Idempotent: a logger/handler that already carries an
+    `AuthorizationRedactionFilter` is skipped, so calling this more than once
+    (or across overlapping logger families) never stacks duplicate filters.
+
     Defaults to the root logger plus the `uvicorn` logger family when no names
     are given. Call after logging is configured (e.g. at HTTP startup) and
-    before serving. Returns the installed filter.
+    before serving. Returns the installed (or already-present) filter.
     """
     names = logger_names or ("", "uvicorn", "uvicorn.error", "uvicorn.access")
     redaction_filter = AuthorizationRedactionFilter()
     for name in names:
         target = logging.getLogger(name)
-        if redaction_filter not in target.filters:
-            target.addFilter(redaction_filter)
+        _add_filter_once(target, redaction_filter)
         for handler in target.handlers:
-            if redaction_filter not in handler.filters:
-                handler.addFilter(redaction_filter)
+            _add_filter_once(handler, redaction_filter)
     return redaction_filter
+
+
+def _add_filter_once(
+    target: logging.Logger | logging.Handler,
+    redaction_filter: AuthorizationRedactionFilter,
+) -> None:
+    """Attach `redaction_filter` to `target` unless one is already present.
+
+    Dedupes by type rather than identity so a filter added by a *previous*
+    `install_authorization_redaction` call (a different instance) still counts,
+    keeping repeated installs idempotent.
+    """
+    if any(isinstance(f, AuthorizationRedactionFilter) for f in target.filters):
+        return
+    target.addFilter(redaction_filter)
