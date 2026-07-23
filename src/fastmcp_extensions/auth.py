@@ -83,7 +83,7 @@ DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class OIDCAuthConfig:
     """Config for the interactive Authorization Code + PKCE flow (`OIDCProxy`).
 
@@ -134,13 +134,10 @@ class OIDCAuthConfig:
     behavior (fine for single-instance local dev). This library stays backend-
     agnostic: the caller constructs the store and injects it here (or via
     `resolve_mcp_auth`'s `oidc_client_storage` argument).
-
-    Kept last in the field order so it stays keyword-only in practice and
-    does not shift the positional argument order of the preceding fields.
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class JWTAuthConfig:
     """Config for headless verification of JWT bearer tokens (`JWTVerifier`).
 
@@ -166,7 +163,7 @@ class JWTAuthConfig:
             )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class IntrospectionAuthConfig:
     """Config for headless verification of opaque tokens via RFC 7662.
 
@@ -496,7 +493,7 @@ def resolve_mcp_auth(
     )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ClientCredentials:
     """Parameters for an OAuth 2.0 client credentials grant.
 

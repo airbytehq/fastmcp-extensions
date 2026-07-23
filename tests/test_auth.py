@@ -275,6 +275,17 @@ def test_resolve_mcp_auth_oidc_forward_resource_from_env(
 
 
 @pytest.mark.unit
+def test_oidc_auth_config_is_keyword_only() -> None:
+    # The auth config dataclasses are `kw_only=True`, so a boolean (or any
+    # value) can never silently bind to the wrong field via positional args.
+    with pytest.raises(TypeError):
+        OIDCAuthConfig(  # type: ignore[misc]
+            "https://idp.example/.well-known/openid-configuration",
+            "cid",
+        )
+
+
+@pytest.mark.unit
 def test_build_mcp_auth_omits_client_storage_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
