@@ -108,14 +108,14 @@ class OIDCAuthConfig:
     Registration (DCR): when enabled, `OIDCProxy` advertises
     `client_id_metadata_document_supported: true`, and compliant clients (e.g.
     Goose Desktop) will send a URL `client_id` instead of registering via DCR.
-    On a proxied deployment whose OAuth-proxy state lives in the default
-    encrypted `FileTreeStore` (e.g. Cloud Run), resolving and persisting the
-    synthetic CIMD client — which has no fixed redirect URIs — fails and the
-    `/authorize` request returns HTTP 500, so the advertised capability is a
-    trap for those clients. Leaving CIMD off makes them fall back to DCR
-    (`/register`), which is the mandated baseline and works on those
-    deployments. Mirrors `OIDCProxy(enable_cimd=...)`, whose own default is
-    `True`.
+    On a proxied MCP deployment (e.g. Cloud Run behind a path-stripping load
+    balancer), resolving the synthetic CIMD client — which has no fixed
+    redirect URIs — fails and the `/authorize` request returns HTTP 500
+    (observed regardless of the OAuth-proxy storage backend), so the
+    advertised capability is a trap for those clients. Leaving CIMD off makes
+    them fall back to DCR (`/register`), which is the mandated baseline and
+    works on those deployments. Mirrors `OIDCProxy(enable_cimd=...)`, whose own
+    default is `True`.
 
     Via the env-based entry point (`resolve_mcp_auth`), set this with the
     `OIDC_ENABLE_CIMD` environment variable (accepts `1`/`true`/`yes`/`on` and
