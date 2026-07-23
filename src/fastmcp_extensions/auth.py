@@ -72,6 +72,7 @@ from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import IntrospectionTokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier, StaticTokenVerifier
+from key_value.aio.protocols.key_value import AsyncKeyValue
 
 from fastmcp_extensions.utils.env import get_env
 
@@ -82,7 +83,7 @@ DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 SUPPORTED_CLIENT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class OIDCAuthConfig:
     """Config for the interactive Authorization Code + PKCE flow (`OIDCProxy`).
 
@@ -120,9 +121,23 @@ class OIDCAuthConfig:
     `OIDC_FORWARD_RESOURCE` environment variable (accepts `1`/`true`/`yes`/`on`
     and `0`/`false`/`no`/`off`, case-insensitive).
     """
+    client_storage: AsyncKeyValue | None = None
+    """Durable backend for `OIDCProxy`'s OAuth state (upstream access + refresh
+    tokens, JTI mappings, and dynamic client registrations).
+
+    `OIDCProxy` defaults to an in-process store, so its refresh tokens are lost
+    on restart and are not shared across replicas — every restart or scale event
+    forces interactive users to re-authenticate. Supplying a shared, durable,
+    encrypted `key_value.aio.protocols.key_value.AsyncKeyValue` (e.g. a
+    Fernet-wrapped Redis store) makes long-lived sessions survive restarts and
+    work across replicas. Leave `None` to keep `OIDCProxy`'s default in-memory
+    behavior (fine for single-instance local dev). This library stays backend-
+    agnostic: the caller constructs the store and injects it here (or via
+    `resolve_mcp_auth`'s `oidc_client_storage` argument).
+    """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class JWTAuthConfig:
     """Config for headless verification of JWT bearer tokens (`JWTVerifier`).
 
@@ -148,7 +163,7 @@ class JWTAuthConfig:
             )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class IntrospectionAuthConfig:
     """Config for headless verification of opaque tokens via RFC 7662.
 
@@ -197,15 +212,20 @@ def _build_oidc_proxy(config: OIDCAuthConfig, base_url: str | None) -> OIDCProxy
             "OIDCAuthConfig requires a base_url (set it on the config or pass "
             "base_url to build_mcp_auth)."
         )
-    return OIDCProxy(
-        config_url=config.config_url,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
-        base_url=resolved_base_url,
-        audience=config.audience,
-        required_scopes=config.required_scopes,
-        forward_resource=config.forward_resource,
-    )
+    proxy_kwargs: dict[str, Any] = {
+        "config_url": config.config_url,
+        "client_id": config.client_id,
+        "client_secret": config.client_secret,
+        "base_url": resolved_base_url,
+        "audience": config.audience,
+        "required_scopes": config.required_scopes,
+        "forward_resource": config.forward_resource,
+    }
+    if config.client_storage is not None:
+        # Only override `OIDCProxy`'s default in-memory store when a durable
+        # backend was supplied, so unconfigured callers keep the default.
+        proxy_kwargs["client_storage"] = config.client_storage
+    return OIDCProxy(**proxy_kwargs)
 
 
 def _assemble_auth(
@@ -320,6 +340,7 @@ def resolve_mcp_auth(
     env: Mapping[str, str] | None = None,
     *,
     jwt_defaults: JWTAuthConfig | None = None,
+    oidc_client_storage: AsyncKeyValue | None = None,
 ) -> AuthProvider | None:
     """Build an `AuthProvider` from a standard set of environment variables.
 
@@ -332,6 +353,13 @@ def resolve_mcp_auth(
     - `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
     - `MCP_SERVER_URL` (base URL for redirect callbacks)
     - `OIDC_AUDIENCE` (optional)
+
+    `oidc_client_storage` supplies a durable, shared backend for the interactive
+    `OIDCProxy`'s OAuth state (see `OIDCAuthConfig.client_storage`). It is passed
+    as an object rather than resolved from env because this library stays
+    backend-agnostic — the caller constructs the store (e.g. a Fernet-wrapped
+    Redis store) and injects it. When `None`, `OIDCProxy` keeps its default
+    in-memory store, so refresh tokens do not survive restarts or span replicas.
 
     Headless JWT bearer verification (`JWTVerifier`):
 
@@ -386,6 +414,7 @@ def resolve_mcp_auth(
             client_secret=oidc_client_secret,
             base_url=base_url,
             audience=get_env(env, "OIDC_AUDIENCE"),
+            client_storage=oidc_client_storage,
             forward_resource=_env_bool(env, "OIDC_FORWARD_RESOURCE", default=False),
         )
     elif oidc_config_url:
@@ -464,7 +493,7 @@ def resolve_mcp_auth(
     )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ClientCredentials:
     """Parameters for an OAuth 2.0 client credentials grant.
 
