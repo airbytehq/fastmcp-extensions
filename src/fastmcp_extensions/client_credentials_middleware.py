@@ -1,5 +1,9 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Opt-in HTTP Basic client-credentials transport auth for MCP servers.
+"""Opt-in client-credentials transport auth for MCP servers.
+
+Accepts long-lived client credentials via HTTP Basic or the separate
+`Client-Id` / `Client-Secret` headers and exchanges them server-side for a
+short-lived bearer token.
 
 The headless bearer path (`JWTVerifier`) verifies an already-minted, short-lived
 access token. That works for MCP clients that run the OAuth flow and refresh
@@ -7,14 +11,23 @@ tokens automatically, but not for a truly headless agent that can only set a
 *static* `Authorization` header value and cannot re-mint on a timer.
 
 This module bridges that gap, generically. When enabled, the server accepts the
-long-lived `client_id` / `client_secret` presented on the inbound request via
-standard HTTP Basic auth (`Authorization: Basic base64(client_id:client_secret)`,
-the same credential encoding OAuth's `client_secret_basic` uses). It runs an
-OAuth 2.0 client-credentials grant against the configured token endpoint to
-obtain a short-lived access token, and rewrites the request to
-`Authorization: Bearer <token>` so the existing token verifier validates it
-unchanged. The agent thus presents a durable credential once; the server owns
-the short-lived-token churn.
+long-lived `client_id` / `client_secret` presented on the inbound request in
+either of two forms:
+
+- Standard HTTP Basic auth
+  (`Authorization: Basic base64(client_id:client_secret)`, the same credential
+  encoding OAuth's `client_secret_basic` uses).
+- Two separate request headers, `Client-Id` and `Client-Secret`, carrying the
+  credentials verbatim. This is for a headless client whose registration can
+  only substitute plain values into header slots and cannot base64-encode
+  `client_id:client_secret` at request time. Header names are matched
+  case-insensitively.
+
+Either way, the middleware runs an OAuth 2.0 client-credentials grant against the
+configured token endpoint to obtain a short-lived access token, and rewrites the
+request to `Authorization: Bearer <token>` (dropping the presented credential
+headers) so the existing token verifier validates it unchanged. The agent thus
+presents a durable credential once; the server owns the short-lived-token churn.
 
 The exchange runs as the outermost ASGI layer (ahead of FastMCP's auth
 middleware) so the rewritten bearer header is what the verifier sees. Minted
@@ -72,8 +85,8 @@ def wrap_client_credentials(
 
     Returns `app` unchanged when `enabled` is falsy, so the standard bearer/OIDC
     transport auth is the only path. When enabled, returns `app` wrapped as the
-    outermost ASGI layer so the Basic-to-Bearer rewrite happens before FastMCP's
-    auth verifier runs.
+    outermost ASGI layer so the credentials-to-Bearer rewrite happens before
+    FastMCP's auth verifier runs.
 
     The caller owns the opt-in decision and the endpoint: `enabled` and
     `token_url` are passed in (e.g. resolved from the server's own branded env
@@ -82,8 +95,9 @@ def wrap_client_credentials(
     if not enabled:
         return app
     logger.info(
-        "HTTP Basic client-credentials transport auth is enabled; the server "
-        "will exchange presented client credentials for bearer tokens."
+        "Client-credentials transport auth is enabled; the server will exchange "
+        "presented client credentials (HTTP Basic or Client-Id/Client-Secret "
+        "headers) for bearer tokens."
     )
     return ClientCredentialsExchangeMiddleware(
         app,
@@ -97,12 +111,13 @@ def wrap_client_credentials(
 
 
 class ClientCredentialsExchangeMiddleware:
-    """ASGI middleware that exchanges HTTP Basic client credentials for a bearer.
+    """ASGI middleware that exchanges presented client credentials for a bearer.
 
     Runs as the outermost layer so the rewritten `Authorization: Bearer` header
-    reaches FastMCP's auth verifier. Only `Basic` requests are touched; `Bearer`
-    and unauthenticated requests pass through unchanged (the latter are then
-    rejected by the verifier, preserving fail-closed behavior).
+    reaches FastMCP's auth verifier. Only requests presenting client credentials
+    (via `Authorization: Basic` or the `Client-Id`/`Client-Secret` headers) are
+    touched; `Bearer` and unauthenticated requests pass through unchanged (the
+    latter are then rejected by the verifier, preserving fail-closed behavior).
     """
 
     def __init__(
@@ -194,12 +209,12 @@ class ClientCredentialsExchangeMiddleware:
             del self._locks[key]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Rewrite a Basic-auth HTTP request to Bearer, then delegate downstream."""
+        """Rewrite a credential-bearing HTTP request to Bearer, then delegate downstream."""
         if scope["type"] != "http":
             await self._app(scope, receive, send)
             return
 
-        credentials = _parse_basic_credentials(scope)
+        credentials = _parse_credentials(scope)
         if credentials is None:
             await self._app(scope, receive, send)
             return
@@ -331,16 +346,54 @@ def _coerce_expires_in(value: object) -> float:
     return seconds if seconds > 0 else 0.0
 
 
-def _parse_basic_credentials(scope: Scope) -> tuple[str, str] | None:
-    """Return `(client_id, client_secret)` from a Basic `Authorization` header.
+# Separate-header credential form. Lowercased because ASGI normalizes header
+# names to lowercase bytes; the wire spelling (`Client-Id` / `Client-Secret`) is
+# case-insensitive per RFC 9110.
+CLIENT_ID_HEADER = b"client-id"
+CLIENT_SECRET_HEADER = b"client-secret"
 
-    Returns `None` when the header is absent, uses a non-Basic scheme, or is
-    malformed, so the request passes through for the verifier to handle.
+
+def _parse_credentials(scope: Scope) -> tuple[str, str] | None:
+    """Return `(client_id, client_secret)` presented on the request, or `None`.
+
+    Accepts either the separate `Client-Id` / `Client-Secret` headers (preferred
+    when present, since a headless client that can't base64-encode uses this
+    form) or standard HTTP Basic in the `Authorization` header. Returns `None`
+    when neither yields a complete credential pair, so the request passes through
+    for the verifier to handle.
     """
-    for name, value in scope.get("headers", []):
+    headers = scope.get("headers", [])
+    separate = _parse_separate_headers(headers)
+    if separate is not None:
+        return separate
+    for name, value in headers:
         if name == b"authorization":
             return _decode_basic(value)
     return None
+
+
+def _parse_separate_headers(
+    headers: list[tuple[bytes, bytes]],
+) -> tuple[str, str] | None:
+    """Return `(client_id, client_secret)` from the separate credential headers.
+
+    Returns `None` unless both `Client-Id` and `Client-Secret` are present and
+    non-empty, so a request carrying only one falls through to Basic parsing (or
+    to the verifier).
+    """
+    client_id = b""
+    client_secret = b""
+    for name, value in headers:
+        if name == CLIENT_ID_HEADER:
+            client_id = value
+        elif name == CLIENT_SECRET_HEADER:
+            client_secret = value
+    if not client_id or not client_secret:
+        return None
+    try:
+        return client_id.decode("utf-8"), client_secret.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _decode_basic(header_value: bytes) -> tuple[str, str] | None:
@@ -366,10 +419,24 @@ def _cache_key(client_id: str, client_secret: str) -> str:
     return hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
 
 
+# Credential-bearing headers stripped when the request is rewritten to Bearer, so
+# the presented long-lived secret never propagates past this middleware.
+_STRIPPED_CREDENTIAL_HEADERS = frozenset(
+    {b"authorization", CLIENT_ID_HEADER, CLIENT_SECRET_HEADER}
+)
+
+
 def _with_bearer(scope: Scope, token: str) -> Scope:
-    """Return a shallow copy of `scope` with `Authorization` set to `Bearer`."""
+    """Return a shallow copy of `scope` with `Authorization` set to `Bearer`.
+
+    Drops any presented credential headers (`Authorization`, `Client-Id`,
+    `Client-Secret`) first, so neither the original Basic credential nor the
+    separate-header credential leaks downstream.
+    """
     headers = [
-        (name, value) for name, value in scope["headers"] if name != b"authorization"
+        (name, value)
+        for name, value in scope["headers"]
+        if name not in _STRIPPED_CREDENTIAL_HEADERS
     ]
     headers.append((b"authorization", b"Bearer " + token.encode("ascii")))
     new_scope = dict(scope)

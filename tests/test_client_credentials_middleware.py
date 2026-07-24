@@ -1,5 +1,9 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Unit tests for the generic HTTP Basic client-credentials ASGI middleware."""
+"""Unit tests for the generic client-credentials ASGI middleware.
+
+Covers both credential-presentation forms: standard HTTP Basic in the
+`Authorization` header, and the separate `Client-Id` / `Client-Secret` headers.
+"""
 
 from __future__ import annotations
 
@@ -117,6 +121,73 @@ def test_decode_basic(header: bytes, expected: tuple[str, str] | None) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        pytest.param(
+            [(b"client-id", b"id"), (b"client-secret", b"secret")],
+            ("id", "secret"),
+            id="both-separate-headers",
+        ),
+        pytest.param(
+            [(b"CLIENT-ID", b"id"), (b"Client-Secret", b"secret")],
+            None,
+            id="wire-casing-not-normalized-by-caller",
+        ),
+        pytest.param(
+            [(b"client-id", b"id")],
+            None,
+            id="only-client-id",
+        ),
+        pytest.param(
+            [(b"client-secret", b"secret")],
+            None,
+            id="only-client-secret",
+        ),
+        pytest.param(
+            [(b"client-id", b""), (b"client-secret", b"secret")],
+            None,
+            id="empty-client-id",
+        ),
+        pytest.param(
+            [(b"client-id", b"id"), (b"client-secret", b"")],
+            None,
+            id="empty-client-secret",
+        ),
+    ],
+)
+def test_parse_separate_headers(
+    headers: list[tuple[bytes, bytes]], expected: tuple[str, str] | None
+) -> None:
+    # ASGI normalizes header names to lowercase bytes before the app sees them,
+    # so the parser matches lowercase; a caller passing raw wire-cased names is
+    # not a real ASGI code path and is expected to miss.
+    assert ccm._parse_separate_headers(headers) == expected
+
+
+@pytest.mark.unit
+def test_parse_credentials_prefers_separate_headers_over_basic() -> None:
+    scope = _http_scope(
+        (b"authorization", _basic_header("basic-id", "basic-secret")),
+        (b"client-id", b"header-id"),
+        (b"client-secret", b"header-secret"),
+    )
+    assert ccm._parse_credentials(scope) == ("header-id", "header-secret")
+
+
+@pytest.mark.unit
+def test_parse_credentials_falls_back_to_basic() -> None:
+    scope = _http_scope((b"authorization", _basic_header("id", "secret")))
+    assert ccm._parse_credentials(scope) == ("id", "secret")
+
+
+@pytest.mark.unit
+def test_parse_credentials_returns_none_without_credentials() -> None:
+    scope = _http_scope((b"content-type", b"application/json"))
+    assert ccm._parse_credentials(scope) is None
+
+
+@pytest.mark.unit
 def test_cache_key_is_stable_and_distinct() -> None:
     key = ccm._cache_key("id", "secret")
     assert key == ccm._cache_key("id", "secret")
@@ -137,6 +208,21 @@ def test_with_bearer_replaces_authorization() -> None:
     # Original scope is left untouched (shallow copy).
     assert _auth_header(scope) != b"Bearer minted-token"
     # Non-auth headers are preserved.
+    assert (b"content-type", b"application/json") in rewritten["headers"]
+
+
+@pytest.mark.unit
+def test_with_bearer_strips_separate_credential_headers() -> None:
+    scope = _http_scope(
+        (b"content-type", b"application/json"),
+        (b"client-id", b"id"),
+        (b"client-secret", b"secret"),
+    )
+    rewritten = ccm._with_bearer(scope, "minted-token")
+    header_names = {name for name, _ in rewritten["headers"]}
+    assert b"client-id" not in header_names
+    assert b"client-secret" not in header_names
+    assert _auth_header(rewritten) == b"Bearer minted-token"
     assert (b"content-type", b"application/json") in rewritten["headers"]
 
 
@@ -201,6 +287,34 @@ async def test_basic_request_is_rewritten_and_cached() -> None:
 
     assert _auth_header(app.seen_scope) == b"Bearer minted-token"
     assert mint_calls == [("id", "secret")]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_separate_header_request_is_rewritten_and_credentials_stripped() -> None:
+    app = _RecordingApp()
+    mw = ccm.ClientCredentialsExchangeMiddleware(app, token_url="https://example/token")
+    scope = _http_scope(
+        (b"client-id", b"id"),
+        (b"client-secret", b"secret"),
+    )
+    mint_calls: list[tuple[str, str]] = []
+
+    async def fake_mint(client_id: str, client_secret: str) -> tuple[str, float]:
+        mint_calls.append((client_id, client_secret))
+        return "minted-token", 900.0
+
+    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+
+    await mw(scope, _noop_receive, _noop_send)
+
+    assert mint_calls == [("id", "secret")]
+    assert _auth_header(app.seen_scope) == b"Bearer minted-token"
+    # The long-lived credential headers must not propagate downstream.
+    assert app.seen_scope is not None
+    downstream_names = {name for name, _ in app.seen_scope["headers"]}
+    assert b"client-id" not in downstream_names
+    assert b"client-secret" not in downstream_names
 
 
 @pytest.mark.unit
