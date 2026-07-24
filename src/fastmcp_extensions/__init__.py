@@ -38,6 +38,13 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
+from fastmcp_extensions.key_normalization import (
+    DEFAULT_HASH_ALGORITHM,
+    DEFAULT_KEY_PREFIX,
+    HashKeyNormalizer,
+    KeyNormalizer,
+    NormalizedKeysWrapper,
+)
 from fastmcp_extensions.landing_page import (
     LandingPageContent,
     register_landing_page,
@@ -69,15 +76,20 @@ from fastmcp_extensions.tool_filters import (
 )
 
 __all__ = [
+    "DEFAULT_HASH_ALGORITHM",
+    "DEFAULT_KEY_PREFIX",
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
+    "HashKeyNormalizer",
     "IntrospectionAuthConfig",
     "JWTAuthConfig",
+    "KeyNormalizer",
     "LandingPageContent",
     "MCPServerConfig",
     "MCPServerConfigArg",
+    "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
     "ResourceDef",
