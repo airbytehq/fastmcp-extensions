@@ -62,7 +62,6 @@ app = mcp_server(name="my-server", auth=auth)
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -73,8 +72,6 @@ from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import IntrospectionTokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier, StaticTokenVerifier
 from key_value.aio.protocols.key_value import AsyncKeyValue
-
-from fastmcp_extensions.utils.env import get_env
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +113,6 @@ class OIDCAuthConfig:
     them fall back to DCR (`/register`), which is the mandated baseline and
     works on those deployments. Mirrors `OIDCProxy(enable_cimd=...)`, whose own
     default is `True`.
-
-    Via the env-based entry point (`resolve_mcp_auth`), set this with the
-    `OIDC_ENABLE_CIMD` environment variable (accepts `1`/`true`/`yes`/`on` and
-    `0`/`false`/`no`/`off`, case-insensitive).
     """
     forward_resource: bool = False
     """Whether to forward the client's RFC 8707 `resource` indicator to the
@@ -138,10 +131,6 @@ class OIDCAuthConfig:
     is built for. Set to `True` only when the upstream token is never reused
     downstream and strict per-resource audience binding is required. Mirrors
     `OIDCProxy(forward_resource=...)`, whose own default is `True`.
-
-    Via the env-based entry point (`resolve_mcp_auth`), set this with the
-    `OIDC_FORWARD_RESOURCE` environment variable (accepts `1`/`true`/`yes`/`on`
-    and `0`/`false`/`no`/`off`, case-insensitive).
     """
     client_storage: AsyncKeyValue | None = None
     """Durable backend for `OIDCProxy`'s OAuth state (upstream access + refresh
@@ -151,11 +140,12 @@ class OIDCAuthConfig:
     on restart and are not shared across replicas — every restart or scale event
     forces interactive users to re-authenticate. Supplying a shared, durable,
     encrypted `key_value.aio.protocols.key_value.AsyncKeyValue` (e.g. a
-    Fernet-wrapped Redis store) makes long-lived sessions survive restarts and
-    work across replicas. Leave `None` to keep `OIDCProxy`'s default in-memory
-    behavior (fine for single-instance local dev). This library stays backend-
-    agnostic: the caller constructs the store and injects it here (or via
-    `resolve_mcp_auth`'s `oidc_client_storage` argument).
+    Fernet-wrapped Firestore store) makes long-lived sessions survive restarts
+    and work across replicas. Leave `None` to keep `OIDCProxy`'s default
+    in-memory behavior (fine for single-instance local dev). This library stays
+    backend-agnostic: the caller constructs the store and injects it here, so
+    all backend-specific config (project, database, encryption) lives in the
+    deployment, never in this library.
     """
 
 
@@ -319,201 +309,6 @@ def build_mcp_auth(
     return _assemble_auth(
         server=server,
         verifiers=verifiers,
-        base_url=base_url,
-        required_scopes=required_scopes,
-    )
-
-
-def _split_scopes(raw: str | None) -> list[str] | None:
-    if not raw:
-        return None
-    scopes = [s.strip() for s in raw.replace(",", " ").split()]
-    scopes = [s for s in scopes if s]
-    return scopes or None
-
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-_FALSY = frozenset({"0", "false", "no", "off"})
-
-
-def _env_bool(env: Mapping[str, str], key: str, *, default: bool) -> bool:
-    """Parse a boolean env var, returning `default` when unset or empty.
-
-    Accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (case-insensitive).
-    Raises `ValueError` for any other non-empty value so a typo fails loudly
-    instead of silently falling back to the default.
-    """
-    raw = get_env(env, key)
-    if raw is None:
-        return default
-    normalized = raw.strip().lower()
-    if not normalized:
-        return default
-    if normalized in _TRUTHY:
-        return True
-    if normalized in _FALSY:
-        return False
-    raise ValueError(
-        f"Invalid boolean value for {key}: {raw!r}. "
-        f"Expected one of {sorted(_TRUTHY | _FALSY)}."
-    )
-
-
-def resolve_mcp_auth(
-    env: Mapping[str, str] | None = None,
-    *,
-    jwt_defaults: JWTAuthConfig | None = None,
-    oidc_client_storage: AsyncKeyValue | None = None,
-) -> AuthProvider | None:
-    """Build an `AuthProvider` from a standard set of environment variables.
-
-    This is the convenience entry point that lets any server opt into headless
-    auth "for free". It reads the following variables and delegates to
-    `build_mcp_auth`:
-
-    Interactive OIDC (`OIDCProxy`):
-
-    - `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-    - `MCP_SERVER_URL` (base URL for redirect callbacks)
-    - `OIDC_AUDIENCE` (optional)
-    - `OIDC_ENABLE_CIMD` (optional bool, default off)
-    - `OIDC_FORWARD_RESOURCE` (optional bool, default off)
-
-    `oidc_client_storage` supplies a durable, shared backend for the interactive
-    `OIDCProxy`'s OAuth state (see `OIDCAuthConfig.client_storage`). It is passed
-    as an object rather than resolved from env because this library stays
-    backend-agnostic — the caller constructs the store (e.g. a Fernet-wrapped
-    Redis store) and injects it. When `None`, `OIDCProxy` keeps its default
-    in-memory store, so refresh tokens do not survive restarts or span replicas.
-
-    Headless JWT bearer verification (`JWTVerifier`):
-
-    - `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`)
-    - `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE` (optional but recommended)
-    - `MCP_AUTH_ALGORITHM` (optional)
-
-    `jwt_defaults` lets a caller supply a batteries-included JWT verifier realm
-    (issuer / JWKS URI / audience / algorithm) without baking any provider
-    literals into this library. The headless verifier is configured whenever
-    `jwt_defaults` is given *or* an `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY`
-    is set; each `MCP_AUTH_*` variable overrides the matching `jwt_defaults`
-    field, so a deployment can point at its own realm while still getting the
-    supplied defaults for anything it leaves unset. Adopters gate this behind
-    their own env flag by passing `jwt_defaults` only when that flag is set.
-
-    Headless opaque-token introspection (`IntrospectionTokenVerifier`):
-
-    - `MCP_AUTH_INTROSPECTION_URL`
-    - `MCP_AUTH_INTROSPECTION_CLIENT_ID` / `MCP_AUTH_INTROSPECTION_CLIENT_SECRET`
-      (falling back to `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET`)
-
-    Shared:
-
-    - `MCP_AUTH_REQUIRED_SCOPES` (comma or space separated)
-
-    Interactive OIDC requires all of `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
-    `OIDC_CLIENT_SECRET`; when `OIDC_CONFIG_URL` is set but the client
-    credentials are missing a warning is logged and interactive auth is left
-    disabled. (`OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` without `OIDC_CONFIG_URL`
-    are treated as introspection fallback credentials, not partial OIDC, so
-    they do not warn.) Returns `None` when no auth is configured, so an HTTP
-    caller can decide whether to run unauthenticated.
-    """
-    env = os.environ if env is None else env
-    base_url = get_env(env, "MCP_SERVER_URL")
-    required_scopes = _split_scopes(get_env(env, "MCP_AUTH_REQUIRED_SCOPES"))
-
-    oidc: OIDCAuthConfig | None = None
-    oidc_config_url = get_env(env, "OIDC_CONFIG_URL", "")
-    oidc_client_id = get_env(env, "OIDC_CLIENT_ID", "")
-    oidc_client_secret = get_env(env, "OIDC_CLIENT_SECRET", "")
-    if oidc_config_url and oidc_client_id and oidc_client_secret:
-        logger.info(
-            "Interactive OIDC auth enabled (config_url=%s, base_url=%s)",
-            oidc_config_url,
-            base_url,
-        )
-        oidc = OIDCAuthConfig(
-            config_url=oidc_config_url,
-            client_id=oidc_client_id,
-            client_secret=oidc_client_secret,
-            base_url=base_url,
-            audience=get_env(env, "OIDC_AUDIENCE"),
-            client_storage=oidc_client_storage,
-            enable_cimd=_env_bool(env, "OIDC_ENABLE_CIMD", default=False),
-            forward_resource=_env_bool(env, "OIDC_FORWARD_RESOURCE", default=False),
-        )
-    elif oidc_config_url:
-        logger.warning(
-            "Incomplete interactive OIDC configuration: OIDC_CONFIG_URL is set "
-            "but OIDC_CLIENT_ID and/or OIDC_CLIENT_SECRET are missing. "
-            "Interactive OIDC auth is disabled."
-        )
-
-    jwt: JWTAuthConfig | None = None
-    jwks_uri = get_env(env, "MCP_AUTH_JWKS_URI", "")
-    jwt_public_key = get_env(env, "MCP_AUTH_JWT_PUBLIC_KEY", "")
-    if jwks_uri or jwt_public_key or jwt_defaults is not None:
-        resolved_jwks = (
-            jwks_uri or (jwt_defaults.jwks_uri if jwt_defaults else None) or None
-        )
-        resolved_public_key = (
-            jwt_public_key
-            or (jwt_defaults.public_key if jwt_defaults else None)
-            or None
-        )
-        issuer = get_env(env, "MCP_AUTH_ISSUER") or (
-            jwt_defaults.issuer if jwt_defaults else None
-        )
-        audience = get_env(env, "MCP_AUTH_AUDIENCE") or (
-            jwt_defaults.audience if jwt_defaults else None
-        )
-        algorithm = get_env(env, "MCP_AUTH_ALGORITHM") or (
-            jwt_defaults.algorithm if jwt_defaults else None
-        )
-        logger.info(
-            "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
-            resolved_jwks or "<static public key>",
-            issuer,
-            audience,
-        )
-        jwt = JWTAuthConfig(
-            jwks_uri=resolved_jwks,
-            public_key=resolved_public_key,
-            issuer=issuer,
-            audience=audience,
-            algorithm=algorithm,
-            required_scopes=required_scopes
-            or (jwt_defaults.required_scopes if jwt_defaults else None),
-            base_url=base_url or (jwt_defaults.base_url if jwt_defaults else None),
-        )
-
-    introspection: IntrospectionAuthConfig | None = None
-    introspection_url = get_env(env, "MCP_AUTH_INTROSPECTION_URL")
-    if introspection_url:
-        client_id = get_env(env, "MCP_AUTH_INTROSPECTION_CLIENT_ID") or get_env(
-            env, "OIDC_CLIENT_ID"
-        )
-        client_secret = get_env(env, "MCP_AUTH_INTROSPECTION_CLIENT_SECRET") or get_env(
-            env, "OIDC_CLIENT_SECRET"
-        )
-        if not client_id or not client_secret:
-            raise ValueError(
-                "MCP_AUTH_INTROSPECTION_URL is set but no introspection client "
-                "credentials were found. Set MCP_AUTH_INTROSPECTION_CLIENT_ID "
-                "and MCP_AUTH_INTROSPECTION_CLIENT_SECRET (or OIDC_CLIENT_ID / "
-                "OIDC_CLIENT_SECRET)."
-            )
-        introspection = IntrospectionAuthConfig(
-            introspection_url=introspection_url,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
-
-    return build_mcp_auth(
-        oidc=oidc,
-        jwt=jwt,
-        introspection=introspection,
         base_url=base_url,
         required_scopes=required_scopes,
     )

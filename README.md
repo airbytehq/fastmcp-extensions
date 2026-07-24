@@ -11,7 +11,7 @@ Unofficial extension library for FastMCP 2.0 with patterns, practices, and utili
 - Tool Testing Utilities: Helpers for testing MCP tools directly with JSON arguments (stdio and HTTP transports).
 - Tool List Measurement: Utilities for measuring tool list size to track context truncation issues.
 - Prompt Helpers: Generic `get_prompt_text` helper for agents that cannot access prompt assets directly.
-- Auth Factory: `resolve_mcp_auth()` / `build_mcp_auth()` assemble a FastMCP `AuthProvider` from environment variables (interactive OIDC for humans, headless JWT bearer for machines, opaque-token introspection, and static tokens), plus `fetch_client_credentials_token()` for clients that need to mint a bearer token.
+- Auth Factory: `build_mcp_auth()` assembles a FastMCP `AuthProvider` from typed config objects (interactive OIDC for humans, headless JWT bearer for machines, opaque-token introspection, and static tokens), plus `fetch_client_credentials_token()` for clients that need to mint a bearer token. The factory reads **no environment variables** — each server owns its env-var names and maps them into the configs.
 
 ## Installation
 
@@ -146,58 +146,67 @@ manage token lifecycles themselves. They only declare **which verifier(s) they
 trust**; FastMCP verifies the `Authorization: Bearer <token>` on every request.
 Minting tokens is the client's job. This library owns the assembly.
 
-The recommended entry point is `resolve_mcp_auth()`, which reads a standard set
-of environment variables and returns an `AuthProvider | None` (return `None` =
-run unauthenticated, e.g. local stdio):
-
-```python
-from fastmcp_extensions import resolve_mcp_auth
-
-app = mcp_server(name="my-mcp-server", package_name="my-package")
-app.auth = resolve_mcp_auth()  # env-driven; None when nothing is configured
-```
-
-`resolve_mcp_auth()` understands three transport-auth modes, and combines any
-that are configured via FastMCP's `MultiAuth`:
-
-| Mode | Who it's for | Enabling env vars |
-| ---- | ------------ | ----------------- |
-| Interactive OIDC (`OIDCProxy`) | humans (browser Auth Code + PKCE) | `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (all three; optional `OIDC_AUDIENCE`) |
-| Headless JWT (`JWTVerifier`) | machines / agents | `MCP_AUTH_JWKS_URI` **or** `MCP_AUTH_JWT_PUBLIC_KEY` (optional `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE`, `MCP_AUTH_ALGORITHM`) |
-| Opaque-token introspection (`IntrospectionTokenVerifier`) | machines with opaque tokens | `MCP_AUTH_INTROSPECTION_URL` + `MCP_AUTH_INTROSPECTION_CLIENT_ID`/`_SECRET` (falls back to `OIDC_CLIENT_ID`/`_SECRET`) |
-
-Shared: `MCP_SERVER_URL` (public base URL) and `MCP_AUTH_REQUIRED_SCOPES`
-(comma/space separated). Interactive OIDC is all-or-nothing: setting
-`OIDC_CONFIG_URL` without both client credentials logs a warning and leaves
-interactive auth disabled.
-
-**Batteries-included JWT realm without hard-coding literals.** A server that
-wants to ship a default headless realm (issuer / JWKS URI / audience /
-algorithm) passes a `JWTAuthConfig` as `jwt_defaults`. Each `MCP_AUTH_*` env var
-overrides the matching field, so a deployment can point at its own realm while
-inheriting anything it leaves unset:
+The entry point is `build_mcp_auth()`: a **pure, typed** factory that assembles
+an `AuthProvider | None` from explicit config objects (return `None` = run
+unauthenticated, e.g. local stdio). It reads **no environment variables** — the
+server owns its own env-var names (whatever branding it prefers) and maps them
+into the configs, so this library never imposes a naming scheme or a backend:
 
 ```python
 import os
 
-from fastmcp_extensions import JWTAuthConfig, resolve_mcp_auth
-
-MY_REALM = JWTAuthConfig(
-    jwks_uri="https://idp.example/.well-known/jwks.json",
-    issuer="https://idp.example/",
-    audience="my-api",
-    algorithm="RS256",
+from fastmcp_extensions import (
+    JWTAuthConfig,
+    OIDCAuthConfig,
+    build_mcp_auth,
+    mcp_server,
 )
 
-# Gate the default behind your own flag so the literal stays in your code, not here:
-defaults = MY_REALM if os.getenv("MY_MCP_USE_DEFAULT_REALM") else None
-app.auth = resolve_mcp_auth(jwt_defaults=defaults)
+app = mcp_server(name="my-mcp-server", package_name="my-package")
+
+# The server decides its env-var names and maps them into typed configs. Read
+# every field with os.getenv and only build the config once all are present, so
+# a partially-configured deployment never raises a KeyError.
+config_url = os.getenv("MY_OIDC_CONFIG_URL")
+client_id = os.getenv("MY_OIDC_CLIENT_ID")
+client_secret = os.getenv("MY_OIDC_CLIENT_SECRET")
+base_url = os.getenv("MY_MCP_SERVER_URL")
+
+oidc = None
+if config_url and client_id and client_secret and base_url:
+    oidc = OIDCAuthConfig(
+        config_url=config_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url,
+    )
+
+app.auth = build_mcp_auth(
+    oidc=oidc,  # interactive humans (browser Auth Code + PKCE), optional
+    jwt=JWTAuthConfig(  # headless machines / agents, optional
+        jwks_uri="https://idp.example/.well-known/jwks.json",
+        issuer="https://idp.example/",
+        audience="my-api",
+    ),
+)
 ```
 
-**Lower-level API.** When env-driven resolution isn't enough (bespoke combos,
-static tokens, programmatic config), call `build_mcp_auth()` directly with any
-of `oidc=`, `jwt=`, `introspection=`, `static_tokens=`. It returns a single
-verifier when one is configured, or a `MultiAuth` when several are.
+`build_mcp_auth()` understands three transport-auth modes and combines any that
+are configured via FastMCP's `MultiAuth`:
+
+| Mode | Who it's for | Config object |
+| ---- | ------------ | ------------- |
+| Interactive OIDC (`OIDCProxy`) | humans (browser Auth Code + PKCE) | `OIDCAuthConfig(config_url, client_id, client_secret, base_url, ...)` |
+| Headless JWT (`JWTVerifier`) | machines / agents | `JWTAuthConfig(...)` with either `jwks_uri=...` or `public_key=...`, plus `issuer` / `audience` / `algorithm` |
+| Opaque-token introspection (`IntrospectionTokenVerifier`) | machines with opaque tokens | `IntrospectionAuthConfig(introspection_url, client_id, client_secret)` |
+
+`static_tokens=`, `base_url=`, and `required_scopes=` round out the parameters.
+It returns a single verifier when one is configured, or a `MultiAuth` when
+several are. For a durable, shared interactive-OIDC store (so refresh tokens
+survive restarts and span replicas), the server constructs its own backend and
+injects it via `OIDCAuthConfig(client_storage=...)` — keeping all
+backend-specific config (project, database, encryption) in the deployment, not
+in this library.
 
 **Client side.** A headless client mints its own short-lived bearer token and
 sends it as `Authorization: Bearer <token>`; use
@@ -281,8 +290,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Auth Utilities
 
-- `resolve_mcp_auth(env=None, *, jwt_defaults=None)` - Build an `AuthProvider | None` from environment variables; pass `jwt_defaults` (a `JWTAuthConfig`) to supply a default headless realm that `MCP_AUTH_*` vars can override.
-- `build_mcp_auth(*, oidc=None, jwt=None, introspection=None, static_tokens=None, base_url=None, required_scopes=None)` - Lower-level factory that assembles one verifier or a `MultiAuth` from explicit configs.
+- `build_mcp_auth(*, oidc=None, jwt=None, introspection=None, static_tokens=None, base_url=None, required_scopes=None)` - Pure, typed factory that assembles one verifier or a `MultiAuth` from explicit configs. Reads no environment variables — the calling server maps its own env into the configs.
 - `OIDCAuthConfig` / `JWTAuthConfig` / `IntrospectionAuthConfig` - Typed configs for the three verifier modes.
 - `fetch_client_credentials_token(ClientCredentials(...))` - Client-side OAuth 2.0 client-credentials grant to mint a short-lived bearer token.
 - `ClientCredentials` - Parameters for the client-credentials grant (token URL, client id/secret, scope, audience, auth method).
