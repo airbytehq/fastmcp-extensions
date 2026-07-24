@@ -82,14 +82,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_CLIENT_CREDENTIALS_TIMEOUT_SECONDS = 30
 
 OIDC_CLIENT_STORAGE_FACTORY_ENV = "MCP_OIDC_CLIENT_STORAGE_FACTORY"
-"""Env var naming a zero-argument factory that builds the interactive
-`OIDCProxy`'s durable OAuth-state store.
+"""Env var naming a factory that builds the `OIDCProxy`'s durable OAuth store.
 
+The named callable takes no arguments and returns an `AsyncKeyValue` (or `None`).
 Format is a `pkgutil`-style target (`package.module:callable` or
 `package.module.callable`). When set and no store is passed explicitly to
-`resolve_mcp_auth`, the named callable is imported and invoked to produce an
-`AsyncKeyValue` (or `None`). This keeps the library backend-agnostic: the
-deployment owns the concrete backend and its infrastructure-specific config
+`resolve_mcp_auth`, the target is imported and called. This keeps the library
+backend-agnostic: the deployment owns the concrete backend and its
+infrastructure-specific config
 (project, database, encryption, etc.) inside the factory, while this library
 only resolves and calls it.
 """
