@@ -155,18 +155,30 @@ into the configs, so this library never imposes a naming scheme or a backend:
 ```python
 import os
 
-from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig, build_mcp_auth
+from fastmcp_extensions import (
+    JWTAuthConfig,
+    OIDCAuthConfig,
+    build_mcp_auth,
+    mcp_server,
+)
 
 app = mcp_server(name="my-mcp-server", package_name="my-package")
 
-# The server decides its env-var names and maps them into typed configs:
+# The server decides its env-var names and maps them into typed configs. Read
+# every field with os.getenv and only build the config once all are present, so
+# a partially-configured deployment never raises a KeyError.
+config_url = os.getenv("MY_OIDC_CONFIG_URL")
+client_id = os.getenv("MY_OIDC_CLIENT_ID")
+client_secret = os.getenv("MY_OIDC_CLIENT_SECRET")
+base_url = os.getenv("MY_MCP_SERVER_URL")
+
 oidc = None
-if os.getenv("MY_OIDC_CLIENT_ID") and os.getenv("MY_OIDC_CLIENT_SECRET"):
+if config_url and client_id and client_secret and base_url:
     oidc = OIDCAuthConfig(
-        config_url=os.environ["MY_OIDC_CONFIG_URL"],
-        client_id=os.environ["MY_OIDC_CLIENT_ID"],
-        client_secret=os.environ["MY_OIDC_CLIENT_SECRET"],
-        base_url=os.environ["MY_MCP_SERVER_URL"],
+        config_url=config_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url,
     )
 
 app.auth = build_mcp_auth(
@@ -185,7 +197,7 @@ are configured via FastMCP's `MultiAuth`:
 | Mode | Who it's for | Config object |
 | ---- | ------------ | ------------- |
 | Interactive OIDC (`OIDCProxy`) | humans (browser Auth Code + PKCE) | `OIDCAuthConfig(config_url, client_id, client_secret, base_url, ...)` |
-| Headless JWT (`JWTVerifier`) | machines / agents | `JWTAuthConfig(jwks_uri` **or** `public_key, issuer, audience, algorithm)` |
+| Headless JWT (`JWTVerifier`) | machines / agents | `JWTAuthConfig(...)` with either `jwks_uri=...` or `public_key=...`, plus `issuer` / `audience` / `algorithm` |
 | Opaque-token introspection (`IntrospectionTokenVerifier`) | machines with opaque tokens | `IntrospectionAuthConfig(introspection_url, client_id, client_secret)` |
 
 `static_tokens=`, `base_url=`, and `required_scopes=` round out the parameters.
