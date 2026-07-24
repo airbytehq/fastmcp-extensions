@@ -43,7 +43,7 @@ from fastmcp_extensions.key_normalization import (
     DEFAULT_KEY_PREFIX,
     HashKeyNormalizer,
     KeyNormalizer,
-    NormalizeKeysWrapper,
+    NormalizedKeysWrapper,
 )
 from fastmcp_extensions.landing_page import (
     LandingPageContent,
@@ -89,7 +89,7 @@ __all__ = [
     "LandingPageContent",
     "MCPServerConfig",
     "MCPServerConfigArg",
-    "NormalizeKeysWrapper",
+    "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
     "ResourceDef",

@@ -12,7 +12,7 @@ from fastmcp_extensions.key_normalization import (
     DEFAULT_KEY_PREFIX,
     HashKeyNormalizer,
     KeyNormalizer,
-    NormalizeKeysWrapper,
+    NormalizedKeysWrapper,
 )
 
 # Keys that are illegal as a Firestore document ID (or another backend's key)
@@ -74,7 +74,7 @@ def test_hash_normalizer_satisfies_protocol() -> None:
 @pytest.mark.parametrize("key", _TRICKY_KEYS)
 async def test_wrapper_round_trips_tricky_keys(key: str) -> None:
     store = MemoryStore()
-    wrapped = NormalizeKeysWrapper(key_value=store)
+    wrapped = NormalizedKeysWrapper(key_value=store)
 
     await wrapped.put(key=key, value={"v": 1})
     assert await wrapped.get(key=key) == {"v": 1}
@@ -88,7 +88,7 @@ async def test_wrapper_round_trips_tricky_keys(key: str) -> None:
 async def test_wrapper_stores_under_normalized_key_only() -> None:
     key = "https://goose-docs.ai/oauth/client-metadata.json"
     store = MemoryStore()
-    wrapped = NormalizeKeysWrapper(key_value=store)
+    wrapped = NormalizedKeysWrapper(key_value=store)
 
     await wrapped.put(key=key, value={"v": 1})
 
@@ -101,7 +101,7 @@ async def test_wrapper_stores_under_normalized_key_only() -> None:
 @pytest.mark.asyncio
 async def test_wrapper_defaults_to_hash_normalizer() -> None:
     assert isinstance(
-        NormalizeKeysWrapper(key_value=MemoryStore()).normalizer, HashKeyNormalizer
+        NormalizedKeysWrapper(key_value=MemoryStore()).normalizer, HashKeyNormalizer
     )
 
 
@@ -109,7 +109,7 @@ async def test_wrapper_defaults_to_hash_normalizer() -> None:
 async def test_wrapper_many_operations_round_trip() -> None:
     keys = ["a/b", "https://x.example/y", "plain"]
     store = MemoryStore()
-    wrapped = NormalizeKeysWrapper(key_value=store)
+    wrapped = NormalizedKeysWrapper(key_value=store)
 
     await wrapped.put_many(keys=keys, values=[{"n": i} for i in range(len(keys))])
     got = await wrapped.get_many(keys=keys)

@@ -17,7 +17,7 @@ This module provides a generic, backend-agnostic fix that composes into the
 - `KeyNormalizer` — a one-way `normalize(key) -> str` strategy.
 - `HashKeyNormalizer` — the default strategy: a fixed-length, always-legal
   digest of the key.
-- `NormalizeKeysWrapper` — an `AsyncKeyValue` wrapper that routes every key
+- `NormalizedKeysWrapper` — an `AsyncKeyValue` wrapper that routes every key
   through a `KeyNormalizer` before delegating, mirroring the shape of the
   upstream `PrefixKeysWrapper`.
 
@@ -93,14 +93,14 @@ class HashKeyNormalizer:
         return self.prefix + encoded
 
 
-class NormalizeKeysWrapper(BaseWrapper):
+class NormalizedKeysWrapper(BaseWrapper):
     """Route every key through a `KeyNormalizer` before delegating.
 
     Wraps any `AsyncKeyValue` so that arbitrary string keys — URL `client_id`s,
     base64 tokens — become legal for the underlying store. Values are untouched;
     only the keyspace changes. Defaults to `HashKeyNormalizer`, which makes any
     key storable in any backend. Compose it in the wrapper chain like any other
-    `key_value` wrapper, e.g. `FernetEncryptionWrapper(NormalizeKeysWrapper(
+    `key_value` wrapper, e.g. `FernetEncryptionWrapper(NormalizedKeysWrapper(
     store))` to normalize keys and encrypt values.
     """
 
