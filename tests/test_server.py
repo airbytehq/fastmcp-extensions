@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the mcp_server() helper function."""
 
+import asyncio
+import json
 import os
 from unittest.mock import patch
 
@@ -53,6 +55,20 @@ def test_mcp_server_config_stores_advertised_properties() -> None:
     app = mcp_server("test-server", advertised_properties=props)
     config: MCPServerConfig = app.x_mcp_server_config
     assert config.advertised_properties == props
+
+
+@pytest.mark.unit
+def test_server_info_includes_dynamic_properties() -> None:
+    app = mcp_server(
+        "test-server",
+        server_info_provider=lambda: {"authenticated_principal": "user@example.com"},
+    )
+
+    result = asyncio.run(app.read_resource("test-server://server/info"))
+
+    assert json.loads(result.contents[0].content)["authenticated_principal"] == (
+        "user@example.com"
+    )
 
 
 @pytest.mark.unit
