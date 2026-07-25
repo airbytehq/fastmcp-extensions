@@ -161,7 +161,13 @@ def _create_server_info_resource(
             info[key] = value
 
         if config.server_info_provider is not None:
-            info.update(config.server_info_provider())
+            provider_info = config.server_info_provider()
+            if not isinstance(provider_info, dict):
+                raise TypeError(
+                    "server_info_provider must return a dict, "
+                    f"got {type(provider_info).__name__}"
+                )
+            info.update(provider_info)
 
         return json.dumps(info)
 
@@ -253,6 +259,8 @@ def mcp_server(
             Common properties include:
             - docs_url: URL to documentation
             - release_history_url: URL to release history
+        server_info_provider: Optional callable that returns a dictionary of
+            request-specific properties to include in server info.
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
             Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.

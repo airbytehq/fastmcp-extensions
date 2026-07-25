@@ -1,13 +1,13 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the mcp_server() helper function."""
 
-import asyncio
 import json
 import os
 from unittest.mock import patch
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.exceptions import ResourceError
 from mcp.types import Tool, ToolAnnotations
 
 from fastmcp_extensions import (
@@ -57,18 +57,35 @@ def test_mcp_server_config_stores_advertised_properties() -> None:
     assert config.advertised_properties == props
 
 
+@pytest.mark.asyncio
 @pytest.mark.unit
-def test_server_info_includes_dynamic_properties() -> None:
+async def test_server_info_includes_dynamic_properties() -> None:
     app = mcp_server(
         "test-server",
         server_info_provider=lambda: {"authenticated_principal": "user@example.com"},
     )
 
-    result = asyncio.run(app.read_resource("test-server://server/info"))
+    result = await app.read_resource("test-server://server/info")
 
     assert json.loads(result.contents[0].content)["authenticated_principal"] == (
         "user@example.com"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize("provider_result", [None, ["invalid"]])
+async def test_server_info_provider_requires_dict(provider_result: object) -> None:
+    app = mcp_server(
+        "test-server",
+        server_info_provider=lambda: provider_result,  # type: ignore[return-value]
+    )
+
+    with pytest.raises(
+        ResourceError,
+        match=r"server_info_provider must return a dict, got (NoneType|list)",
+    ):
+        await app.read_resource("test-server://server/info")
 
 
 @pytest.mark.unit
