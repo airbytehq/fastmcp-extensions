@@ -65,6 +65,7 @@ class MCPServerConfig:
     name: str
     package_name: str | None = None
     advertised_properties: dict[str, Any] = field(default_factory=dict)
+    server_info_provider: Callable[[], dict[str, Any]] | None = None
     config_args: list[MCPServerConfigArg] = field(default_factory=list)
     _config_args_by_name: dict[str, MCPServerConfigArg] = field(
         default_factory=dict, init=False, repr=False

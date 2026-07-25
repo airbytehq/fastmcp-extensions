@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import importlib.metadata as md
 import inspect
+import json
 import pkgutil
 import subprocess
 from collections.abc import Callable
@@ -144,7 +145,7 @@ def _create_server_info_resource(
         description=f"Server information for the {server_name} MCP server",
         mime_type="application/json",
     )
-    def server_info() -> dict[str, Any]:
+    def server_info() -> str:
         """Get server information including version, git SHA, and advertised properties."""
         info: dict[str, Any] = {
             "name": server_name,
@@ -159,7 +160,16 @@ def _create_server_info_resource(
         for key, value in config.advertised_properties.items():
             info[key] = value
 
-        return info
+        if config.server_info_provider is not None:
+            provider_info = config.server_info_provider()
+            if not isinstance(provider_info, dict):
+                raise TypeError(
+                    "server_info_provider must return a dict, "
+                    f"got {type(provider_info).__name__}"
+                )
+            info.update(provider_info)
+
+        return json.dumps(info)
 
 
 def _discover_mcp_module_names() -> list[str]:
@@ -225,6 +235,7 @@ def mcp_server(
     *,
     package_name: str | None = None,
     advertised_properties: dict[str, Any] | None = None,
+    server_info_provider: Callable[[], dict[str, Any]] | None = None,
     auto_discover_assets: bool | Callable[[], list[str]] = False,
     server_config_args: list[MCPServerConfigArg] | None = None,
     tool_filters: list[ToolFilterFn] | None = None,
@@ -248,6 +259,8 @@ def mcp_server(
             Common properties include:
             - docs_url: URL to documentation
             - release_history_url: URL to release history
+        server_info_provider: Optional callable that returns a dictionary of
+            request-specific properties to include in server info.
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
             Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.
@@ -314,6 +327,7 @@ def mcp_server(
         name=name,
         package_name=package_name,
         advertised_properties=advertised_properties or {},
+        server_info_provider=server_info_provider,
         config_args=all_config_args,
     )
 
