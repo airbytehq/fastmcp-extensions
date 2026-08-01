@@ -42,7 +42,7 @@ jobs:
       # For release events: download pre-built assets attached to the release.
       - name: Download release assets
         if: github.event_name == 'release'
-        uses: robinraju/release-downloader@v1.12
+        uses: robinraju/release-downloader@v1.13
         with:
           tag: ${{ github.event.release.tag_name }}
           fileName: "*"
@@ -75,4 +75,4 @@ jobs:
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.2
