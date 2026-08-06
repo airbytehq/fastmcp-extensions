@@ -85,35 +85,6 @@ annotations = {
 }
 ```
 
-## Tool Filtering
-
-`mcp_server()` can add the standard filters with
-`include_standard_tool_filters=True`:
-
-```python
-app = mcp_server(
-    name="my-server",
-    include_standard_tool_filters=True,
-)
-```
-
-The standard filters support read-only mode, no-destructive mode, module
-include/exclude, tool exclusion, and the trusted-execution gate. Read-only and
-no-destructive modes use the tool's MCP annotations; annotate tools at
-registration time:
-
-```python
-@mcp_tool(read_only=True, destructive=False)
-def list_items() -> list[str]:
-    return ["item1", "item2"]
-```
-
-Filters compose with logical **AND**, so each filter can only narrow the visible
-tool set. Tools annotated `requiresClientFilesystem=True` remain hidden unless
-trusted execution is enabled for a local stdio server. The gate is always forced
-off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
-an HTTP entrypoint to fail fast if its configuration is enabled.
-
 ### Using Deferred Registration
 
 ```python
@@ -255,6 +226,35 @@ state. If the token the client mints is also a valid credential for a downstream
 API (i.e. the verifier points at that API's issuer), the server can reuse the
 verified token as the downstream bearer via FastMCP's `get_access_token()` — one
 token doing both transport auth and downstream authorization.
+
+## Tool Filtering
+
+`mcp_server()` can add the standard filters with
+`include_standard_tool_filters=True`:
+
+```python
+app = mcp_server(
+    name="my-server",
+    include_standard_tool_filters=True,
+)
+```
+
+The standard filters support read-only mode, no-destructive mode, module
+include/exclude, tool exclusion, and the trusted-execution gate. Read-only and
+no-destructive modes use the tool's MCP annotations; annotate tools at
+registration time:
+
+```python
+@mcp_tool(read_only=True, destructive=False)
+def list_items() -> list[str]:
+    return ["item1", "item2"]
+```
+
+Filters compose with logical **AND**, so each filter can only narrow the visible
+tool set. Tools annotated `requiresClientFilesystem=True` remain hidden unless
+trusted execution is enabled for a local stdio server. The gate is always forced
+off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
+an HTTP entrypoint to fail fast if its configuration is enabled.
 
 ## Poe Tasks for MCP Servers
 
