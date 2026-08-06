@@ -1,7 +1,7 @@
 [project]
 name = "fastmcp-extensions"
 dynamic = ["version"]
-description = "Unofficial extension library for FastMCP 2.0 with patterns, practices, and utilities"
+description = "Unofficial extension library for FastMCP 3.x with patterns, practices, and utilities"
 readme = "README.md"
 authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }

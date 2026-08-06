@@ -70,6 +70,7 @@ Usage (CLI):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib
 import json
 import shutil
@@ -79,6 +80,9 @@ import tempfile
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+
+from fastmcp import FastMCP
+from fastmcp.utilities.inspect import format_fastmcp_info, inspect_fastmcp
 
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
@@ -148,6 +152,16 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
+def _inspect_fastmcp_in_process(server: FastMCP[Any]) -> dict[str, Any]:
+    """Inspect an in-process FastMCP server using FastMCP's public API."""
+
+    async def inspect() -> dict[str, Any]:
+        info = await inspect_fastmcp(server)
+        return json.loads(format_fastmcp_info(info))
+
+    return asyncio.run(inspect())
+
+
 def _spec_to_module_name(server_spec: str) -> str:
     """Normalize a FastMCP server spec to a dotted module path for import.
 
@@ -167,8 +181,14 @@ def _spec_to_module_name(server_spec: str) -> str:
     return dotted
 
 
-def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
-    """Best-effort import-based lookup of `mcp_module` for prompts/resources.
+def _import_server_module(server_spec: str) -> None:
+    """Import the module named by a FastMCP server spec."""
+
+    importlib.import_module(_spec_to_module_name(server_spec))
+
+
+def _build_extra_module_map() -> dict[str, str]:
+    """Scan registered prompts/resources for their `mcp_module` values.
 
     The `mcp_tool` decorator embeds `mcp_module` in the MCP tool
     `annotations` dict, which the inspect JSON surfaces directly. But
@@ -176,23 +196,15 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
     annotation, so it doesn't appear in the inspect JSON.
 
-    To still recover that information, we import the server module (which
-    triggers the decorator side effects that populate `_REGISTERED_*`) and
-    read those lists. If that fails (unusual shape, import errors, etc.),
-    we silently return an empty map and the caller falls back to
-    `MISC_MODULE`.
+    The server module must already be imported before this function is called.
+    If scanning fails (unusual shape or metadata drift), it silently returns
+    an empty map and the caller falls back to `MISC_MODULE`.
 
     Returns a map of `name / uri -> mcp_module` covering both prompts and
     resources.
     """
     mapping: dict[str, str] = {}
-    # The iteration sits inside the same `try` as the import so any shape
-    # drift in the `_REGISTERED_*` tuples (e.g. an added third element, or
-    # `ann` becoming a dataclass instead of a dict) falls back to an empty
-    # mapping — preserving this helper's documented best-effort semantics —
-    # rather than aborting doc generation.
     try:
-        importlib.import_module(_spec_to_module_name(server_spec))
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
                 mapping[name] = ann.get("mcp_module") or MISC_MODULE
@@ -207,6 +219,16 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     except Exception:
         return {}
     return mapping
+
+
+def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
+    """Import a server module, then scan its registered prompts/resources."""
+
+    try:
+        _import_server_module(server_spec)
+    except Exception:
+        return {}
+    return _build_extra_module_map()
 
 
 def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
@@ -622,7 +644,7 @@ def _prepare_output_dir(output: Path) -> Path:
 
 
 def generate_markdown_docs(
-    server_spec: str,
+    server_spec: FastMCP[Any] | str,
     output: Path | str = DEFAULT_OUTPUT,
 ) -> None:
     """Generate Markdown docs for a FastMCP server.
@@ -633,20 +655,25 @@ def generate_markdown_docs(
     and its `pdoc` / Docusaurus compatibility guarantees.
 
     Args:
-        server_spec: A FastMCP server spec understood by `fastmcp inspect`,
-            e.g. `"my_package.mcp.server:app"` or
+        server_spec: A FastMCP instance or server spec understood by
+            `fastmcp inspect`, e.g. `"my_package.mcp.server:app"` or
             `"path/to/server.py:app"`.
         output: Directory to write the generated Markdown into. Will be
             wiped and recreated (see `_prepare_output_dir` for the safety
             guard on unsafe paths).
     """
     output_path = Path(output) if not isinstance(output, Path) else output
-    with tempfile.TemporaryDirectory() as tmp:
-        report_path = Path(tmp) / "mcp-inspect.json"
-        print(f"Running `fastmcp inspect {server_spec}`...")
-        report = _run_fastmcp_inspect(server_spec, report_path)
+    if isinstance(server_spec, FastMCP):
+        print("Inspecting FastMCP server in process...")
+        report = _inspect_fastmcp_in_process(server_spec)
+        fallback_map = _build_extra_module_map()
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "mcp-inspect.json"
+            print(f"Running `fastmcp inspect {server_spec}`...")
+            report = _run_fastmcp_inspect(server_spec, report_path)
+        fallback_map = _resolve_extra_module_map(server_spec)
 
-    fallback_map = _resolve_extra_module_map(server_spec)
     buckets = _bucket_by_module(report, fallback_map)
 
     resolved_output = _prepare_output_dir(output_path)

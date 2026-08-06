@@ -91,11 +91,11 @@ def test_register_adds_get_route() -> None:
         title="S",
         endpoint_url="https://e/mcp",
     )
-    routes = app._additional_http_routes
-    landing = [r for r in routes if r.name == "mcp_landing_page"]
-    assert len(landing) == 1
-    assert landing[0].path == "/mcp"
-    assert "GET" in landing[0].methods
+    with TestClient(app.http_app(path="/mcp", stateless_http=True)) as client:
+        response = client.get("/mcp")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<title>S</title>" in response.text
 
 
 @pytest.mark.unit
