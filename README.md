@@ -18,6 +18,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 10. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
 11. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 12. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
+13. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 3.x, and we expect to absorb the 4.x move the same way.
 
 ### Philosophy
 
