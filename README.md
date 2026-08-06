@@ -2,7 +2,7 @@
 
 🧩 _The paved road on top of FastMCP. Wire the hard parts once, reuse them on every server you ship._
 
-## Why should I care?
+## What It Adds Over Baseline FastMCP
 
 Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it gives you the machinery to register tools, prompts, and resources and to speak MCP over stdio or HTTP. This library encodes _how you actually ship_ an MCP server, so each new one inherits the hardening instead of reinventing it:
 
