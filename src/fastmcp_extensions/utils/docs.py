@@ -655,18 +655,17 @@ def generate_markdown_docs(
             guard on unsafe paths).
     """
     output_path = Path(output) if not isinstance(output, Path) else output
-    with tempfile.TemporaryDirectory() as tmp:
-        if isinstance(server_spec, FastMCP):
-            print("Inspecting FastMCP server in process...")
-            report = _inspect_fastmcp_in_process(server_spec)
-        else:
+    if isinstance(server_spec, FastMCP):
+        print("Inspecting FastMCP server in process...")
+        report = _inspect_fastmcp_in_process(server_spec)
+        fallback_map: dict[str, str] = {}
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
             report_path = Path(tmp) / "mcp-inspect.json"
             print(f"Running `fastmcp inspect {server_spec}`...")
             report = _run_fastmcp_inspect(server_spec, report_path)
+        fallback_map = _resolve_extra_module_map(server_spec)
 
-    fallback_map = (
-        _resolve_extra_module_map(server_spec) if isinstance(server_spec, str) else {}
-    )
     buckets = _bucket_by_module(report, fallback_map)
 
     resolved_output = _prepare_output_dir(output_path)
