@@ -21,7 +21,11 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 
 ### Philosophy
 
-**Opinionated on purpose.** A CLI and an MCP server are two front-ends over one shared body of code, not two implementations that drift. Auth, filtering, telemetry, docs, and testing scaffolding are wired once and inherited — the payoff is fewer footguns, less repeated code, and servers that reach production in days rather than weeks.
+**Opinionated on purpose.**
+
+1. A CLI and an MCP server are two front-ends over one shared body of code, not two implementations that drift.
+2. Auth, filtering, telemetry, docs, and testing scaffolding are wired once and inherited.
+3. We want a more capable MCP server implementation as baseline - with fewer footguns and less repeated code.
 
 ## Installation
 
