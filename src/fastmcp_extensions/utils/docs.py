@@ -181,8 +181,14 @@ def _spec_to_module_name(server_spec: str) -> str:
     return dotted
 
 
-def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
-    """Best-effort import-based lookup of `mcp_module` for prompts/resources.
+def _import_server_module(server_spec: str) -> None:
+    """Import the module named by a FastMCP server spec."""
+
+    importlib.import_module(_spec_to_module_name(server_spec))
+
+
+def _build_extra_module_map() -> dict[str, str]:
+    """Scan registered prompts/resources for their `mcp_module` values.
 
     The `mcp_tool` decorator embeds `mcp_module` in the MCP tool
     `annotations` dict, which the inspect JSON surfaces directly. But
@@ -190,23 +196,15 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
     annotation, so it doesn't appear in the inspect JSON.
 
-    To still recover that information, we import the server module (which
-    triggers the decorator side effects that populate `_REGISTERED_*`) and
-    read those lists. If that fails (unusual shape, import errors, etc.),
-    we silently return an empty map and the caller falls back to
-    `MISC_MODULE`.
+    The server module must already be imported before this function is called.
+    If scanning fails (unusual shape or metadata drift), it silently returns
+    an empty map and the caller falls back to `MISC_MODULE`.
 
     Returns a map of `name / uri -> mcp_module` covering both prompts and
     resources.
     """
     mapping: dict[str, str] = {}
-    # The iteration sits inside the same `try` as the import so any shape
-    # drift in the `_REGISTERED_*` tuples (e.g. an added third element, or
-    # `ann` becoming a dataclass instead of a dict) falls back to an empty
-    # mapping — preserving this helper's documented best-effort semantics —
-    # rather than aborting doc generation.
     try:
-        importlib.import_module(_spec_to_module_name(server_spec))
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
                 mapping[name] = ann.get("mcp_module") or MISC_MODULE
@@ -221,6 +219,16 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     except Exception:
         return {}
     return mapping
+
+
+def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
+    """Import a server module, then scan its registered prompts/resources."""
+
+    try:
+        _import_server_module(server_spec)
+    except Exception:
+        return {}
+    return _build_extra_module_map()
 
 
 def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
@@ -658,7 +666,7 @@ def generate_markdown_docs(
     if isinstance(server_spec, FastMCP):
         print("Inspecting FastMCP server in process...")
         report = _inspect_fastmcp_in_process(server_spec)
-        fallback_map: dict[str, str] = {}
+        fallback_map = _build_extra_module_map()
     else:
         with tempfile.TemporaryDirectory() as tmp:
             report_path = Path(tmp) / "mcp-inspect.json"
