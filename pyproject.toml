@@ -13,7 +13,7 @@ dependencies = [
     "mcp",  # transitive dep of fastmcp; declared because we also import it directly
     "py-key-value-aio>=0.4.4,<0.5.0",  # transitive dep of fastmcp; declared because we import `key_value` directly
     "segment-analytics-python>=2.3,<3.0",
-    "sentry-sdk>=2.0,<3.0",
+    "sentry-sdk>=2.66.1,<3.0",
     "starlette",  # transitive dep of fastmcp; declared because we also import it directly
     "uvicorn",  # transitive dep of fastmcp; declared because we also import it directly
 ]
