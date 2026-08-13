@@ -11,29 +11,10 @@ import fastmcp_extensions.http_server as http_server
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "wrapper_setup",
+    "use_wrapper",
     [
-        pytest.param(
-            lambda wrapper_calls, wrapped_app: (
-                None,
-                lambda captured, calls: captured["app"],
-                0,
-            ),
-            id="without-wrapper",
-        ),
-        pytest.param(
-            lambda wrapper_calls, wrapped_app: (
-                (
-                    lambda app: (
-                        wrapper_calls.append(app),
-                        wrapped_app,
-                    )[1]
-                ),
-                lambda captured, calls: wrapped_app,
-                1,
-            ),
-            id="with-wrapper",
-        ),
+        pytest.param(False, id="without-wrapper"),
+        pytest.param(True, id="with-wrapper"),
     ],
 )
 @pytest.mark.parametrize(
@@ -74,7 +55,7 @@ import fastmcp_extensions.http_server as http_server
     ],
 )
 def test_run_mcp_http_server_builds_and_serves_with_expected_config(
-    wrapper_setup: Any,
+    use_wrapper: bool,
     uvicorn_config: dict[str, Any] | None,
     expected_config: dict[str, Any],
     port: int,
@@ -82,13 +63,19 @@ def test_run_mcp_http_server_builds_and_serves_with_expected_config(
 ) -> None:
     app = FastMCP("test")
     captured: dict[str, Any] = {}
+    built_app = object()
     wrapped_app = object()
     wrapper_calls: list[Any] = []
 
-    wrapper, expected_app, expected_wrapper_calls = wrapper_setup(
-        wrapper_calls,
-        wrapped_app,
-    )
+    def build_http_app(**kwargs: Any) -> object:
+        captured["http_app_kwargs"] = kwargs
+        return built_app
+
+    monkeypatch.setattr(app, "http_app", build_http_app)
+
+    def wrapper(app: Any) -> object:
+        wrapper_calls.append(app)
+        return wrapped_app
 
     def capture_run(app: Any, **kwargs: Any) -> None:
         captured["app"] = app
@@ -101,14 +88,20 @@ def test_run_mcp_http_server_builds_and_serves_with_expected_config(
         path="/mcp",
         transport="streamable-http",
         stateless_http=True,
-        wrapper=wrapper,
+        wrapper=wrapper if use_wrapper else None,
         host="127.0.0.1",
         port=port,
         uvicorn_config=uvicorn_config,
     )
 
-    assert captured["app"] is expected_app(captured, wrapper_calls)
-    assert len(wrapper_calls) == expected_wrapper_calls
+    assert (captured["app"] is built_app) == (not use_wrapper)
+    assert (captured["app"] is wrapped_app) == use_wrapper
+    assert wrapper_calls == [built_app] * int(use_wrapper)
+    assert captured["http_app_kwargs"] == {
+        "path": "/mcp",
+        "transport": "streamable-http",
+        "stateless_http": True,
+    }
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == port
     assert {key: captured[key] for key in expected_config} == expected_config
