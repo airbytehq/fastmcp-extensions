@@ -161,7 +161,7 @@ def _wrap_command_with_telemetry(
             duration_ms = round((time.monotonic() - start) * 1000, 2)
             record = TelemetryRecord(
                 invocation_type="cli_command",
-                name=fn.__name__,  # type: ignore  # Cyclopts accepts callable command objects that ty cannot prove have __name__.
+                name=fn.__name__,  # ty: ignore[unresolved-attribute]  # Cyclopts accepts callable command objects that ty cannot prove have __name__.
                 timestamp=timestamp.isoformat(),
                 duration_ms=duration_ms,
                 success=success,
@@ -195,7 +195,7 @@ class TelemetryApp(App):
         self._sinks = sinks
         super().__init__(*args, **kwargs)
 
-    def command(  # type: ignore  # Cyclopts adds typed overloads that cannot represent this compatibility wrapper.
+    def command(  # ty: ignore[invalid-method-override]  # Cyclopts adds typed overloads that cannot represent this compatibility wrapper.
         self,
         fn: Callable[..., Any] | _CycloptsApp | None = None,
         /,

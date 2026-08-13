@@ -342,7 +342,7 @@ def mcp_server(
         if mcp_modules:
             config.advertised_properties["mcp_modules"] = mcp_modules
 
-    app.x_mcp_server_config = config  # type: ignore  # FastMCP does not declare extension configuration attributes.
+    app.x_mcp_server_config = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])

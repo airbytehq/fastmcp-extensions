@@ -26,17 +26,17 @@ poe --help
 
 Use a suppression comment only when a real fix is not reasonable. Put the
 directive first, then two spaces, a second `#`, and a plain-English reason.
-Use this format for ty ignores and Ruff `# noqa` comments:
+Suppressions must always name the specific rule they silence. Use this format
+for ty ignores and Ruff `# noqa` comments:
 
 ```python
-value = upstream_value  # type: ignore  # The upstream package does not provide this type.
+value = upstream_value  # ty: ignore[invalid-assignment]  # The upstream package does not provide this type.
 name = value  # noqa: F841  # This local value is required by the example.
 ```
 
 Keep the explanation specific to the code and do not use unexplained or
 file-wide suppressions. Ty does not honor coded mypy-style
-`# type: ignore[code]`; use bare `# type: ignore`, or
-`# ty: ignore[rule]` when a specific rule needs targeting.
+`# type: ignore[code]`; use `# ty: ignore[rule]` instead.
 
 ## 🚀 Releasing
 

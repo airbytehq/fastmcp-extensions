@@ -206,5 +206,5 @@ def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     # Extract the FastMCP app from Context if needed
     app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
 
-    config: MCPServerConfig = app.x_mcp_server_config  # type: ignore  # FastMCP does not declare extension configuration attributes.
+    config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     return config.get_config(name)
