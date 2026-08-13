@@ -95,10 +95,11 @@ class LandingPageContent:
       generic MCP explanation. This value is treated as trusted HTML and is not
       escaped, so callers must not pass unsanitized user input here.
     - `powered_by_url`: Footer attribution link.
-    - `version`: Optional server version shown as a muted footer line, so a
-      human can tell which build they are looking at across deploys.
+    - `version_str`: Optional version line shown as a muted footer, so a human
+      can tell which build they are looking at across deploys. Rendered
+      verbatim, so callers choose the format (`"v1.2.3"`, `"cloud-mcp v1.2.3"`).
     - `version_url`: Optional link target for the version footer, e.g. a release
-      or changelog page. Ignored when `version` is `None`.
+      or changelog page. Ignored when `version_str` is `None`.
     """
 
     title: str
@@ -106,7 +107,7 @@ class LandingPageContent:
     docs_url: str | None = None
     description: str | None = None
     powered_by_url: str = DEFAULT_POWERED_BY_URL
-    version: str | None = None
+    version_str: str | None = None
     version_url: str | None = None
 
 
@@ -129,8 +130,8 @@ def render_default_landing_html(content: LandingPageContent) -> str:
         docs_button = f'<a class="btn" href="{safe_docs}">Setup instructions &rarr;</a>'
 
     version_footer = ""
-    if content.version:
-        version_text = f"v{html.escape(content.version)}"
+    if content.version_str:
+        version_text = html.escape(content.version_str)
         if content.version_url:
             safe_version_url = _safe_href(content.version_url)
             version_text = f'<a href="{safe_version_url}">{version_text}</a>'
@@ -191,7 +192,7 @@ def register_landing_page(
     docs_url: str | None = None,
     description: str | None = None,
     powered_by_url: str = DEFAULT_POWERED_BY_URL,
-    version: str | None = None,
+    version_str: str | None = None,
     version_url: str | None = None,
     render: Callable[[LandingPageContent], str] | None = None,
     route_name: str = DEFAULT_ROUTE_NAME,
@@ -209,7 +210,8 @@ def register_landing_page(
     - `endpoint_url`: The public streamable-HTTP URL users configure.
     - `docs_url`: Optional link to setup instructions.
     - `description`: Optional trusted-HTML description (see `LandingPageContent`).
-    - `version`: Optional server version shown as a muted centered footer.
+    - `version_str`: Optional version line shown as a muted centered footer,
+      rendered verbatim (e.g. `"v1.2.3"` or `"cloud-mcp v1.2.3"`).
     - `version_url`: Optional link target for that version footer.
     - `render`: Optional renderer overriding the built-in template. Receives a
       `LandingPageContent` and returns an HTML string.
@@ -221,7 +223,7 @@ def register_landing_page(
         docs_url=docs_url,
         description=description,
         powered_by_url=powered_by_url,
-        version=version,
+        version_str=version_str,
         version_url=version_url,
     )
     render_fn = render or render_default_landing_html

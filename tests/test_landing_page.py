@@ -141,7 +141,7 @@ def test_render_includes_version_footer_when_set() -> None:
         LandingPageContent(
             title="S",
             endpoint_url="https://e/mcp",
-            version="1.2.3",
+            version_str="v1.2.3",
         )
     )
     assert '<p class="version">v1.2.3</p>' in with_version
@@ -159,7 +159,7 @@ def test_render_escapes_version() -> None:
         LandingPageContent(
             title="S",
             endpoint_url="https://e/mcp",
-            version="<script>x</script>",
+            version_str="<script>x</script>",
         )
     )
     assert "<script>" not in html
@@ -175,7 +175,7 @@ def test_register_landing_page_serves_version() -> None:
         path="/mcp",
         title="S",
         endpoint_url="https://e/mcp",
-        version="9.9.9",
+        version_str="v9.9.9",
     )
     with TestClient(app.http_app(path="/mcp", stateless_http=True)) as client:
         response = client.get("/mcp")
@@ -190,7 +190,7 @@ def test_render_links_version_when_version_url_set() -> None:
         LandingPageContent(
             title="S",
             endpoint_url="https://e/mcp",
-            version="1.2.3",
+            version_str="v1.2.3",
             version_url="https://example.com/releases/v1.2.3",
         )
     )
@@ -205,7 +205,7 @@ def test_render_rejects_unsafe_version_url() -> None:
             LandingPageContent(
                 title="S",
                 endpoint_url="https://e/mcp",
-                version="1.2.3",
+                version_str="v1.2.3",
                 version_url="javascript:alert(1)",
             )
         )
