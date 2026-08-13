@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
@@ -153,9 +153,10 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
                 return normalized
 
     if config_arg.default is not None:
-        if callable(config_arg.default):
-            return config_arg.default()
-        return config_arg.default
+        default = config_arg.default
+        if isinstance(default, str):
+            return default
+        return default()
 
     if config_arg.required:
         sources: list[str] = []
@@ -205,5 +206,5 @@ def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     # Extract the FastMCP app from Context if needed
     app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
 
-    config: MCPServerConfig = app.x_mcp_server_config  # type: ignore[attr-defined]
+    config = cast(MCPServerConfig, app.__dict__["x_mcp_server_config"])
     return config.get_config(name)

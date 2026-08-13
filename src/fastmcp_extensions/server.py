@@ -342,7 +342,7 @@ def mcp_server(
         if mcp_modules:
             config.advertised_properties["mcp_modules"] = mcp_modules
 
-    app.x_mcp_server_config = config  # type: ignore[attr-defined]
+    app.__dict__["x_mcp_server_config"] = config
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])

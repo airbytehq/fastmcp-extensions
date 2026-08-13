@@ -13,15 +13,23 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from fastmcp import FastMCP
-from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools.base import Tool as FastMCPTool
+from fastmcp.tools.base import ToolResult
 from mcp import types as mt
 from mcp.types import Tool
 
 from fastmcp_extensions.tool_filters import ToolFilterFn
+
+
+def _to_mcp_tool(tool: FastMCPTool | Tool) -> Tool:
+    """Return the MCP representation for a FastMCP tool or test fixture."""
+    if isinstance(tool, FastMCPTool):
+        return tool.to_mcp_tool()
+    return tool
 
 
 class ToolFilterMiddleware(Middleware):
@@ -72,8 +80,8 @@ class ToolFilterMiddleware(Middleware):
     async def on_list_tools(
         self,
         context: MiddlewareContext[mt.ListToolsRequest],
-        call_next: Callable[[MiddlewareContext[mt.ListToolsRequest]], Sequence[Tool]],
-    ) -> Sequence[Tool]:
+        call_next: CallNext[mt.ListToolsRequest, Sequence[FastMCPTool]],
+    ) -> Sequence[FastMCPTool]:
         """Filter the tool list based on the filter function.
 
         Args:
@@ -84,12 +92,14 @@ class ToolFilterMiddleware(Middleware):
             Filtered sequence of tools.
         """
         tools = await call_next(context)
-        return [tool for tool in tools if self._tool_filter(tool, self._app)]
+        return [
+            tool for tool in tools if self._tool_filter(_to_mcp_tool(tool), self._app)
+        ]
 
     async def on_call_tool(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
-        call_next: Callable[[MiddlewareContext[mt.CallToolRequestParams]], ToolResult],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Deny calls to filtered tools.
 

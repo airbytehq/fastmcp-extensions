@@ -22,6 +22,20 @@ View all available tasks:
 poe --help
 ```
 
+## Suppression Comments
+
+Use a suppression comment only when a real fix is not reasonable. Put the
+directive first, then two spaces, a second `#`, and a plain-English reason.
+Use this format for ty ignores and Ruff `# noqa` comments:
+
+```python
+value = upstream_value  # type: ignore  # The upstream package does not provide this type.
+name = value  # noqa: F841  # This local value is required by the example.
+```
+
+Keep the explanation specific to the code and do not use unexplained or
+file-wide suppressions.
+
 ## 🚀 Releasing
 
 This project uses [`semantic-pr-release-drafter`](https://github.com/aaronsteers/semantic-pr-release-drafter) for automated release management. To release, simply click "`Edit`" on the latest release draft from the [releases page](https://github.com/airbytehq/fastmcp-extensions/releases), and then click "`Publish release`". This publish operation will trigger all necessary downstream publish operations.

@@ -64,7 +64,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
@@ -187,7 +187,9 @@ class IntrospectionAuthConfig:
     introspection_url: str
     client_id: str
     client_secret: str
-    client_auth_method: str = "client_secret_basic"
+    client_auth_method: Literal["client_secret_basic", "client_secret_post"] = (
+        "client_secret_basic"
+    )
     required_scopes: list[str] | None = None
     cache_ttl_seconds: int | None = None
 
@@ -211,7 +213,7 @@ def _build_introspection_verifier(
         introspection_url=config.introspection_url,
         client_id=config.client_id,
         client_secret=config.client_secret,
-        client_auth_method=config.client_auth_method,  # type: ignore[arg-type]
+        client_auth_method=config.client_auth_method,
         required_scopes=config.required_scopes,
         cache_ttl_seconds=config.cache_ttl_seconds,
     )

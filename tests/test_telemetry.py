@@ -68,7 +68,7 @@ def test_telemetry_record_is_immutable() -> None:
         package_version="v",
     )
     with pytest.raises(AttributeError):
-        record.name = "z"  # type: ignore[misc]
+        record.name = "z"  # type: ignore  # The test intentionally mutates a frozen record to verify immutability.
 
 
 # ---------------------------------------------------------------------------
