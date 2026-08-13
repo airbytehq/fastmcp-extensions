@@ -73,7 +73,7 @@ import fastmcp_extensions.http_server as http_server
         pytest.param(0, id="ephemeral-port"),
     ],
 )
-def test_run_http_server_builds_and_serves_with_expected_config(
+def test_run_mcp_http_server_builds_and_serves_with_expected_config(
     wrapper_setup: Any,
     uvicorn_config: dict[str, Any] | None,
     expected_config: dict[str, Any],
@@ -96,7 +96,7 @@ def test_run_http_server_builds_and_serves_with_expected_config(
 
     monkeypatch.setattr(http_server.uvicorn, "run", capture_run)
 
-    http_server.run_http_server(
+    http_server.run_mcp_http_server(
         app,
         path="/mcp",
         transport="streamable-http",

@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Helpers for serving FastMCP applications over HTTP.
 
-`run_http_server` owns the application-building and Uvicorn-serving sequence
+`run_mcp_http_server` owns the application-building and Uvicorn-serving sequence
 when an application needs an outer ASGI wrapper. Its Uvicorn defaults mirror
 `FastMCP.run_http_async`: lifespan is pinned to `"on"` so a startup failure
 stops the process instead of being treated as unsupported by Uvicorn's
@@ -32,7 +32,7 @@ DEFAULT_UVICORN_CONFIG: Mapping[str, Any] = {
 }
 
 
-def run_http_server(
+def run_mcp_http_server(
     server: FastMCP,
     *,
     path: str | None = None,
