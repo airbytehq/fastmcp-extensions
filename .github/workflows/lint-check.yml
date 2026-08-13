@@ -6,6 +6,9 @@ on:
       - main
   pull_request: {}
 
+permissions:
+  contents: read
+
 jobs:
   ruff-lint-check:
     name: Ruff Lint Check
