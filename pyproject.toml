@@ -37,11 +37,11 @@ Documentation = "https://github.com/airbytehq/fastmcp-extensions#readme"
 
 [project.optional-dependencies]
 cli = [
-    "cyclopts>=4.0.0,<5.0",
+    "cyclopts>=4.22.5,<5.0",
     "rich>=13.0,<14.0",
 ]
 dev = [
-    "cyclopts>=4.0.0,<5.0",
+    "cyclopts>=4.22.5,<5.0",
     "rich>=13.0,<14.0",
     "deptry>=0.25.1",
     "ty>=0.0.56",
