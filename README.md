@@ -70,6 +70,7 @@ app = mcp_server(
 # Server info resource is automatically registered at {name}://server/info
 # Get credentials from HTTP headers or environment variables
 from fastmcp_extensions import get_mcp_config
+
 api_key = get_mcp_config(app, "api_key")
 ```
 
@@ -94,7 +95,13 @@ annotations = {
 
 ```python
 from fastmcp import FastMCP
-from fastmcp_extensions import mcp_tool, mcp_resource, register_mcp_tools, register_mcp_resources
+from fastmcp_extensions import (
+    mcp_tool,
+    mcp_resource,
+    register_mcp_tools,
+    register_mcp_resources,
+)
+
 
 # Define tools with the decorator (domain auto-detected from filename)
 @mcp_tool(read_only=True, idempotent=True)
@@ -102,10 +109,12 @@ def list_items() -> list[str]:
     """List all available items."""
     return ["item1", "item2"]
 
+
 @mcp_resource("myserver://version", "Server version", "application/json")
 def get_version() -> dict:
     """Get server version info."""
     return {"version": "1.0.0"}
+
 
 # Register with FastMCP app
 app = FastMCP("my-server")
@@ -119,6 +128,7 @@ register_mcp_resources(app)
 import asyncio
 from fastmcp_extensions.utils.describe_server import measure_tool_list_detailed
 
+
 async def check_tool_size():
     measurement = await measure_tool_list_detailed(app, server_name="my-server")
     print(measurement)
@@ -127,6 +137,7 @@ async def check_tool_size():
     # Tool count: 10
     # Total characters: 5,432
     # Average chars per tool: 543
+
 
 asyncio.run(check_tool_size())
 ```
@@ -141,7 +152,7 @@ import asyncio
 result = asyncio.run(call_mcp_tool(app, "list_items", {}))
 
 # Or use the CLI helper
-run_tool_test(app, "list_items", '{}')
+run_tool_test(app, "list_items", "{}")
 ```
 
 ### Getting Prompt Text
