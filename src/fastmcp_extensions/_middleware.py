@@ -16,9 +16,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from fastmcp import FastMCP
-from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.base import Tool as FastMCPTool
-from fastmcp.tools.base import ToolResult
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools import Tool as FastMCPTool
+from fastmcp.tools import ToolResult
 from mcp import types as mt
 from mcp.types import Tool
 
@@ -26,7 +26,7 @@ from fastmcp_extensions.tool_filters import ToolFilterFn
 
 
 def _to_mcp_tool(tool: FastMCPTool | Tool) -> Tool:
-    """Return the MCP representation for a FastMCP tool or test fixture."""
+    """Normalize FastMCP tools to the MCP type expected by `ToolFilterFn`."""
     if isinstance(tool, FastMCPTool):
         return tool.to_mcp_tool()
     return tool

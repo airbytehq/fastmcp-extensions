@@ -30,9 +30,9 @@ import functools
 import json
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, NoReturn, TypeVar, cast, overload
+from typing import Any, NoReturn
 
 # Requires the [cli] extra; only imported when consumers use `fastmcp_extensions.cli`:
 from cyclopts import App as _CycloptsApp
@@ -47,7 +47,6 @@ from fastmcp_extensions._telemetry import (
 
 _console: Console | None = None
 _error_console: Console | None = None
-CommandT = TypeVar("CommandT")
 
 
 def _get_console() -> Console:
@@ -162,7 +161,7 @@ def _wrap_command_with_telemetry(
             duration_ms = round((time.monotonic() - start) * 1000, 2)
             record = TelemetryRecord(
                 invocation_type="cli_command",
-                name=getattr(fn, "__name__", type(fn).__name__),
+                name=fn.__name__,  # type: ignore  # Cyclopts accepts callable command objects that ty cannot prove have __name__.
                 timestamp=timestamp.isoformat(),
                 duration_ms=duration_ms,
                 success=success,
@@ -196,61 +195,20 @@ class TelemetryApp(App):
         self._sinks = sinks
         super().__init__(*args, **kwargs)
 
-    @overload
-    def command(
+    def command(  # type: ignore  # Cyclopts adds typed overloads that cannot represent this compatibility wrapper.
         self,
-        obj: None = None,
-        name: str | Iterable[str] | None = None,
-        *,
-        alias: str | Iterable[str] | None = None,
-        **kwargs: object,
-    ) -> Callable[[CommandT], CommandT]: ...
-
-    @overload
-    def command(
-        self,
-        obj: str,
-        name: str | Iterable[str] | None = None,
-        *,
-        alias: str | Iterable[str] | None = None,
-        **kwargs: object,
-    ) -> None: ...
-
-    @overload
-    def command(
-        self,
-        obj: CommandT,
-        name: str | Iterable[str] | None = None,
-        *,
-        alias: str | Iterable[str] | None = None,
-        **kwargs: object,
-    ) -> CommandT: ...
-
-    def command(
-        self,
-        obj: CommandT | str | None = None,
-        name: str | Iterable[str] | None = None,
-        *,
-        alias: str | Iterable[str] | None = None,
-        **kwargs: object,
-    ) -> CommandT | Callable[[CommandT], CommandT] | None:
+        fn: Callable[..., Any] | _CycloptsApp | None = None,
+        /,
+        **kwargs: Any,
+    ) -> Any:
         """Register a command, wrapping it with telemetry if sinks are set."""
-        if obj is None:
-            return cast(
-                CommandT | Callable[[CommandT], CommandT] | None,
-                super().command(None, name, alias=alias, **kwargs),
-            )
-        if isinstance(obj, str):
-            return super().command(obj, name, alias=alias, **kwargs)
         if (
             self._sinks is not None
-            and callable(obj)
-            and not isinstance(obj, _CycloptsApp)
+            and callable(fn)
+            and not isinstance(fn, _CycloptsApp)
         ):
-            obj = cast(CommandT, _wrap_command_with_telemetry(obj, self._sinks))
-        return super().command(  # type: ignore  # Cyclopts uses a generic overload that ty cannot match for this forwarding wrapper.
-            obj, name, alias=alias, **kwargs
-        )
+            fn = _wrap_command_with_telemetry(fn, self._sinks)
+        return super().command(fn, **kwargs)
 
 
 # ---------------------------------------------------------------------------

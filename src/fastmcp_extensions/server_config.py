@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
@@ -206,5 +206,5 @@ def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     # Extract the FastMCP app from Context if needed
     app = ctx_or_app.fastmcp if isinstance(ctx_or_app, Context) else ctx_or_app
 
-    config = cast(MCPServerConfig, app.__dict__["x_mcp_server_config"])
+    config: MCPServerConfig = app.x_mcp_server_config  # type: ignore  # FastMCP does not declare extension configuration attributes.
     return config.get_config(name)

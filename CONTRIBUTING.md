@@ -34,7 +34,9 @@ name = value  # noqa: F841  # This local value is required by the example.
 ```
 
 Keep the explanation specific to the code and do not use unexplained or
-file-wide suppressions.
+file-wide suppressions. Ty does not honor coded mypy-style
+`# type: ignore[code]`; use bare `# type: ignore`, or
+`# ty: ignore[rule]` when a specific rule needs targeting.
 
 ## 🚀 Releasing
 

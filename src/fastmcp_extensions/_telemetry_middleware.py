@@ -36,12 +36,12 @@ import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastmcp.server.middleware.middleware import (
+from fastmcp.server.middleware import (
     CallNext,
     Middleware,
     MiddlewareContext,
 )
-from fastmcp.tools.base import ToolResult
+from fastmcp.tools import ToolResult
 
 from fastmcp_extensions._telemetry import TelemetryRecord, TelemetrySinks
 
