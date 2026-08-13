@@ -66,10 +66,18 @@ import fastmcp_extensions.http_server as http_server
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "port",
+    [
+        pytest.param(9000, id="configured-port"),
+        pytest.param(0, id="ephemeral-port"),
+    ],
+)
 def test_run_http_server_builds_and_serves_with_expected_config(
     wrapper_setup: Any,
     uvicorn_config: dict[str, Any] | None,
     expected_config: dict[str, Any],
+    port: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = FastMCP("test")
@@ -95,12 +103,12 @@ def test_run_http_server_builds_and_serves_with_expected_config(
         stateless_http=True,
         wrapper=wrapper,
         host="127.0.0.1",
-        port=9000,
+        port=port,
         uvicorn_config=uvicorn_config,
     )
 
     assert captured["app"] is expected_app(captured, wrapper_calls)
     assert len(wrapper_calls) == expected_wrapper_calls
     assert captured["host"] == "127.0.0.1"
-    assert captured["port"] == 9000
+    assert captured["port"] == port
     assert {key: captured[key] for key in expected_config} == expected_config

@@ -49,8 +49,8 @@ def run_http_server(
     in `uvicorn_config` override the parity defaults and the resolved log
     level. Host and port are controlled by their dedicated arguments.
     """
-    host = host or fastmcp.settings.host
-    port = port or fastmcp.settings.port
+    host = fastmcp.settings.host if host is None else host
+    port = fastmcp.settings.port if port is None else port
     app = server.http_app(
         path=path,
         transport=transport,
