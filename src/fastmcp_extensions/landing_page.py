@@ -97,6 +97,8 @@ class LandingPageContent:
     - `powered_by_url`: Footer attribution link.
     - `version`: Optional server version shown as a muted footer line, so a
       human can tell which build they are looking at across deploys.
+    - `version_url`: Optional link target for the version footer, e.g. a release
+      or changelog page. Ignored when `version` is `None`.
     """
 
     title: str
@@ -105,6 +107,7 @@ class LandingPageContent:
     description: str | None = None
     powered_by_url: str = DEFAULT_POWERED_BY_URL
     version: str | None = None
+    version_url: str | None = None
 
 
 def render_default_landing_html(content: LandingPageContent) -> str:
@@ -127,8 +130,11 @@ def render_default_landing_html(content: LandingPageContent) -> str:
 
     version_footer = ""
     if content.version:
-        safe_version = html.escape(content.version)
-        version_footer = f'<p class="version">v{safe_version}</p>'
+        version_text = f"v{html.escape(content.version)}"
+        if content.version_url:
+            safe_version_url = _safe_href(content.version_url)
+            version_text = f'<a href="{safe_version_url}">{version_text}</a>'
+        version_footer = f'<p class="version">{version_text}</p>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -155,6 +161,7 @@ def render_default_landing_html(content: LandingPageContent) -> str:
   .foot {{ margin-top:24px; font-size:13px; color:var(--muted); }}
   .foot a {{ color:var(--accent); }}
   .version {{ margin:16px 0 0; text-align:center; font-size:12px; color:var(--muted); }}
+  .version a {{ color:inherit; }}
 </style>
 </head>
 <body>
@@ -185,6 +192,7 @@ def register_landing_page(
     description: str | None = None,
     powered_by_url: str = DEFAULT_POWERED_BY_URL,
     version: str | None = None,
+    version_url: str | None = None,
     render: Callable[[LandingPageContent], str] | None = None,
     route_name: str = DEFAULT_ROUTE_NAME,
 ) -> None:
@@ -202,6 +210,7 @@ def register_landing_page(
     - `docs_url`: Optional link to setup instructions.
     - `description`: Optional trusted-HTML description (see `LandingPageContent`).
     - `version`: Optional server version shown as a muted centered footer.
+    - `version_url`: Optional link target for that version footer.
     - `render`: Optional renderer overriding the built-in template. Receives a
       `LandingPageContent` and returns an HTML string.
     - `route_name`: Starlette route name.
@@ -213,6 +222,7 @@ def register_landing_page(
         description=description,
         powered_by_url=powered_by_url,
         version=version,
+        version_url=version_url,
     )
     render_fn = render or render_default_landing_html
     html_body = render_fn(content)

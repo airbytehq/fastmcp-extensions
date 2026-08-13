@@ -181,3 +181,44 @@ def test_register_landing_page_serves_version() -> None:
         response = client.get("/mcp")
     assert response.status_code == 200
     assert "v9.9.9" in response.text
+
+
+@pytest.mark.unit
+def test_render_links_version_when_version_url_set() -> None:
+    """A version_url wraps the version footer in a link."""
+    html = render_default_landing_html(
+        LandingPageContent(
+            title="S",
+            endpoint_url="https://e/mcp",
+            version="1.2.3",
+            version_url="https://example.com/releases/v1.2.3",
+        )
+    )
+    assert '<a href="https://example.com/releases/v1.2.3">v1.2.3</a>' in html
+
+
+@pytest.mark.unit
+def test_render_rejects_unsafe_version_url() -> None:
+    """An unsafe version_url scheme raises rather than rendering a link."""
+    with pytest.raises(ValueError, match="Unsafe URL scheme"):
+        render_default_landing_html(
+            LandingPageContent(
+                title="S",
+                endpoint_url="https://e/mcp",
+                version="1.2.3",
+                version_url="javascript:alert(1)",
+            )
+        )
+
+
+@pytest.mark.unit
+def test_render_ignores_version_url_without_version() -> None:
+    """A version_url alone renders no footer."""
+    html = render_default_landing_html(
+        LandingPageContent(
+            title="S",
+            endpoint_url="https://e/mcp",
+            version_url="https://example.com/releases",
+        )
+    )
+    assert 'class="version"' not in html
