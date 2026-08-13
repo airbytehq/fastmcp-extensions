@@ -11,14 +11,65 @@ import fastmcp_extensions.http_server as http_server
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "use_wrapper",
+    "wrapper_setup",
     [
-        pytest.param(False, id="without-wrapper"),
-        pytest.param(True, id="with-wrapper"),
+        pytest.param(
+            lambda wrapper_calls, wrapped_app: (
+                None,
+                lambda captured, calls: captured["app"],
+                0,
+            ),
+            id="without-wrapper",
+        ),
+        pytest.param(
+            lambda wrapper_calls, wrapped_app: (
+                (
+                    lambda app: (
+                        wrapper_calls.append(app),
+                        wrapped_app,
+                    )[1]
+                ),
+                lambda captured, calls: wrapped_app,
+                1,
+            ),
+            id="with-wrapper",
+        ),
     ],
 )
-def test_run_http_server_uses_fastmcp_uvicorn_settings(
-    use_wrapper: bool,
+@pytest.mark.parametrize(
+    "uvicorn_config,expected_config",
+    [
+        pytest.param(
+            None,
+            {
+                "timeout_graceful_shutdown": 2,
+                "lifespan": "on",
+                "ws": "websockets-sansio",
+                "log_level": http_server.fastmcp.settings.log_level.lower(),
+            },
+            id="fastmcp-defaults",
+        ),
+        pytest.param(
+            {
+                "timeout_graceful_shutdown": 5,
+                "lifespan": "auto",
+                "ws": "websockets",
+                "log_level": "debug",
+            },
+            {
+                "timeout_graceful_shutdown": 5,
+                "lifespan": "auto",
+                "ws": "websockets",
+                "log_level": "debug",
+            },
+            id="caller-overrides",
+        ),
+    ],
+)
+def test_run_http_server_builds_and_serves_with_expected_config(
+    wrapper_setup: Any,
+    uvicorn_config: dict[str, Any] | None,
+    expected_config: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = FastMCP("test")
@@ -26,9 +77,10 @@ def test_run_http_server_uses_fastmcp_uvicorn_settings(
     wrapped_app = object()
     wrapper_calls: list[Any] = []
 
-    def wrapper(app: Any) -> Any:
-        wrapper_calls.append(app)
-        return wrapped_app
+    wrapper, expected_app, expected_wrapper_calls = wrapper_setup(
+        wrapper_calls,
+        wrapped_app,
+    )
 
     def capture_run(app: Any, **kwargs: Any) -> None:
         captured["app"] = app
@@ -41,47 +93,14 @@ def test_run_http_server_uses_fastmcp_uvicorn_settings(
         path="/mcp",
         transport="streamable-http",
         stateless_http=True,
-        wrapper=wrapper if use_wrapper else None,
+        wrapper=wrapper,
         host="127.0.0.1",
         port=9000,
+        uvicorn_config=uvicorn_config,
     )
 
-    if use_wrapper:
-        assert captured["app"] is wrapped_app
-        assert len(wrapper_calls) == 1
-    else:
-        assert captured["app"] is not wrapped_app
-        assert not wrapper_calls
+    assert captured["app"] is expected_app(captured, wrapper_calls)
+    assert len(wrapper_calls) == expected_wrapper_calls
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 9000
-    assert captured["timeout_graceful_shutdown"] == 2
-    assert captured["lifespan"] == "on"
-    assert captured["ws"] == "websockets-sansio"
-    assert captured["log_level"] == http_server.fastmcp.settings.log_level.lower()
-
-
-@pytest.mark.unit
-def test_run_http_server_allows_uvicorn_overrides(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, Any] = {}
-
-    def capture_run(app: Any, **kwargs: Any) -> None:
-        captured.update(kwargs)
-
-    monkeypatch.setattr(http_server.uvicorn, "run", capture_run)
-
-    http_server.run_http_server(
-        FastMCP("test"),
-        uvicorn_config={
-            "timeout_graceful_shutdown": 5,
-            "lifespan": "auto",
-            "ws": "websockets",
-            "log_level": "debug",
-        },
-    )
-
-    assert captured["timeout_graceful_shutdown"] == 5
-    assert captured["lifespan"] == "auto"
-    assert captured["ws"] == "websockets"
-    assert captured["log_level"] == "debug"
+    assert {key: captured[key] for key in expected_config} == expected_config
