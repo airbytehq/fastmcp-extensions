@@ -53,7 +53,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
+# Hatchling 1.32 emits metadata 2.5, which PyPI's upload path rejects.
+requires = ["hatchling<1.32.0", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
