@@ -95,6 +95,8 @@ class LandingPageContent:
       generic MCP explanation. This value is treated as trusted HTML and is not
       escaped, so callers must not pass unsanitized user input here.
     - `powered_by_url`: Footer attribution link.
+    - `version`: Optional server version shown as a muted footer line, so a
+      human can tell which build they are looking at across deploys.
     """
 
     title: str
@@ -102,6 +104,7 @@ class LandingPageContent:
     docs_url: str | None = None
     description: str | None = None
     powered_by_url: str = DEFAULT_POWERED_BY_URL
+    version: str | None = None
 
 
 def render_default_landing_html(content: LandingPageContent) -> str:
@@ -121,6 +124,11 @@ def render_default_landing_html(content: LandingPageContent) -> str:
     if content.docs_url:
         safe_docs = _safe_href(content.docs_url)
         docs_button = f'<a class="btn" href="{safe_docs}">Setup instructions &rarr;</a>'
+
+    version_footer = ""
+    if content.version:
+        safe_version = html.escape(content.version)
+        version_footer = f'<p class="version">v{safe_version}</p>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -146,6 +154,7 @@ def render_default_landing_html(content: LandingPageContent) -> str:
     font-weight:600; padding:12px 20px; border-radius:8px; }}
   .foot {{ margin-top:24px; font-size:13px; color:var(--muted); }}
   .foot a {{ color:var(--accent); }}
+  .version {{ margin:16px 0 0; text-align:center; font-size:12px; color:var(--muted); }}
 </style>
 </head>
 <body>
@@ -160,6 +169,7 @@ def render_default_landing_html(content: LandingPageContent) -> str:
       <p class="foot">Powered by <a href="{safe_powered_by}">Airbyte</a>.</p>
     </div>
   </div>
+  {version_footer}
 </body>
 </html>
 """
@@ -174,6 +184,7 @@ def register_landing_page(
     docs_url: str | None = None,
     description: str | None = None,
     powered_by_url: str = DEFAULT_POWERED_BY_URL,
+    version: str | None = None,
     render: Callable[[LandingPageContent], str] | None = None,
     route_name: str = DEFAULT_ROUTE_NAME,
 ) -> None:
@@ -190,6 +201,7 @@ def register_landing_page(
     - `endpoint_url`: The public streamable-HTTP URL users configure.
     - `docs_url`: Optional link to setup instructions.
     - `description`: Optional trusted-HTML description (see `LandingPageContent`).
+    - `version`: Optional server version shown as a muted centered footer.
     - `render`: Optional renderer overriding the built-in template. Receives a
       `LandingPageContent` and returns an HTML string.
     - `route_name`: Starlette route name.
@@ -200,6 +212,7 @@ def register_landing_page(
         docs_url=docs_url,
         description=description,
         powered_by_url=powered_by_url,
+        version=version,
     )
     render_fn = render or render_default_landing_html
     html_body = render_fn(content)

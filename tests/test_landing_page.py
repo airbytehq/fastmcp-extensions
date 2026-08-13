@@ -132,3 +132,52 @@ def test_custom_render_overrides_default() -> None:
         response = client.get("/mcp")
     assert response.status_code == 200
     assert response.text == "<h1>Custom</h1>"
+
+
+@pytest.mark.unit
+def test_render_includes_version_footer_when_set() -> None:
+    """The muted version footer renders only when a version is provided."""
+    with_version = render_default_landing_html(
+        LandingPageContent(
+            title="S",
+            endpoint_url="https://e/mcp",
+            version="1.2.3",
+        )
+    )
+    assert '<p class="version">v1.2.3</p>' in with_version
+
+    without_version = render_default_landing_html(
+        LandingPageContent(title="S", endpoint_url="https://e/mcp")
+    )
+    assert 'class="version"' not in without_version
+
+
+@pytest.mark.unit
+def test_render_escapes_version() -> None:
+    """A version string is HTML-escaped rather than injected as markup."""
+    html = render_default_landing_html(
+        LandingPageContent(
+            title="S",
+            endpoint_url="https://e/mcp",
+            version="<script>x</script>",
+        )
+    )
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+@pytest.mark.unit
+def test_register_landing_page_serves_version() -> None:
+    """A version passed to `register_landing_page` reaches the served page."""
+    app = FastMCP("t")
+    register_landing_page(
+        app,
+        path="/mcp",
+        title="S",
+        endpoint_url="https://e/mcp",
+        version="9.9.9",
+    )
+    with TestClient(app.http_app(path="/mcp", stateless_http=True)) as client:
+        response = client.get("/mcp")
+    assert response.status_code == 200
+    assert "v9.9.9" in response.text
