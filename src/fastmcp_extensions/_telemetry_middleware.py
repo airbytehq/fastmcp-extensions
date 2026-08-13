@@ -33,12 +33,15 @@ app.add_middleware(
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.server.middleware import (
+    CallNext,
+    Middleware,
+    MiddlewareContext,
+)
+from fastmcp.tools import ToolResult
 
 from fastmcp_extensions._telemetry import TelemetryRecord, TelemetrySinks
 
@@ -116,7 +119,7 @@ class ToolCallTelemetryMiddleware(Middleware):
     async def on_call_tool(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
-        call_next: Callable[[MiddlewareContext[mt.CallToolRequestParams]], ToolResult],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Wrap tool execution with telemetry collection."""
         tool_name: str = context.message.name

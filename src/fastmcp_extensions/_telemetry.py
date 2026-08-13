@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 
 import sentry_sdk
-from segment import analytics as _segment_analytics  # type: ignore[import-untyped]
+from segment import analytics as _segment_analytics
 
 logger = logging.getLogger(__name__)
 
