@@ -37,6 +37,7 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
+from fastmcp_extensions.http_server import DEFAULT_UVICORN_CONFIG, run_http_server
 from fastmcp_extensions.key_normalization import (
     DEFAULT_HASH_ALGORITHM,
     DEFAULT_KEY_PREFIX,
@@ -77,6 +78,7 @@ from fastmcp_extensions.tool_filters import (
 __all__ = [
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
+    "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
     "ClientCredentials",
@@ -115,5 +117,6 @@ __all__ = [
     "register_mcp_resources",
     "register_mcp_tools",
     "render_default_landing_html",
+    "run_http_server",
     "wrap_client_credentials",
 ]
