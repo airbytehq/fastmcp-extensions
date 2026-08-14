@@ -346,6 +346,13 @@ def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterF
 
     Tools without a truthy `annotation_key` annotation remain visible. Annotated
     tools are visible only when the client declared `extension_id`.
+
+    This is a rendering-capability gate, not a privilege boundary. Extension
+    declarations are unauthenticated client statements — over HTTP they arrive in
+    caller-controlled headers that anyone can forge — so gate only tools a client
+    could already be trusted to call, such as ones whose output needs a renderer.
+    Never gate authority this way; see `TRUSTED_EXECUTION_CONFIG_ARG` for a gate
+    that widens the surface and therefore takes no caller-supplied input.
     """
 
     def filter_tool(tool: Tool, _app: FastMCP) -> bool:
