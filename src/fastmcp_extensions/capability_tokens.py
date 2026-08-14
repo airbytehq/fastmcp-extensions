@@ -82,6 +82,10 @@ def client_declared_extensions_from_headers(
 
     The fallback header accepts comma-separated or whitespace-separated values.
     Invalid or absent session tokens contribute no extension IDs.
+
+    Both sources are unauthenticated and caller-controlled: the token is unsigned
+    and the header is whatever the client sent. Treat the result as a statement of
+    what the client can render, never as a privilege.
     """
     headers = get_http_headers(
         include={fallback_header.lower(), _SESSION_HEADER.decode("ascii")}
@@ -100,7 +104,9 @@ def client_supports_extension(
     """Return whether the current client declared an extension.
 
     FastMCP session capabilities are checked first, followed by the
-    self-describing session token and the fallback HTTP header.
+    self-describing session token and the fallback HTTP header. All three are
+    client self-declarations, so this answers "can the client handle this?" and
+    never "is the client allowed to?".
     """
     try:
         context = get_context()
