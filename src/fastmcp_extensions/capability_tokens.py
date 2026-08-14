@@ -228,15 +228,23 @@ class CapabilityTokenMiddleware:
 
 
 class RejectEventStreamGetMiddleware:
-    """Reject SSE GETs while allowing browser landing-page GETs."""
+    """Reject SSE GETs while allowing browser landing-page GETs.
 
-    def __init__(self, app: ASGIApp) -> None:
+    `path` scopes rejection to one MCP endpoint. Omitting it preserves the
+    unscoped behavior for callers that construct this middleware directly.
+    """
+
+    def __init__(self, app: ASGIApp, path: str | None = None) -> None:
         self.app = app
+        self.path = _normalize_path(path) if path is not None else None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if (
             scope.get("type") == "http"
             and scope.get("method") == "GET"
+            and (
+                self.path is None or _normalize_path(scope.get("path", "")) == self.path
+            )
             and any(
                 name.lower() == b"accept" and b"text/event-stream" in value.lower()
                 for name, value in scope.get("headers", [])
@@ -246,3 +254,8 @@ class RejectEventStreamGetMiddleware:
             await response(scope, receive, send)
             return
         await self.app(scope, receive, send)
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize a path while treating trailing slashes as equivalent."""
+    return path.rstrip("/") or "/"

@@ -252,15 +252,52 @@ def test_standard_tool_filters_gate_interactive_ui(
 
 
 @pytest.mark.parametrize(
-    ("accept", "expected_status"),
+    ("accept", "path", "middleware_path", "expected_status", "inner_called"),
     [
-        pytest.param(b"text/event-stream", 405, id="sse-get-rejected"),
-        pytest.param(b"text/html", 200, id="browser-get-passes-through"),
+        pytest.param(
+            b"text/event-stream",
+            "/mcp",
+            "/mcp",
+            405,
+            False,
+            id="scoped-sse-get-rejected",
+        ),
+        pytest.param(
+            b"text/event-stream",
+            "/other",
+            "/mcp",
+            200,
+            True,
+            id="scoped-other-path-passes-through",
+        ),
+        pytest.param(
+            b"text/html",
+            "/mcp/",
+            "/mcp",
+            200,
+            True,
+            id="scoped-browser-get-passes-through",
+        ),
+        pytest.param(
+            b"text/event-stream",
+            "/other",
+            None,
+            405,
+            False,
+            id="unscoped-sse-get-rejected",
+        ),
     ],
 )
-def test_event_stream_get_negotiation(accept: bytes, expected_status: int) -> None:
-    """SSE GETs are rejected while browser GETs pass through."""
+def test_event_stream_get_negotiation(
+    accept: bytes,
+    path: str,
+    middleware_path: str | None,
+    expected_status: int,
+    inner_called: bool,
+) -> None:
+    """Scoped rejection protects the MCP path while direct use stays unscoped."""
     messages: list[dict[str, object]] = []
+    calls = 0
 
     async def receive() -> dict[str, object]:
         return {"type": "http.request", "body": b""}
@@ -269,16 +306,34 @@ def test_event_stream_get_negotiation(accept: bytes, expected_status: int) -> No
         messages.append(message)
 
     async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal calls
+        calls += 1
         del scope, receive
         await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"<title>Airbyte MCP Server</title>",
+            }
+        )
 
-    middleware = RejectEventStreamGetMiddleware(app)
+    middleware = RejectEventStreamGetMiddleware(app, path=middleware_path)
     asyncio.run(
         middleware(
-            {"type": "http", "method": "GET", "headers": [(b"accept", accept)]},
+            {
+                "type": "http",
+                "method": "GET",
+                "path": path,
+                "headers": [(b"accept", accept)],
+            },
             receive,
             send,
         )
     )
 
     assert messages[0]["status"] == expected_status
+    assert calls == int(inner_called)
+    if expected_status == 405:
+        assert dict(messages[0]["headers"])[b"allow"] == b"POST, DELETE"
+    else:
+        assert messages[-1]["body"] == b"<title>Airbyte MCP Server</title>"
