@@ -187,6 +187,7 @@ def test_state_handle_rejects_a_different_compatible_state_type() -> None:
     [
         pytest.param("attribute_typo", id="attribute_typo_uses_default_ttl"),
         pytest.param("unknown_keyword", id="unknown_class_keyword_fails"),
+        pytest.param("subsecond_ttl", id="subsecond_ttl_fails"),
     ],
 )
 def test_state_class_configuration_contract(case: str) -> None:
@@ -210,11 +211,65 @@ def test_state_class_configuration_contract(case: str) -> None:
                 principal=None,
                 now=30 * 24 * 60 * 60 + 1,
             )
-    else:
+    elif case == "unknown_keyword":
         with pytest.raises(TypeError):
 
             class InvalidState(ToolStateBase, unknown=True):
                 pass
+    else:
+        with pytest.raises(ValueError, match="at least one second"):
+
+            class InvalidState(ToolStateBase, state_ttl=timedelta(milliseconds=500)):
+                pass
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            "principal_binding_without_signing", id="principal_binding_requires_signing"
+        ),
+        pytest.param("empty_previous_secret", id="previous_secret_must_not_be_empty"),
+    ],
+)
+def test_state_config_validation_contract(case: str) -> None:
+    with pytest.raises(ValueError) as error:
+        if case == "principal_binding_without_signing":
+            EncodedSessionStateConfig(
+                signing="disabled",
+                principal_binding=True,
+            )
+        else:
+            EncodedSessionStateConfig(
+                signing="required",
+                secret="current",
+                previous_secrets={"old": ""},
+            )
+
+    expected_message = (
+        "principal binding requires signing"
+        if case == "principal_binding_without_signing"
+        else "previous signing secrets must not be empty"
+    )
+    assert expected_message in str(error.value)
+
+
+def test_stateful_tool_requires_default_constructible_state() -> None:
+    _clear_registrations()
+
+    class RequiredState(ToolStateBase):
+        value: str
+
+    @mcp_tool(with_state=RequiredState)
+    def invalid(*, state_handle: RequiredState) -> str:
+        return state_handle.value
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+        signing="disabled"
+    )
+    with pytest.raises(TypeError, match="must be default-constructible"):
+        register_mcp_tools(app, mcp_module="test_session_state")
 
 
 def test_active_signing_key_cannot_be_reused_as_previous() -> None:

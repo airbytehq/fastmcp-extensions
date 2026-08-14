@@ -42,8 +42,8 @@ class _ToolStateMeta(type(msgspec.Struct)):
         if name != "ToolStateBase":
             if not isinstance(
                 state_ttl_value, timedelta
-            ) or state_ttl_value <= timedelta(0):
-                raise ValueError("state_ttl must be a positive timedelta")
+            ) or state_ttl_value < timedelta(seconds=1):
+                raise ValueError("state_ttl must be at least one second")
             _STATE_TYPES[cast(type[ToolStateBase], cls)] = state_ttl_value
         return cls
 
@@ -67,11 +67,15 @@ class EncodedSessionStateConfig:
     def __post_init__(self) -> None:
         if not self.key_id:
             raise ValueError("key_id must not be empty")
+        if self.principal_binding and self.signing != "required":
+            raise ValueError("principal binding requires signing")
         if self.key_id in self.previous_secrets:
             raise ValueError(
                 "key_id must not also appear in previous_secrets; active and previous "
                 "signing keys must be distinct"
             )
+        if any(not secret for secret in self.previous_secrets.values()):
+            raise ValueError("previous signing secrets must not be empty")
         if self.signing == "required":
             self.resolve_secrets()
 

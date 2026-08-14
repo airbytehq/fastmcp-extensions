@@ -179,6 +179,13 @@ def prepare_stateful_tool(
         logger.warning(
             "Encoded session-state signing is explicitly disabled; handles are bearer credentials"
         )
+    try:
+        state_type()
+    except TypeError as exc:
+        raise TypeError(
+            f"{state_type.__name__} must be default-constructible; "
+            "every state field must have a default"
+        ) from exc
     signature = inspect.signature(func)
     if "state_handle" not in signature.parameters:
         raise TypeError(
