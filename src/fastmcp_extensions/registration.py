@@ -26,6 +26,11 @@ from fastmcp_extensions.decorators import (
     _normalize_mcp_module,
     prepare_stateful_tool,
 )
+from fastmcp_extensions.session_state import (
+    ToolStateBase,
+    current_principal,
+    inspect_session_state,
+)
 
 
 @dataclass
@@ -86,6 +91,35 @@ class _ProviderToolAnnotations(Transform):
                 "annotations": tool_annotations_type(**merged_annotations),
             },
         )
+
+
+def _register_state_inspection_tool(
+    app: FastMCP,
+    state_types: set[type[ToolStateBase]],
+) -> None:
+    config = getattr(app, "x_mcp_extensions_session_state", None)
+    if config is None or not config.enable_state_inspection_tool:
+        return
+    if getattr(app, "_fastmcp_extensions_state_inspection_tool", False):
+        return
+
+    @app.tool(
+        name="inspect_encoded_session_state",
+        description=(
+            "Inspect an encoded session-state handle, including its state fields, "
+            "type, expiry, signing, key ID, and remaining lifetime."
+        ),
+    )
+    def inspect_encoded_session_state(encoded_session_state: str) -> dict[str, Any]:
+        principal = current_principal(required=config.principal_binding)
+        return inspect_session_state(
+            encoded_session_state,
+            config,
+            state_types,
+            principal=principal,
+        )
+
+    app._fastmcp_extensions_state_inspection_tool = True  # ty: ignore[unresolved-attribute]
 
 
 def _get_caller_file_stem() -> str:
@@ -149,6 +183,8 @@ def register_mcp_tools(
     if mcp_module is None:
         mcp_module = _get_caller_file_stem()
 
+    state_types: set[type[ToolStateBase]] = set()
+
     def _register_fn(
         app: FastMCP,
         callable_fn: Callable[..., Any],
@@ -159,6 +195,7 @@ def register_mcp_tools(
             "_fastmcp_extensions_with_state", None
         )
         if state_type is not None:
+            state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
         tool_exclude_args: list[str] | None = None
         if exclude_args:
@@ -189,6 +226,16 @@ def register_mcp_tools(
         provider = provider_factory()
         provider.add_transform(_ProviderToolAnnotations(provider_annotations))
         app.add_provider(provider)
+
+    if state_types:
+        registered_state_types = getattr(
+            app,
+            "_fastmcp_extensions_state_types",
+            set(),
+        )
+        registered_state_types.update(state_types)
+        app._fastmcp_extensions_state_types = registered_state_types  # ty: ignore[unresolved-attribute]
+        _register_state_inspection_tool(app, registered_state_types)
 
 
 def register_mcp_prompts(

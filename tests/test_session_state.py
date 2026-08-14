@@ -315,6 +315,145 @@ async def test_tools_sharing_a_state_type_can_thread_the_same_handle() -> None:
     assert second.structured_content["result"] == "shared"
 
 
+@pytest.mark.asyncio
+async def test_state_inspection_tool_reports_each_registered_state_type() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def basket(*, state_handle: BasketState) -> str:
+        return str(state_handle.count)
+
+    @mcp_tool(with_state=CompatibleState)
+    def compatible(*, state_handle: CompatibleState) -> str:
+        return str(state_handle.count)
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+        signing="disabled"
+    )
+    register_mcp_tools(app, mcp_module="test_session_state")
+    async with Client(app) as client:
+        basket_result = await client.call_tool(
+            "basket",
+            {"encoded_session_state": None},
+        )
+        compatible_result = await client.call_tool(
+            "compatible",
+            {"encoded_session_state": None},
+        )
+        basket_inspection = await client.call_tool(
+            "inspect_encoded_session_state",
+            {
+                "encoded_session_state": basket_result.structured_content[
+                    "encoded_session_state"
+                ]
+            },
+        )
+        compatible_inspection = await client.call_tool(
+            "inspect_encoded_session_state",
+            {
+                "encoded_session_state": compatible_result.structured_content[
+                    "encoded_session_state"
+                ]
+            },
+        )
+
+    assert basket_inspection.structured_content["valid"] is True
+    assert (
+        basket_inspection.structured_content["state_type"]
+        == f"{BasketState.__module__}.{BasketState.__qualname__}"
+    )
+    assert compatible_inspection.structured_content["valid"] is True
+    assert (
+        compatible_inspection.structured_content["state_type"]
+        == f"{CompatibleState.__module__}.{CompatibleState.__qualname__}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_state_inspection_tool_reports_expiry_and_bad_signature() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def basket(*, state_handle: BasketState) -> str:
+        return str(state_handle.count)
+
+    config = EncodedSessionStateConfig(signing="required", secret="secret")
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = config  # type: ignore[attr-defined]
+    register_mcp_tools(app, mcp_module="test_session_state")
+    expired = encode_session_state(BasketState(), config, principal=None, now=0)
+    valid = encode_session_state(BasketState(), config, principal=None)
+    raw = bytearray(base64.urlsafe_b64decode(valid + "=" * (-len(valid) % 4)))
+    raw[-1] ^= 1
+    tampered = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    async with Client(app) as client:
+        expired_result = await client.call_tool(
+            "inspect_encoded_session_state",
+            {"encoded_session_state": expired},
+        )
+        tampered_result = await client.call_tool(
+            "inspect_encoded_session_state",
+            {"encoded_session_state": tampered},
+        )
+
+    assert expired_result.structured_content == {
+        "valid": False,
+        "error": "This state has expired; create new state.",
+    }
+    assert tampered_result.structured_content == {
+        "valid": False,
+        "error": "This state handle has an invalid signature; create new state.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_state_inspection_tool_reports_unknown_state_type() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def basket(*, state_handle: BasketState) -> str:
+        return str(state_handle.count)
+
+    config = EncodedSessionStateConfig(signing="disabled")
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = config  # type: ignore[attr-defined]
+    register_mcp_tools(app, mcp_module="test_session_state")
+    unknown = encode_session_state(
+        CompatibleState(),
+        config,
+        principal=None,
+    )
+
+    async with Client(app) as client:
+        result = await client.call_tool(
+            "inspect_encoded_session_state",
+            {"encoded_session_state": unknown},
+        )
+
+    assert result.structured_content["valid"] is False
+    assert "server does not know" in result.structured_content["error"]
+
+
+def test_state_inspection_tool_can_be_disabled() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def basket(*, state_handle: BasketState) -> str:
+        return str(state_handle.count)
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+        signing="disabled",
+        enable_state_inspection_tool=False,
+    )
+    register_mcp_tools(app, mcp_module="test_session_state")
+    assert (
+        "inspect_encoded_session_state" not in app._local_provider._components  # type: ignore[attr-defined]
+    )
+
+
 def test_stateful_tool_without_server_config_fails_at_registration() -> None:
     _clear_registrations()
 

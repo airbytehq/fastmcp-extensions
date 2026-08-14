@@ -9,7 +9,7 @@ import hmac
 import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
@@ -61,6 +61,7 @@ class EncodedSessionStateConfig:
     key_id: str = "current"
     secret_env_var: str = DEFAULT_STATE_SECRET_ENV_VAR
     principal_binding: bool = False
+    enable_state_inspection_tool: bool = True
 
     def __post_init__(self) -> None:
         if not self.key_id:
@@ -154,15 +155,10 @@ def encode_session_state(
     return base64.urlsafe_b64encode(token_body).decode("ascii").rstrip("=")
 
 
-def decode_session_state(
+def _decode_token_envelope(
     token: str,
-    state_type: type[StateT],
     config: EncodedSessionStateConfig,
-    *,
-    principal: str | None,
-    now: int | None = None,
-) -> StateT:
-    """Decode, authenticate, and validate an encoded state handle."""
+) -> tuple[_TokenEnvelope, bool]:
     try:
         token_body = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
     except (ValueError, UnicodeError) as exc:
@@ -205,7 +201,16 @@ def decode_session_state(
             raise EncodedSessionStateError(
                 "This state handle has an invalid format; create new state."
             ) from exc
+    return envelope, signed
 
+
+def _validate_token_metadata(
+    envelope: _TokenEnvelope,
+    config: EncodedSessionStateConfig,
+    *,
+    principal: str | None,
+    now: int | None = None,
+) -> int:
     current_time = now if now is not None else int(time.time())
     if envelope.expires_at <= current_time:
         raise EncodedSessionStateError("This state has expired; create new state.")
@@ -217,6 +222,20 @@ def decode_session_state(
         raise EncodedSessionStateError(
             "This state handle was minted with principal binding enabled; create new state."
         )
+    return current_time
+
+
+def decode_session_state(
+    token: str,
+    state_type: type[StateT],
+    config: EncodedSessionStateConfig,
+    *,
+    principal: str | None,
+    now: int | None = None,
+) -> StateT:
+    """Decode, authenticate, and validate an encoded state handle."""
+    envelope, _ = _decode_token_envelope(token, config)
+    _validate_token_metadata(envelope, config, principal=principal, now=now)
     if envelope.state_type != _state_type_name(state_type):
         raise EncodedSessionStateError(
             "This state handle is for a different tool; create new state."
@@ -227,6 +246,64 @@ def decode_session_state(
         raise EncodedSessionStateError(
             "This state handle contains incompatible state; create new state."
         ) from exc
+
+
+def inspect_session_state(
+    token: str,
+    config: EncodedSessionStateConfig,
+    state_types: Collection[type[ToolStateBase]],
+    *,
+    principal: str | None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Inspect and validate an encoded state handle without a declared type."""
+    try:
+        envelope, signed = _decode_token_envelope(token, config)
+        current_time = _validate_token_metadata(
+            envelope,
+            config,
+            principal=principal,
+            now=now,
+        )
+    except EncodedSessionStateError as exc:
+        return {"valid": False, "error": str(exc)}
+
+    known_types = {
+        _state_type_name(state_type): state_type for state_type in state_types
+    }
+    result: dict[str, Any] = {
+        "valid": True,
+        "state_type": envelope.state_type,
+        "expires_at": envelope.expires_at,
+        "key_id": envelope.key_id,
+        "signed": signed,
+        "seconds_remaining": envelope.expires_at - current_time,
+        "state": envelope.state,
+    }
+    if envelope.state_type not in known_types:
+        result.update(
+            {
+                "valid": False,
+                "error": (
+                    "This state handle names a state type this server does not know; "
+                    "create new state."
+                ),
+            }
+        )
+    else:
+        try:
+            msgspec.convert(envelope.state, type=known_types[envelope.state_type])
+        except (msgspec.ValidationError, TypeError, ValueError):
+            result.update(
+                {
+                    "valid": False,
+                    "error": (
+                        "This state handle contains incompatible state; "
+                        "create new state."
+                    ),
+                }
+            )
+    return result
 
 
 def current_principal(*, required: bool) -> str | None:
