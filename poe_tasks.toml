@@ -33,8 +33,8 @@ get-generated-docs-dir = "echo docs/generated/fastmcp_extensions"
 clean = "rm -rf .pytest_cache .coverage htmlcov dist .ruff_cache"
 
 [tool.poe.tasks.typecheck]
-help = "Run type checking with mypy"
-cmd = "mypy src/fastmcp_extensions"
+help = "Run type checking with ty"
+cmd = "ty check src/fastmcp_extensions"
 
 [tool.poe.tasks.security]
 help = "Run security checks with bandit"

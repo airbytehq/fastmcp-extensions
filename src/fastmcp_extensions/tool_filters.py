@@ -46,9 +46,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from fastmcp import FastMCP
+from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
+from fastmcp_extensions.annotations import ANNOTATION_INTERACTIVE_UI
+from fastmcp_extensions.capability_tokens import client_supports_extension
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
 
 ToolFilterFn = Callable[[Tool, FastMCP], bool]
@@ -340,6 +343,40 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterFn:
+    """Build a filter for tools gated by a client extension.
+
+    Tools without a truthy `annotation_key` annotation remain visible. Annotated
+    tools are visible only when the client declared `extension_id`.
+
+    This is a rendering-capability gate, not a privilege boundary. Extension
+    declarations are unauthenticated client statements — over HTTP they arrive in
+    caller-controlled headers that anyone can forge — so gate only tools a client
+    could already be trusted to call, such as ones whose output needs a renderer.
+    Never gate authority this way; see `TRUSTED_EXECUTION_CONFIG_ARG` for a gate
+    that widens the surface and therefore takes no caller-supplied input.
+    """
+
+    def filter_tool(tool: Tool, _app: FastMCP) -> bool:
+        if not get_annotation(tool, annotation_key, default=False):
+            return True
+        return client_supports_extension(extension_id)
+
+    return filter_tool
+
+
+interactive_ui_filter = extension_tool_filter(
+    UI_EXTENSION_ID,
+    ANNOTATION_INTERACTIVE_UI,
+)
+"""Standard filter for tools requiring MCP Apps UI rendering support.
+
+This is a rendering-capability gate, not a privilege boundary. Adding this
+filter to `STANDARD_TOOL_FILTERS` changes visibility for servers that opt into
+standard filters and define tools with the `interactive-ui` annotation.
+"""
+
+
 # =============================================================================
 # Standard Filter Functions
 # =============================================================================
@@ -547,6 +584,7 @@ def assert_http_trusted_execution_disabled(app: FastMCP) -> None:
 
 
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
+    interactive_ui_filter,
     readonly_mode_filter,
     no_destructive_tools_filter,
     module_filter,

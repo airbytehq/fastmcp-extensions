@@ -50,7 +50,7 @@ jobs:
             > [Check job output.](${{ steps.vars.outputs.run-url }})
 
       - name: Checkout to get latest tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

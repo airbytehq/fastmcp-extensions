@@ -97,7 +97,7 @@ def test_assemble_auth_branches(
 
     result = _assemble_auth(
         server=server,
-        verifiers=verifiers,  # type: ignore[arg-type]
+        verifiers=verifiers,  # ty: ignore[invalid-argument-type]  # The test passes a deliberately invalid verifier collection.
         base_url=None,
         required_scopes=required_scopes,
     )
@@ -109,7 +109,7 @@ def test_assemble_auth_branches(
     elif expected is type(None):
         assert result is None
     else:
-        assert isinstance(result, expected)  # type: ignore[arg-type]
+        assert isinstance(result, expected)  # ty: ignore[invalid-argument-type]  # The parametrized test supplies runtime type objects.
 
 
 class _CapturingOIDCProxy:
@@ -132,7 +132,7 @@ def _oidc_config(**overrides: object) -> OIDCAuthConfig:
         "base_url": "https://mcp.example",
     }
     kwargs.update(overrides)
-    return OIDCAuthConfig(**kwargs)  # type: ignore[arg-type]
+    return OIDCAuthConfig(**kwargs)  # ty: ignore[invalid-argument-type]  # The test builds configuration from intentionally broad values.
 
 
 @pytest.mark.unit
@@ -180,8 +180,8 @@ def test_oidc_auth_config_is_keyword_only() -> None:
     # The auth config dataclasses are `kw_only=True`, so a boolean (or any
     # value) can never silently bind to the wrong field via positional args.
     with pytest.raises(TypeError):
-        OIDCAuthConfig(  # type: ignore[misc]
-            "https://idp.example/.well-known/openid-configuration",
+        OIDCAuthConfig(  # ty: ignore[missing-argument]  # The test verifies rejection of an invalid configuration.
+            "https://idp.example/.well-known/openid-configuration",  # ty: ignore[too-many-positional-arguments]  # The test intentionally supplies positional values to a keyword-only configuration.
             "cid",
         )
 

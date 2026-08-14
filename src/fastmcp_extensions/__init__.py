@@ -27,6 +27,15 @@ from fastmcp_extensions.auth import (
     build_mcp_auth,
     fetch_client_credentials_token,
 )
+from fastmcp_extensions.capability_tokens import (
+    DEFAULT_EXTENSIONS_HEADER,
+    CapabilityTokenMiddleware,
+    RejectEventStreamGetMiddleware,
+    client_declared_extensions_from_headers,
+    client_supports_extension,
+    decode_capability_token,
+    encode_capability_token,
+)
 from fastmcp_extensions.client_credentials_middleware import (
     ClientCredentialsExchangeMiddleware,
     wrap_client_credentials,
@@ -37,6 +46,7 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
+from fastmcp_extensions.http_server import DEFAULT_UVICORN_CONFIG, run_mcp_http_server
 from fastmcp_extensions.key_normalization import (
     DEFAULT_HASH_ALGORITHM,
     DEFAULT_KEY_PREFIX,
@@ -69,16 +79,23 @@ from fastmcp_extensions.server_config import (
     get_mcp_config,
 )
 from fastmcp_extensions.tool_filters import (
+    ANNOTATION_INTERACTIVE_UI,
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
+    extension_tool_filter,
+    interactive_ui_filter,
     is_trusted_execution_enabled,
 )
 
 __all__ = [
+    "ANNOTATION_INTERACTIVE_UI",
+    "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
+    "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
+    "CapabilityTokenMiddleware",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
     "HashKeyNormalizer",
@@ -91,6 +108,7 @@ __all__ = [
     "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
+    "RejectEventStreamGetMiddleware",
     "ResourceDef",
     "TelemetryRecord",
     "TelemetrySinks",
@@ -100,9 +118,15 @@ __all__ = [
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",
+    "client_declared_extensions_from_headers",
+    "client_supports_extension",
+    "decode_capability_token",
+    "encode_capability_token",
+    "extension_tool_filter",
     "fetch_client_credentials_token",
     "get_mcp_config",
     "install_authorization_redaction",
+    "interactive_ui_filter",
     "is_trusted_execution_enabled",
     "mcp_prompt",
     "mcp_provider",
@@ -115,5 +139,6 @@ __all__ = [
     "register_mcp_resources",
     "register_mcp_tools",
     "render_default_landing_html",
+    "run_mcp_http_server",
     "wrap_client_credentials",
 ]

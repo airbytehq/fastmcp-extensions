@@ -16,6 +16,7 @@ from typing import Any, TypeVar
 from fastmcp.server.providers import Provider
 
 from fastmcp_extensions.annotations import (
+    ANNOTATION_INTERACTIVE_UI,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
@@ -69,6 +70,7 @@ def mcp_tool(
     idempotent: bool = False,
     open_world: bool = False,
     requires_client_filesystem: bool = False,
+    interactive_ui: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -86,6 +88,8 @@ def mcp_tool(
         open_world: If True, tool interacts with external systems (default: False)
         requires_client_filesystem: If True, tool requires the client to have a
             local filesystem available (default: False)
+        interactive_ui: If True, tool requires MCP Apps UI rendering support
+            (default: False)
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -108,6 +112,8 @@ def mcp_tool(
     }
     if requires_client_filesystem:
         annotations[REQUIRES_CLIENT_FILESYSTEM] = True
+    if interactive_ui:
+        annotations[ANNOTATION_INTERACTIVE_UI] = True
 
     def decorator(func: F) -> F:
         if extra_help_text:
@@ -121,11 +127,14 @@ def mcp_tool(
 
 def mcp_provider(
     *,
+    interactive_ui: bool = False,
     annotations: Mapping[str, object] | None = None,
 ) -> Callable[[P], P]:
     """Decorator to tag an MCP provider factory for deferred registration.
 
     Args:
+        interactive_ui: If True, provider tools require MCP Apps UI rendering
+            support (default: False)
         annotations: Extra annotations to apply to provider-sourced tools.
 
     Returns:
@@ -136,6 +145,8 @@ def mcp_provider(
     provider_annotations: dict[str, Any] = {
         "mcp_module": mcp_module_str,
     }
+    if interactive_ui:
+        provider_annotations[ANNOTATION_INTERACTIVE_UI] = True
     provider_annotations.update(annotations or {})
 
     def decorator(func: P) -> P:
