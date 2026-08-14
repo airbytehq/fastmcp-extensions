@@ -322,6 +322,59 @@ This mechanism has a known end date. MCP revision 2026-07-28 removes protocol
 sessions and carries client capabilities in per-request `_meta`, which will
 replace both paths above once the stack supports it.
 
+The capability declaration is settled at `initialize`; encoded session state
+is the complementary mechanism for mutable tool state that changes on every
+call.
+
+## Encoded session state
+
+Stateful tools can carry mutable state across stateless MCP calls without a
+server-side store. Define a `ToolStateBase` with the fields your tool needs,
+then annotate the tool with `with_state`:
+
+```python
+from fastmcp_extensions import ToolStateBase, mcp_tool
+
+
+class BasketState(ToolStateBase):
+    count: int = 0
+
+
+@mcp_tool(with_state=BasketState)
+def add_item(item: str, *, input_state: BasketState) -> str:
+    input_state.count += 1
+    return f"{item} #{input_state.count}"
+```
+
+The advertised input is `encoded_session_state: str | None`, and the named
+result includes both `result` and a fresh `encoded_session_state`. Pass the
+returned handle to the next call; omitting it creates a fresh state. The
+injected `input_state` is mutated in place and re-encoded after every response;
+reassigning the parameter inside the tool body silently discards that change.
+
+Handles use MessagePack serialization, base64url encoding, expiry, and
+optional HMAC signing. Configure signing and optional authenticated-principal
+binding at the server level with `EncodedSessionStateConfig`:
+
+```python
+from fastmcp_extensions import EncodedSessionStateConfig, mcp_server
+
+app = mcp_server(
+    name="my-server",
+    encoded_session_state=EncodedSessionStateConfig(
+        signing="required",
+        secret="a-secret-from-your-deployment",
+        principal_binding=True,
+    ),
+)
+```
+
+Signing is explicit: use `signing="required"` for authenticated deployments or
+`signing="disabled"` for bearer-style deployments. The default state TTL is 30
+days and can be overridden with `class BasketState(ToolStateBase,
+state_ttl=timedelta(days=7))`. Rotating keys can retain a previous key through
+`previous_secrets`.
+
 ## HTTP server runner
 
 `run_mcp_http_server()` builds and serves a FastMCP HTTP application. When

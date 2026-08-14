@@ -11,9 +11,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
 from fastmcp.server.providers import Provider
+from pydantic import Field, create_model
 
 from fastmcp_extensions.annotations import (
     ANNOTATION_INTERACTIVE_UI,
@@ -23,6 +24,17 @@ from fastmcp_extensions.annotations import (
     READ_ONLY_HINT,
     REQUIRES_CLIENT_FILESYSTEM,
 )
+from fastmcp_extensions.session_state import (
+    EncodedSessionStateConfig,
+    ToolStateBase,
+    current_principal,
+    decode_session_state,
+    encode_session_state,
+    state_ttl,
+)
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 F = TypeVar("F", bound=Callable[..., Any])
 P = TypeVar("P", bound=Callable[[], Provider])
@@ -71,6 +83,7 @@ def mcp_tool(
     open_world: bool = False,
     requires_client_filesystem: bool = False,
     interactive_ui: bool = False,
+    with_state: type[ToolStateBase] | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -90,6 +103,8 @@ def mcp_tool(
             local filesystem available (default: False)
         interactive_ui: If True, tool requires MCP Apps UI rendering support
             (default: False)
+        with_state: Optional `ToolStateBase` subclass for explicit state carried
+            between calls.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -114,6 +129,10 @@ def mcp_tool(
         annotations[REQUIRES_CLIENT_FILESYSTEM] = True
     if interactive_ui:
         annotations[ANNOTATION_INTERACTIVE_UI] = True
+    if with_state is not None:
+        if not issubclass(with_state, ToolStateBase):
+            raise TypeError("with_state must be a ToolStateBase subclass")
+        annotations["_fastmcp_extensions_with_state"] = with_state
 
     def decorator(func: F) -> F:
         if extra_help_text:
@@ -123,6 +142,99 @@ def mcp_tool(
         return func
 
     return decorator
+
+
+def prepare_stateful_tool(
+    func: Callable[..., Any],
+    state_type: type[ToolStateBase],
+    app: FastMCP,
+) -> Callable[..., Any]:
+    """Wrap a deferred tool with explicit encoded session state."""
+
+    config = getattr(app, "x_mcp_extensions_session_state", None)
+    if config is None:
+        raise RuntimeError(
+            "Stateful tools require an explicit encoded_session_state configuration "
+            "with signing='required' or signing='disabled'."
+        )
+    signature = inspect.signature(func)
+    if "input_state" not in signature.parameters:
+        raise TypeError(
+            f"Stateful tool {getattr(func, '__name__', 'stateful_tool')!r} must declare "
+            "an `input_state` parameter"
+        )
+    input_parameter = signature.parameters["input_state"]
+    if input_parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+        raise TypeError("Stateful tool `input_state` must not be positional-only")
+    durability = state_ttl(state_type)
+    state_description = (
+        "Pass back the `encoded_session_state` returned by the previous call. "
+        f"If omitted, a fresh state is created. This state is durable for {durability}."
+    )
+    encoded_state_annotation = Annotated[
+        str | None,
+        Field(description=state_description),
+    ]
+    parameters = [
+        input_parameter.replace(
+            name="encoded_session_state",
+            annotation=encoded_state_annotation,
+            default=None,
+        )
+        if parameter.name == "input_state"
+        else parameter
+        for parameter in signature.parameters.values()
+    ]
+    return_annotation = signature.return_annotation
+    if return_annotation is inspect.Parameter.empty:
+        return_annotation = Any
+
+    func_name = getattr(func, "__name__", "stateful_tool")
+    result_type: type[Any] = cast(
+        type[Any],
+        create_model(
+            f"{func_name.title().replace('_', '')}StatefulResult",
+            result=(return_annotation, ...),
+            encoded_session_state=(str, ...),
+        ),
+    )
+
+    async def stateful_wrapper(*args: Any, **kwargs: Any) -> Any:
+        encoded = kwargs.pop("encoded_session_state", None)
+        principal = current_principal(required=config.principal_binding)
+        state = (
+            state_type()
+            if encoded is None
+            else decode_session_state(
+                encoded,
+                state_type,
+                config,
+                principal=principal,
+            )
+        )
+        kwargs["input_state"] = state
+        result = func(*args, **kwargs)
+        resolved = await result if inspect.isawaitable(result) else result
+        return result_type(
+            result=resolved,
+            encoded_session_state=encode_session_state(
+                state,
+                config,
+                principal=principal,
+            ),
+        )
+
+    stateful_wrapper.__signature__ = (  # ty: ignore[unresolved-attribute]
+        signature.replace(parameters=parameters).replace(return_annotation=result_type)
+    )
+    wrapper_annotations = dict(getattr(func, "__annotations__", {}))
+    wrapper_annotations.pop("input_state", None)
+    wrapper_annotations["encoded_session_state"] = encoded_state_annotation
+    wrapper_annotations["return"] = result_type
+    stateful_wrapper.__annotations__ = wrapper_annotations
+    stateful_wrapper.__name__ = func_name
+    stateful_wrapper.__doc__ = func.__doc__
+    return stateful_wrapper
 
 
 def mcp_provider(

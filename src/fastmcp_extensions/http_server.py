@@ -25,6 +25,7 @@ from fastmcp_extensions.capability_tokens import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
 )
+from fastmcp_extensions.session_state import EncodedSessionStateConfig
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -45,6 +46,7 @@ def run_mcp_http_server(
     stateless_http: bool | None = None,
     wrapper: Callable[[ASGIApp], ASGIApp] | None = None,
     enable_stateless_capability_middleware: bool = True,
+    encoded_session_state: EncodedSessionStateConfig | None = None,
     host: str | None = None,
     port: int | None = None,
     uvicorn_config: Mapping[str, Any] | None = None,
@@ -62,6 +64,8 @@ def run_mcp_http_server(
     """
     host = fastmcp.settings.host if host is None else host
     port = fastmcp.settings.port if port is None else port
+    if encoded_session_state is not None:
+        server.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]
     app = server.http_app(
         path=path,
         transport=transport,
