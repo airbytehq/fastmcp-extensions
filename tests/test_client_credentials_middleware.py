@@ -279,7 +279,7 @@ async def test_basic_request_is_rewritten_and_cached() -> None:
         mint_calls.append((client_id, client_secret))
         return "minted-token", 900.0
 
-    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+    mw._mint_token = fake_mint  # ty: ignore[invalid-assignment]  # The test replaces the token factory with a controlled fake.
 
     await mw(scope, _noop_receive, _noop_send)
     # A second identical request must reuse the cached token (no re-mint).
@@ -304,7 +304,7 @@ async def test_separate_header_request_is_rewritten_and_credentials_stripped() -
         mint_calls.append((client_id, client_secret))
         return "minted-token", 900.0
 
-    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+    mw._mint_token = fake_mint  # ty: ignore[invalid-assignment]  # The test replaces the token factory with a controlled fake.
 
     await mw(scope, _noop_receive, _noop_send)
 
@@ -332,7 +332,7 @@ async def test_concurrent_identical_requests_mint_once() -> None:
         await asyncio.sleep(0)
         return "minted-token", 900.0
 
-    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+    mw._mint_token = fake_mint  # ty: ignore[invalid-assignment]  # The test replaces the token factory with a controlled fake.
 
     await asyncio.gather(
         mw(scope, _noop_receive, _noop_send),
@@ -354,7 +354,7 @@ async def test_failed_exchange_passes_request_through_unmodified() -> None:
     async def fake_mint(_client_id: str, _client_secret: str) -> None:
         return None
 
-    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+    mw._mint_token = fake_mint  # ty: ignore[invalid-assignment]  # The test replaces the token factory with a controlled fake.
 
     await mw(scope, _noop_receive, _noop_send)
     assert app.calls == 1

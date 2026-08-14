@@ -78,7 +78,7 @@ async def test_server_info_includes_dynamic_properties() -> None:
 async def test_server_info_provider_requires_dict(provider_result: object) -> None:
     app = mcp_server(
         "test-server",
-        server_info_provider=lambda: provider_result,  # type: ignore[arg-type]
+        server_info_provider=lambda: provider_result,  # ty: ignore[invalid-argument-type]  # The fixture intentionally returns a narrower test value.
     )
 
     with pytest.raises(

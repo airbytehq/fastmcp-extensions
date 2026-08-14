@@ -132,3 +132,97 @@ def test_custom_render_overrides_default() -> None:
         response = client.get("/mcp")
     assert response.status_code == 200
     assert response.text == "<h1>Custom</h1>"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("version_str", "version_url", "expected", "forbidden"),
+    [
+        pytest.param(
+            "v1.2.3",
+            None,
+            ['<p class="version">v1.2.3</p>'],
+            [],
+            id="plain_version",
+        ),
+        pytest.param(
+            "cloud-mcp v1.2.3",
+            None,
+            ['<p class="version">cloud-mcp v1.2.3</p>'],
+            [],
+            id="version_rendered_verbatim",
+        ),
+        pytest.param(
+            "v1.2.3",
+            "https://example.com/releases/v1.2.3",
+            ['<a href="https://example.com/releases/v1.2.3">v1.2.3</a>'],
+            [],
+            id="linked_version",
+        ),
+        pytest.param(
+            "<script>x</script>",
+            None,
+            ["&lt;script&gt;"],
+            ["<script>"],
+            id="version_is_escaped",
+        ),
+        pytest.param(None, None, [], ['class="version"'], id="no_version_no_footer"),
+        pytest.param(
+            None,
+            "https://example.com/releases",
+            [],
+            ['class="version"'],
+            id="version_url_alone_renders_nothing",
+        ),
+    ],
+)
+def test_render_version_footer(
+    version_str: str | None,
+    version_url: str | None,
+    expected: list[str],
+    forbidden: list[str],
+) -> None:
+    """The muted version footer renders, links, and escapes as configured."""
+    html = render_default_landing_html(
+        LandingPageContent(
+            title="S",
+            endpoint_url="https://e/mcp",
+            version_str=version_str,
+            version_url=version_url,
+        )
+    )
+    for snippet in expected:
+        assert snippet in html
+    for snippet in forbidden:
+        assert snippet not in html
+
+
+@pytest.mark.unit
+def test_render_rejects_unsafe_version_url() -> None:
+    """An unsafe version_url scheme raises rather than rendering a link."""
+    with pytest.raises(ValueError, match="Unsafe URL scheme"):
+        render_default_landing_html(
+            LandingPageContent(
+                title="S",
+                endpoint_url="https://e/mcp",
+                version_str="v1.2.3",
+                version_url="javascript:alert(1)",
+            )
+        )
+
+
+@pytest.mark.unit
+def test_register_landing_page_serves_version() -> None:
+    """A version passed to `register_landing_page` reaches the served page."""
+    app = FastMCP("t")
+    register_landing_page(
+        app,
+        path="/mcp",
+        title="S",
+        endpoint_url="https://e/mcp",
+        version_str="v9.9.9",
+    )
+    with TestClient(app.http_app(path="/mcp", stateless_http=True)) as client:
+        response = client.get("/mcp")
+    assert response.status_code == 200
+    assert "v9.9.9" in response.text

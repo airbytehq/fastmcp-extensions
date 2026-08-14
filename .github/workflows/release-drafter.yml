@@ -24,13 +24,13 @@ jobs:
           version: "latest"
 
       - name: Checkout Repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Create draft release (not ready)
         id: not-ready-draft
-        uses: aaronsteers/semantic-pr-release-drafter@v2.3.1
+        uses: aaronsteers/semantic-pr-release-drafter@v2.3.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -42,7 +42,7 @@ jobs:
         run: uv build
 
       - name: Attach assets and finalize draft
-        uses: aaronsteers/semantic-pr-release-drafter@v2.3.1
+        uses: aaronsteers/semantic-pr-release-drafter@v2.3.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

@@ -8,7 +8,9 @@ from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 
 import fastmcp_extensions
+import fastmcp_extensions.capability_tokens as capability_tokens
 from fastmcp_extensions import (
+    interactive_ui_filter,
     mcp_prompt,
     mcp_provider,
     mcp_resource,
@@ -16,6 +18,7 @@ from fastmcp_extensions import (
     register_mcp_tools,
 )
 from fastmcp_extensions.annotations import (
+    ANNOTATION_INTERACTIVE_UI,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
@@ -100,6 +103,77 @@ def test_mcp_provider_decorator() -> None:
     assert func.__name__ == "my_test_provider"
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
     assert annotations["interactive-ui"] is True
+
+    _clear_registrations()
+
+
+def test_mcp_provider_interactive_ui_argument_respects_explicit_annotation() -> None:
+    """Test that provider UI annotations are type-safe and caller-overridable."""
+    _clear_registrations()
+
+    class TestProvider(Provider):
+        pass
+
+    @mcp_provider(interactive_ui=True)
+    def ui_provider() -> Provider:
+        return TestProvider()
+
+    @mcp_provider(
+        interactive_ui=True,
+        annotations={ANNOTATION_INTERACTIVE_UI: False},
+    )
+    def overridden_provider() -> Provider:
+        return TestProvider()
+
+    assert _REGISTERED_PROVIDERS[0][1][ANNOTATION_INTERACTIVE_UI] is True
+    assert _REGISTERED_PROVIDERS[1][1][ANNOTATION_INTERACTIVE_UI] is False
+
+    _clear_registrations()
+
+
+@pytest.mark.parametrize(
+    ("declares_ui_extension", "expected_visible"),
+    [
+        pytest.param(False, False, id="client-does-not-declare-ui"),
+        pytest.param(True, True, id="client-declares-ui"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    declares_ui_extension: bool,
+    expected_visible: bool,
+) -> None:
+    """Test that the typed tool argument reaches the standard UI filter."""
+    _clear_registrations()
+
+    @mcp_tool(interactive_ui=True)
+    def show_dashboard() -> str:
+        """Return dashboard data."""
+        return "dashboard data"
+
+    app = FastMCP("test")
+    register_mcp_tools(app)
+    tool = await app.get_tool("show_dashboard")
+    assert tool is not None
+    assert tool.annotations is not None
+    assert tool.annotations.model_extra[ANNOTATION_INTERACTIVE_UI] is True
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: (
+            {"x-mcp-extensions": "io.modelcontextprotocol/ui"}
+            if declares_ui_extension
+            else {}
+        ),
+    )
+
+    assert interactive_ui_filter(tool, app) is expected_visible
 
     _clear_registrations()
 
