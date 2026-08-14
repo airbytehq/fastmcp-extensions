@@ -287,8 +287,10 @@ extension declaration.
 
 ## HTTP server runner
 
-`run_mcp_http_server()` builds and serves a FastMCP HTTP application with
-stateless capability carry-through enabled by default:
+`run_mcp_http_server()` builds and serves a FastMCP HTTP application. When
+stateless HTTP is in effect — `stateless_http=True`, or FastMCP's own
+`stateless_http` setting — it adds the capability carry-through layers by
+default:
 
 ```python
 from fastmcp_extensions import run_mcp_http_server
@@ -408,9 +410,9 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Decorators
 
-- `@mcp_tool(domain, read_only, destructive, idempotent, open_world, extra_help_text)` - Tag a tool for deferred registration
-- `@mcp_prompt(name, description, domain)` - Tag a prompt for deferred registration
-- `@mcp_resource(uri, description, mime_type, domain)` - Tag a resource for deferred registration
+- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
+- `@mcp_prompt(name, description)` - Tag a prompt for deferred registration
+- `@mcp_resource(uri, description, mime_type)` - Tag a resource for deferred registration
 - `mcp_provider` - Register a provider factory for deferred tool registration.
 
 ### Registration Functions
