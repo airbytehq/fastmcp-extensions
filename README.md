@@ -295,6 +295,17 @@ later request. The client stores the state; the server keeps none, which means
 no session table, no sticky routing, and nothing lost across restarts or
 replicas.
 
+The value is `<uuid4>.<base64url payload>`: a random component for the
+uniqueness the spec asks of session IDs, then the encoded extension IDs. The
+encoding is not decoration — the spec restricts the value to visible ASCII
+(0x21–0x7E), so arbitrary payloads have to be encoded to be legal.
+
+The ID is minted once, on the `initialize` response, and never reissued: the
+middleware sets the header only for that one exchange. So this carries state
+fixed at session start, not state that changes call to call — a server wanting
+the latter cannot get it by handing back a new ID, because clients capture the
+session ID at initialize and are under no obligation to notice a later one.
+
 **Clients that do not echo it.** Set the `X-MCP-Extensions` header on each
 request, listing extension IDs separated by commas or whitespace. This is our
 own header rather than a protocol feature — an escape hatch for clients that do
