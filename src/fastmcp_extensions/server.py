@@ -78,6 +78,7 @@ from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
 )
+from fastmcp_extensions.session_state import EncodedSessionStateConfig
 from fastmcp_extensions.tool_filters import ToolFilterFn
 
 
@@ -240,6 +241,7 @@ def mcp_server(
     server_config_args: list[MCPServerConfigArg] | None = None,
     tool_filters: list[ToolFilterFn] | None = None,
     include_standard_tool_filters: bool = False,
+    encoded_session_state: EncodedSessionStateConfig | None = None,
     **fastmcp_kwargs: Any,
 ) -> FastMCP:
     """Create a FastMCP server with built-in server info and credential resolution.
@@ -271,6 +273,7 @@ def mcp_server(
         include_standard_tool_filters: If True, automatically add standard config args
             and tool filters for readonly_mode and safe_mode. These filters use
             tool annotations (readOnlyHint, destructiveHint) to control visibility.
+        encoded_session_state: Server-level policy for encoded state handles.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
     Returns:
@@ -343,6 +346,8 @@ def mcp_server(
             config.advertised_properties["mcp_modules"] = mcp_modules
 
     app.x_mcp_server_config = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+    if encoded_session_state is not None:
+        app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])
