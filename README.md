@@ -341,15 +341,15 @@ class BasketState(ToolStateBase):
 
 
 @mcp_tool(with_state=BasketState)
-def add_item(item: str, *, input_state: BasketState) -> str:
-    input_state.count += 1
-    return f"{item} #{input_state.count}"
+def add_item(item: str, *, state_handle: BasketState) -> str:
+    state_handle.count += 1
+    return f"{item} #{state_handle.count}"
 ```
 
 The advertised input is `encoded_session_state: str | None`, and the named
 result includes both `result` and a fresh `encoded_session_state`. Pass the
 returned handle to the next call; omitting it creates a fresh state. The
-injected `input_state` is mutated in place and re-encoded after every response;
+injected `state_handle` is mutated in place and re-encoded after every response;
 reassigning the parameter inside the tool body silently discards that change.
 
 Handles use MessagePack serialization, base64url encoding, expiry, and

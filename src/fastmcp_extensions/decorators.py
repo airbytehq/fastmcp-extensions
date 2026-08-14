@@ -179,14 +179,14 @@ def prepare_stateful_tool(
             "Encoded session-state signing is explicitly disabled; handles are bearer credentials"
         )
     signature = inspect.signature(func)
-    if "input_state" not in signature.parameters:
+    if "state_handle" not in signature.parameters:
         raise TypeError(
             f"Stateful tool {getattr(func, '__name__', 'stateful_tool')!r} must declare "
-            "an `input_state` parameter"
+            "a `state_handle` parameter"
         )
-    input_parameter = signature.parameters["input_state"]
+    input_parameter = signature.parameters["state_handle"]
     if input_parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
-        raise TypeError("Stateful tool `input_state` must not be positional-only")
+        raise TypeError("Stateful tool `state_handle` must not be positional-only")
     durability = state_ttl(state_type)
     state_description = (
         "Pass back the `encoded_session_state` returned by the previous call. "
@@ -203,7 +203,7 @@ def prepare_stateful_tool(
             annotation=encoded_state_annotation,
             default=None,
         )
-        if parameter.name == "input_state"
+        if parameter.name == "state_handle"
         else parameter
         for parameter in signature.parameters.values()
     ]
@@ -234,7 +234,7 @@ def prepare_stateful_tool(
                 principal=principal,
             )
         )
-        kwargs["input_state"] = state
+        kwargs["state_handle"] = state
         result = func(*args, **kwargs)
         resolved = await result if inspect.isawaitable(result) else result
         return result_type(
@@ -250,7 +250,7 @@ def prepare_stateful_tool(
         signature.replace(parameters=parameters).replace(return_annotation=result_type)
     )
     wrapper_annotations = dict(getattr(func, "__annotations__", {}))
-    wrapper_annotations.pop("input_state", None)
+    wrapper_annotations.pop("state_handle", None)
     wrapper_annotations["encoded_session_state"] = encoded_state_annotation
     wrapper_annotations["return"] = result_type
     stateful_wrapper.__annotations__ = wrapper_annotations

@@ -198,9 +198,9 @@ def test_stateful_tool_schema_and_result() -> None:
     _clear_registrations()
 
     @mcp_tool(with_state=BasketState)
-    def increment(*, input_state: BasketState) -> str:
-        input_state.count += 1
-        return str(input_state.count)
+    def increment(*, state_handle: BasketState) -> str:
+        state_handle.count += 1
+        return str(state_handle.count)
 
     app = FastMCP("test")
     app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
@@ -214,7 +214,7 @@ def test_stateful_tool_schema_and_result() -> None:
     )
     schema = tool.parameters
     assert "encoded_session_state" in schema["properties"]
-    assert "input_state" not in schema["properties"]
+    assert "state_handle" not in schema["properties"]
     description = schema["properties"]["encoded_session_state"]["description"]
     assert "30 seconds" in description
     assert "0:00:30" not in description
@@ -230,9 +230,9 @@ async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
     _clear_registrations()
 
     @mcp_tool(with_state=BasketState)
-    def increment(*, input_state: BasketState) -> str:
-        input_state.count += 1
-        return str(input_state.count)
+    def increment(*, state_handle: BasketState) -> str:
+        state_handle.count += 1
+        return str(state_handle.count)
 
     app = FastMCP("test")
     app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
@@ -260,9 +260,9 @@ def test_stateful_tool_without_server_config_fails_at_registration() -> None:
     _clear_registrations()
 
     @mcp_tool(with_state=BasketState)
-    def increment(*, input_state: BasketState) -> str:
-        input_state.count += 1
-        return str(input_state.count)
+    def increment(*, state_handle: BasketState) -> str:
+        state_handle.count += 1
+        return str(state_handle.count)
 
     with pytest.raises(
         RuntimeError,
@@ -275,8 +275,8 @@ def test_explicit_unsigned_state_config_warns(caplog: pytest.LogCaptureFixture) 
     _clear_registrations()
 
     @mcp_tool(with_state=BasketState)
-    def increment(*, input_state: BasketState) -> str:
-        return str(input_state.count)
+    def increment(*, state_handle: BasketState) -> str:
+        return str(state_handle.count)
 
     app = mcp_server(
         "test",
