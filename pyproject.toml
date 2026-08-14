@@ -1,7 +1,7 @@
 [project]
 name = "fastmcp-extensions"
 dynamic = ["version"]
-description = "Unofficial extension library for FastMCP 2.0 with patterns, practices, and utilities"
+description = "Unofficial extension library for FastMCP 3.x with patterns, practices, and utilities"
 readme = "README.md"
 authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }
@@ -43,13 +43,13 @@ cli = [
 dev = [
     "cyclopts>=4.0.0,<5.0",
     "rich>=13.0,<14.0",
-    "deptry>=0.12.0",
-    "mypy>=1.8.0",
+    "deptry>=0.25.1",
+    "ty>=0.0.56",
     "poethepoet>=0.24.0",
     "pytest>=7.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0",
-    "ruff>=0.1.0",
+    "ruff>=0.16.1",
 ]
 
 [build-system]

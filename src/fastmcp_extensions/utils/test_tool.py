@@ -134,7 +134,7 @@ async def run_http_tool_test(
         pass
 
 
-def _import_app(app_path: str) -> object:
+def _import_app(app_path: str) -> FastMCP:
     """Import an app from a module:attribute path."""
     if ":" not in app_path:
         msg = f"Invalid app path '{app_path}'. Expected format: 'module.path:attribute'"

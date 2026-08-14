@@ -2,8 +2,8 @@
 """Unit tests for `fastmcp_extensions.utils.docs`.
 
 These tests exercise the pure rendering / bucketing helpers against synthetic
-`fastmcp inspect` report fixtures so they run without invoking the real
-`fastmcp` CLI or importing any user server module.
+`fastmcp inspect` report fixtures, plus one parity check against the real
+`fastmcp` CLI.
 """
 
 from __future__ import annotations
@@ -11,7 +11,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastmcp import FastMCP
 
+from fastmcp_extensions import (
+    mcp_prompt,
+    mcp_resource,
+    register_mcp_prompts,
+    register_mcp_resources,
+)
 from fastmcp_extensions.utils.docs import (
     DEFAULT_OUTPUT,
     MISC_MODULE,
@@ -28,11 +35,37 @@ from fastmcp_extensions.utils.docs import (
     _render_resource,
     _render_tool,
     _spec_to_module_name,
+    generate_markdown_docs,
 )
 
 # -----------------------------------------------------------------------------
 # Small helpers
 # -----------------------------------------------------------------------------
+
+
+_PARITY_APP = FastMCP("docs-parity")
+
+
+@mcp_prompt("registry_prompt", "A prompt for docs parity.")
+def _registry_prompt() -> list[dict[str, str]]:
+    return [{"role": "user", "content": "Hello"}]
+
+
+@mcp_resource(
+    uri="parity://resource",
+    description="A resource for docs parity.",
+    mime_type="text/plain",
+)
+def _registry_resource() -> str:
+    return "Hello"
+
+
+register_mcp_prompts(_PARITY_APP)
+register_mcp_resources(_PARITY_APP)
+
+
+def _module_pages(output: Path) -> set[str]:
+    return {page.stem for page in output.glob("*.md") if page.name != "index.md"}
 
 
 @pytest.mark.parametrize(
@@ -235,6 +268,33 @@ def test_get_module_prefers_annotations_then_meta_then_fallback() -> None:
     assert _get_module({"meta": {"mcp_module": "local"}}, {}) == "local"
     assert _get_module({"name": "t1"}, {"t1": "reg"}) == "reg"
     assert _get_module({"name": "unknown"}, {}) == MISC_MODULE
+
+
+@pytest.mark.unit
+def test_in_process_and_subprocess_docs_preserve_module_grouping(
+    tmp_path: Path,
+) -> None:
+    """Both inspection paths place registry-derived items on the same page."""
+    in_process_output = tmp_path / "in-process"
+    subprocess_output = tmp_path / "subprocess"
+
+    generate_markdown_docs(_PARITY_APP, in_process_output)
+    generate_markdown_docs("tests/test_docs.py:_PARITY_APP", subprocess_output)
+
+    assert _module_pages(in_process_output) == {"test_docs"}
+    assert _module_pages(subprocess_output) == {"test_docs"}
+    for item_name in ("registry_prompt", "parity://resource"):
+        in_process_page = next(
+            page
+            for page in in_process_output.glob("*.md")
+            if item_name in page.read_text(encoding="utf-8")
+        )
+        subprocess_page = next(
+            page
+            for page in subprocess_output.glob("*.md")
+            if item_name in page.read_text(encoding="utf-8")
+        )
+        assert in_process_page.name == subprocess_page.name
 
 
 _FIXTURE_REPORT = {
