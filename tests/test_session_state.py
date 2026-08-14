@@ -400,10 +400,22 @@ async def test_state_inspection_tool_reports_expiry_and_bad_signature() -> None:
 
     assert expired_result.structured_content == {
         "valid": False,
+        "state_type": None,
+        "expires_at": None,
+        "key_id": None,
+        "signed": None,
+        "seconds_remaining": None,
+        "state": None,
         "error": "This state has expired; create new state.",
     }
     assert tampered_result.structured_content == {
         "valid": False,
+        "state_type": None,
+        "expires_at": None,
+        "key_id": None,
+        "signed": None,
+        "seconds_remaining": None,
+        "state": None,
         "error": "This state handle has an invalid signature; create new state.",
     }
 

@@ -16,6 +16,7 @@ from typing import Any, Literal, TypeVar, cast
 
 import msgspec
 from fastmcp.server.dependencies import get_http_request
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,19 @@ class EncodedSessionStateConfig:
 
 class EncodedSessionStateError(ValueError):
     """An actionable encoded session-state validation error."""
+
+
+class DecodedSessionState(BaseModel):
+    """Decoded state-handle fields and validation metadata."""
+
+    valid: bool
+    state_type: str | None = None
+    expires_at: int | None = None
+    key_id: str | None = None
+    signed: bool | None = None
+    seconds_remaining: int | None = None
+    state: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class _TokenEnvelope(msgspec.Struct, kw_only=True):
@@ -255,7 +269,7 @@ def inspect_session_state(
     *,
     principal: str | None,
     now: int | None = None,
-) -> dict[str, Any]:
+) -> DecodedSessionState:
     """Inspect and validate an encoded state handle without a declared type."""
     try:
         envelope, signed = _decode_token_envelope(token, config)
@@ -266,42 +280,33 @@ def inspect_session_state(
             now=now,
         )
     except EncodedSessionStateError as exc:
-        return {"valid": False, "error": str(exc)}
+        return DecodedSessionState(valid=False, error=str(exc))
 
     known_types = {
         _state_type_name(state_type): state_type for state_type in state_types
     }
-    result: dict[str, Any] = {
-        "valid": True,
-        "state_type": envelope.state_type,
-        "expires_at": envelope.expires_at,
-        "key_id": envelope.key_id,
-        "signed": signed,
-        "seconds_remaining": envelope.expires_at - current_time,
-        "state": envelope.state,
-    }
+    result = DecodedSessionState(
+        valid=True,
+        state_type=envelope.state_type,
+        expires_at=envelope.expires_at,
+        key_id=envelope.key_id,
+        signed=signed,
+        seconds_remaining=envelope.expires_at - current_time,
+        state=envelope.state,
+    )
     if envelope.state_type not in known_types:
-        result.update(
-            {
-                "valid": False,
-                "error": (
-                    "This state handle names a state type this server does not know; "
-                    "create new state."
-                ),
-            }
+        result.valid = False
+        result.error = (
+            "This state handle names a state type this server does not know; "
+            "create new state."
         )
     else:
         try:
             msgspec.convert(envelope.state, type=known_types[envelope.state_type])
         except (msgspec.ValidationError, TypeError, ValueError):
-            result.update(
-                {
-                    "valid": False,
-                    "error": (
-                        "This state handle contains incompatible state; "
-                        "create new state."
-                    ),
-                }
+            result.valid = False
+            result.error = (
+                "This state handle contains incompatible state; create new state."
             )
     return result
 

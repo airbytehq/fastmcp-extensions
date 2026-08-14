@@ -27,6 +27,7 @@ from fastmcp_extensions.decorators import (
     prepare_stateful_tool,
 )
 from fastmcp_extensions.session_state import (
+    DecodedSessionState,
     ToolStateBase,
     current_principal,
     inspect_session_state,
@@ -110,7 +111,7 @@ def _register_state_inspection_tool(
             "type, expiry, signing, key ID, and remaining lifetime."
         ),
     )
-    def get_decoded_state(encoded_session_state: str) -> dict[str, Any]:
+    def get_decoded_state(encoded_session_state: str) -> DecodedSessionState:
         principal = current_principal(required=config.principal_binding)
         return inspect_session_state(
             encoded_session_state,

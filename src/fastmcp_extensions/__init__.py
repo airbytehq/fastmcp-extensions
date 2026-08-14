@@ -81,6 +81,7 @@ from fastmcp_extensions.server_config import (
 from fastmcp_extensions.session_state import (
     DEFAULT_STATE_SECRET_ENV_VAR,
     DEFAULT_STATE_TTL,
+    DecodedSessionState,
     EncodedSessionStateConfig,
     EncodedSessionStateError,
     ToolStateBase,
@@ -109,6 +110,7 @@ __all__ = [
     "CapabilityTokenMiddleware",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
+    "DecodedSessionState",
     "EncodedSessionStateConfig",
     "EncodedSessionStateError",
     "HashKeyNormalizer",

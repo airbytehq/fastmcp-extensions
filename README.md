@@ -352,6 +352,14 @@ returned handle to the next call; omitting it creates a fresh state. The
 injected `state_handle` is mutated in place and re-encoded after every response;
 reassigning the parameter inside the tool body silently discards that change.
 
+Each handle is bound to the qualified type of the state that was used to mint
+it. Multiple tools can freely share one state type, while passing a handle from
+one state type to a tool that declares another is rejected with an actionable
+error. Every mint is independently valid until its own expiry, so an agent can
+retain earlier handles as checkpoints and pass an older handle back to roll the
+state back. This restores state only; it does not undo side effects the tool
+performed outside the handle.
+
 Handles use MessagePack serialization, base64url encoding, expiry, and
 optional HMAC signing. Configure signing and optional authenticated-principal
 binding at the server level with `EncodedSessionStateConfig`:
@@ -374,6 +382,12 @@ Signing is explicit: use `signing="required"` for authenticated deployments or
 days and can be overridden with `class BasketState(ToolStateBase,
 state_ttl=timedelta(days=7))`. Rotating keys can retain a previous key through
 `previous_secrets`.
+
+Servers with at least one stateful tool also register a `get_decoded_state` tool
+automatically. It verifies a handle and returns its state fields, state type,
+expiry, key ID, signing status, and remaining lifetime, or the specific reason
+validation failed. Set `enable_state_inspection_tool=False` in
+`EncodedSessionStateConfig` to suppress this tool.
 
 ## HTTP server runner
 
@@ -479,6 +493,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 - `DEFAULT_UVICORN_CONFIG` - Default Uvicorn settings used by `run_mcp_http_server`.
 - `ToolStateBase` / `EncodedSessionStateConfig` - Define state fields and configure encoded state handles for stateless tools.
 - `encode_session_state` / `decode_session_state` - Serialize, sign, validate, and restore state handles.
+- `DecodedSessionState` / `get_decoded_state` - Typed decoded-handle results and the automatically registered inspection tool.
 - `EncodedSessionStateError` - Actionable validation error for expired, invalid, or mismatched handles.
 - `fastmcp_extensions.utils.docs.generate_markdown_docs` - Generate Docusaurus- and pdoc-compatible Markdown docs from a FastMCP server inspection.
 - `register_landing_page` / `render_default_landing_html` - Add a browser-friendly `GET` landing page to an MCP HTTP endpoint.
