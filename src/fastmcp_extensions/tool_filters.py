@@ -50,6 +50,7 @@ from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
+from fastmcp_extensions.annotations import ANNOTATION_INTERACTIVE_UI
 from fastmcp_extensions.capability_tokens import client_supports_extension
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
 
@@ -179,9 +180,6 @@ ANNOTATION_MCP_MODULE = "mcp_module"
 
 ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
 """Annotation key for client filesystem requirement."""
-
-ANNOTATION_INTERACTIVE_UI = "interactive-ui"
-"""Annotation key for tools requiring MCP Apps UI rendering support."""
 
 # =============================================================================
 # Standard Config Args
