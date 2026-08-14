@@ -265,6 +265,10 @@ def show_dashboard() -> str:
     return "dashboard data"
 ```
 
+`@mcp_tool` has no passthrough for this annotation; under deferred
+registration, apply it with `@mcp_provider(annotations={ANNOTATION_INTERACTIVE_UI: True})`
+on the provider factory.
+
 The standard `interactive_ui_filter` leaves ordinary tools visible and hides
 annotated tools from clients that did not declare the
 `io.modelcontextprotocol/ui` extension. This is a rendering-capability check,
