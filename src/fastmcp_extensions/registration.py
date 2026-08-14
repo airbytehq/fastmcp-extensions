@@ -104,13 +104,13 @@ def _register_state_inspection_tool(
         return
 
     @app.tool(
-        name="inspect_encoded_session_state",
+        name="unfurl_encoded_state",
         description=(
             "Inspect an encoded session-state handle, including its state fields, "
             "type, expiry, signing, key ID, and remaining lifetime."
         ),
     )
-    def inspect_encoded_session_state(encoded_session_state: str) -> dict[str, Any]:
+    def unfurl_encoded_state(encoded_session_state: str) -> dict[str, Any]:
         principal = current_principal(required=config.principal_binding)
         return inspect_session_state(
             encoded_session_state,
