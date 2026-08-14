@@ -10,7 +10,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 2. 🧯 **Secure, predictable defaults** - The auth factory reads **no environment variables**: each server owns its own env-var names and can validate a complete configuration before building the provider. Refresh-token storage is injectable, so a server can use a durable, shared backend across restarts and replicas without the library owning your database.
 3. 🕵️ **Credential hygiene when you wire it in** - An installable redaction filter scrubs bearer tokens and other credential values from controlled log records, while one-way key normalization makes arbitrary client IDs and other store keys legal for durable backends.
 4. 🎚️ **Tool filtering from MCP annotations** - Read-only mode, no-destructive mode, and module/tool exclusion use MCP tool annotations (`readOnlyHint`, `destructiveHint`, …) and request/server configuration. Filters compose with logical AND, so layering can only narrow the surface, never widen it. See [Tool Filtering](#tool-filtering).
-5. 🧩 **MCP Apps UI support without per-server wiring** - Annotate a tool with `interactive-ui`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI. `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
+5. 🧩 **MCP Apps UI support without per-server wiring** - Annotate a tool with `interactive-ui=True`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI. `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
 6. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard trusted-execution filter hides tools annotated `requiresClientFilesystem=True` by default, and the gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
 7. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
 8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
@@ -247,11 +247,11 @@ token doing both transport auth and downstream authorization.
 ## MCP Apps UI support
 
 MCP Apps UI support is a tool-visibility gate for servers that expose
-interactive renderings. Annotate a tool with `interactive-ui` and enable the
-standard filters:
+interactive renderings. Annotate a tool with `interactive_ui=True` and enable
+the standard filters:
 
 ```python
-from fastmcp_extensions import ANNOTATION_INTERACTIVE_UI, mcp_server
+from fastmcp_extensions import mcp_server, mcp_tool, register_mcp_tools
 
 app = mcp_server(
     name="my-server",
@@ -259,15 +259,14 @@ app = mcp_server(
 )
 
 
-@app.tool(annotations={ANNOTATION_INTERACTIVE_UI: True})
+@mcp_tool(interactive_ui=True)
 def show_dashboard() -> str:
     """Return data for an interactive dashboard."""
     return "dashboard data"
-```
 
-`@mcp_tool` has no passthrough for this annotation; under deferred
-registration, apply it with `@mcp_provider(annotations={ANNOTATION_INTERACTIVE_UI: True})`
-on the provider factory.
+
+register_mcp_tools(app)
+```
 
 The standard `interactive_ui_filter` leaves ordinary tools visible and hides
 annotated tools from clients that did not declare the
@@ -275,15 +274,16 @@ annotated tools from clients that did not declare the
 not a privilege boundary: extension declarations are client-controlled and
 must never be used to grant authority.
 
-This declaration needs to survive stateless HTTP. Stateless FastMCP recreates
-the request session and therefore does not retain the client's extension
-declaration from `initialize`; without carry-through, the filter would hide UI
-tools from every later request. `run_mcp_http_server()` handles this by
-encoding declared extensions into a self-describing `Mcp-Session-Id` capability
-token. Compliant clients echo that ID without requiring server-side session
-state. Clients that do not echo it can use the `X-MCP-Extensions` fallback
-header instead. Goose Desktop is a verified real-world client using the UI
-extension declaration.
+## Stateless HTTP capability carry-through
+
+Stateless FastMCP recreates the request session and therefore does not retain
+the client's extension declaration from `initialize`. Without carry-through,
+the UI filter would hide UI tools from every later request. `run_mcp_http_server()`
+handles this by encoding declared extensions into a self-describing
+`Mcp-Session-Id` capability token. Compliant clients echo that ID without
+requiring server-side session state. Clients that do not echo it can use the
+`X-MCP-Extensions` fallback header instead. Goose Desktop is a verified
+real-world client using the UI extension declaration.
 
 ## HTTP server runner
 
@@ -410,10 +410,10 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Decorators
 
-- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
+- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
 - `@mcp_prompt(name, description)` - Tag a prompt for deferred registration
 - `@mcp_resource(uri, description, mime_type)` - Tag a resource for deferred registration
-- `mcp_provider` - Register a provider factory for deferred tool registration.
+- `@mcp_provider(interactive_ui, annotations)` - Tag a provider factory for deferred tool registration.
 
 ### Registration Functions
 
