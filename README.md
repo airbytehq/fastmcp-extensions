@@ -10,15 +10,16 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 2. 🧯 **Secure, predictable defaults** - The auth factory reads **no environment variables**: each server owns its own env-var names and can validate a complete configuration before building the provider. Refresh-token storage is injectable, so a server can use a durable, shared backend across restarts and replicas without the library owning your database.
 3. 🕵️ **Credential hygiene when you wire it in** - An installable redaction filter scrubs bearer tokens and other credential values from controlled log records, while one-way key normalization makes arbitrary client IDs and other store keys legal for durable backends.
 4. 🎚️ **Tool filtering from MCP annotations** - Read-only mode, no-destructive mode, and module/tool exclusion use MCP tool annotations (`readOnlyHint`, `destructiveHint`, …) and request/server configuration. Filters compose with logical AND, so layering can only narrow the surface, never widen it. See [Tool Filtering](#tool-filtering).
-5. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard trusted-execution filter hides tools annotated `requiresClientFilesystem=True` by default, and the gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
-6. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
-7. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
-8. 🖥️ **One codebase, two front-ends** - `cli_app()` is the CLI counterpart of `mcp_server()`: shared tool functions and the same telemetry sinks can power both surfaces. Write a tool once; call it from the command line and expose it over MCP.
-9. 📖 **Auto-generated docs for every tool** - A Markdown docs generator (Docusaurus- and pdoc-compatible) renders your tool surface from the source of truth, giving every tool its own URL anchor to share with stakeholders. Documenting and announcing changes stops being a manual step.
-10. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
-11. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
-12. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
-13. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 3.x, and we expect to absorb the 4.x move the same way.
+5. 🧩 **MCP Apps UI support without per-server wiring** - Annotate a tool with `interactive-ui`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI. `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
+6. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard trusted-execution filter hides tools annotated `requiresClientFilesystem=True` by default, and the gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
+7. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
+8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
+9. 🖥️ **One codebase, two front-ends** - `cli_app()` is the CLI counterpart of `mcp_server()`: shared tool functions and the same telemetry sinks can power both surfaces. Write a tool once; call it from the command line and expose it over MCP.
+10. 📖 **Auto-generated docs for every tool** - A Markdown docs generator (Docusaurus- and pdoc-compatible) renders your tool surface from the source of truth, giving every tool its own URL anchor to share with stakeholders. Documenting and announcing changes stops being a manual step.
+11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
+12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
+13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
+14. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 3.x, and we expect to absorb the 4.x move the same way.
 
 ### Philosophy
 
@@ -243,6 +244,67 @@ API (i.e. the verifier points at that API's issuer), the server can reuse the
 verified token as the downstream bearer via FastMCP's `get_access_token()` — one
 token doing both transport auth and downstream authorization.
 
+## MCP Apps UI support
+
+MCP Apps UI support is a tool-visibility gate for servers that expose
+interactive renderings. Annotate a tool with `interactive-ui` and enable the
+standard filters:
+
+```python
+from fastmcp_extensions import ANNOTATION_INTERACTIVE_UI, mcp_server
+
+app = mcp_server(
+    name="my-server",
+    include_standard_tool_filters=True,
+)
+
+
+@app.tool(annotations={ANNOTATION_INTERACTIVE_UI: True})
+def show_dashboard() -> str:
+    """Return data for an interactive dashboard."""
+    return "dashboard data"
+```
+
+The standard `interactive_ui_filter` leaves ordinary tools visible and hides
+annotated tools from clients that did not declare the
+`io.modelcontextprotocol/ui` extension. This is a rendering-capability check,
+not a privilege boundary: extension declarations are client-controlled and
+must never be used to grant authority.
+
+This declaration needs to survive stateless HTTP. Stateless FastMCP recreates
+the request session and therefore does not retain the client's extension
+declaration from `initialize`; without carry-through, the filter would hide UI
+tools from every later request. `run_mcp_http_server()` handles this by
+encoding declared extensions into a self-describing `Mcp-Session-Id` capability
+token. Compliant clients echo that ID without requiring server-side session
+state. Clients that do not echo it can use the `X-MCP-Extensions` fallback
+header instead. Goose Desktop is a verified real-world client using the UI
+extension declaration.
+
+## HTTP server runner
+
+`run_mcp_http_server()` builds and serves a FastMCP HTTP application with
+stateless capability carry-through enabled by default:
+
+```python
+from fastmcp_extensions import run_mcp_http_server
+
+run_mcp_http_server(
+    app,
+    path="/mcp",
+    transport="streamable-http",
+    stateless_http=True,
+)
+```
+
+When stateless HTTP is in effect, the composed layers are the caller's
+`wrapper=` innermost, then `CapabilityTokenMiddleware`, then the
+path-scoped `RejectEventStreamGetMiddleware` outermost. The latter returns
+`405` with `Allow: POST, DELETE` for an SSE-style `GET` to the MCP endpoint
+while allowing the browser landing page and unrelated routes through. Pass
+`enable_stateless_capability_middleware=False` to opt out. Stateful HTTP and
+SSE transport do not receive these stateless-only layers.
+
 ## Tool Filtering
 
 `mcp_server()` can add the standard filters with
@@ -311,14 +373,25 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Tool Filtering
 
 - Standard filters - Read-only, no-destructive, module/tool exclusion, and trusted-execution filters based on MCP annotations and server configuration; enable them with `include_standard_tool_filters=True`.
+- `ANNOTATION_INTERACTIVE_UI` / `interactive_ui_filter` - Gate tools annotated `interactive-ui` on the client's `io.modelcontextprotocol/ui` rendering capability.
+- `extension_tool_filter` - Build a rendering-capability filter for any extension ID and annotation key.
 - `assert_http_trusted_execution_disabled` - Fail fast when trusted execution is enabled for an HTTP entrypoint.
 
-### Documentation and HTTP Helpers
+### HTTP Helpers
 
+- `run_mcp_http_server` - Build and serve a FastMCP HTTP application with stateless capability carry-through defaults.
+- `DEFAULT_UVICORN_CONFIG` - Default Uvicorn settings used by `run_mcp_http_server`.
 - `fastmcp_extensions.utils.docs.generate_markdown_docs` - Generate Docusaurus- and pdoc-compatible Markdown docs from a FastMCP server inspection.
 - `register_landing_page` / `render_default_landing_html` - Add a browser-friendly `GET` landing page to an MCP HTTP endpoint.
 - `AuthorizationRedactionFilter` / `install_authorization_redaction` - Scrub credential values from controlled log records.
 - `HashKeyNormalizer` / `NormalizedKeysWrapper` - Normalize arbitrary storage keys for durable key-value backends.
+
+### MCP Apps and capability carry-through
+
+- `CapabilityTokenMiddleware` / `RejectEventStreamGetMiddleware` - Carry extension declarations through stateless HTTP and reject SSE-style `GET` requests at the MCP path.
+- `encode_capability_token` / `decode_capability_token` - Encode and fail-closed decode self-describing capability tokens.
+- `client_supports_extension` / `client_declared_extensions_from_headers` - Resolve client extension declarations from FastMCP session capabilities, the session token, and the fallback header.
+- `DEFAULT_EXTENSIONS_HEADER` - Default fallback header name, `X-MCP-Extensions`.
 
 ### Annotations
 
@@ -334,6 +407,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 - `@mcp_tool(domain, read_only, destructive, idempotent, open_world, extra_help_text)` - Tag a tool for deferred registration
 - `@mcp_prompt(name, description, domain)` - Tag a prompt for deferred registration
 - `@mcp_resource(uri, description, mime_type, domain)` - Tag a resource for deferred registration
+- `mcp_provider` - Register a provider factory for deferred tool registration.
 
 ### Registration Functions
 
@@ -359,12 +433,19 @@ cmd = "python bin/measure_mcp_tool_list.py"
 - `get_prompt_text(app, prompt_name, arguments)` - Get prompt text content
 - `list_prompts(app)` - List all available prompts
 
+### Telemetry
+
+- `ToolCallTelemetryMiddleware` - Record MCP tool-call timing, success, and error type.
+- `TelemetrySinks` / `TelemetryRecord` / `ToolCallTelemetryRecord` - Configure telemetry destinations and represent emitted records.
+
 ### Auth Utilities
 
 - `build_mcp_auth(*, oidc=None, jwt=None, introspection=None, static_tokens=None, base_url=None, required_scopes=None)` - Pure, typed factory that assembles one verifier or a `MultiAuth` from explicit configs. Reads no environment variables — the calling server maps its own env into the configs.
 - `OIDCAuthConfig` / `JWTAuthConfig` / `IntrospectionAuthConfig` - Typed configs for the three verifier modes.
 - `fetch_client_credentials_token(ClientCredentials(...))` - Client-side OAuth 2.0 client-credentials grant to mint a short-lived bearer token.
 - `ClientCredentials` - Parameters for the client-credentials grant (token URL, client id/secret, scope, audience, auth method).
+- `ClientCredentialsExchangeMiddleware` / `wrap_client_credentials` - Exchange presented client credentials for a bearer token before FastMCP authentication.
+- `build_client_credentials_post_kwargs` - Build token-request form fields for the configured client-credentials auth method.
 
 ## Development
 
