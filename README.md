@@ -276,14 +276,40 @@ must never be used to grant authority.
 
 ## Stateless HTTP capability carry-through
 
-Stateless FastMCP recreates the request session and therefore does not retain
-the client's extension declaration from `initialize`. Without carry-through,
-the UI filter would hide UI tools from every later request. `run_mcp_http_server()`
-handles this by encoding declared extensions into a self-describing
-`Mcp-Session-Id` capability token. Compliant clients echo that ID without
-requiring server-side session state. Clients that do not echo it can use the
-`X-MCP-Extensions` fallback header instead. Goose Desktop is a verified
-real-world client using the UI extension declaration.
+**The problem.** A client declares its extensions once, during `initialize`. A
+stateless HTTP server builds a fresh session per request and discards it, so by
+the time `tools/list` arrives that declaration is gone. The UI gate would
+therefore hide interactive tools from every client, including the ones that can
+render them.
+
+**The protocol rule we use.** The streamable HTTP transport (revision
+2025-03-26) says a server MAY return an `Mcp-Session-Id` header on its response
+to `initialize`, and that a client receiving one MUST include it on every
+subsequent request. That MUST is the only client-side behavior this relies on.
+
+**What we put in it.** The spec makes the session ID server-assigned and opaque
+to the client, and says nothing about its contents — so we make it carry the
+data instead of pointing at it. `run_mcp_http_server()` encodes the declared
+extensions into the ID it returns, and decodes them from the header on each
+later request. The client stores the state; the server keeps none, which means
+no session table, no sticky routing, and nothing lost across restarts or
+replicas.
+
+**Clients that do not echo it.** Set the `X-MCP-Extensions` header on each
+request, listing extension IDs separated by commas or whitespace. This is our
+own header rather than a protocol feature — an escape hatch for clients that do
+not implement session IDs.
+
+Both paths are unauthenticated client statements, so gate rendering with them,
+never authority.
+
+Goose Desktop is verified against this end to end: it declares the UI extension
+at `initialize`, echoes the session ID, and renders interactive tools over
+stateless HTTP with no custom configuration.
+
+This mechanism has a known end date. MCP revision 2026-07-28 removes protocol
+sessions and carries client capabilities in per-request `_meta`, which will
+replace both paths above once the stack supports it.
 
 ## HTTP server runner
 
