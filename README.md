@@ -380,8 +380,11 @@ app = mcp_server(
 Signing is explicit: use `signing="required"` for authenticated deployments or
 `signing="disabled"` for bearer-style deployments. The default state TTL is 30
 days and can be overridden with `class BasketState(ToolStateBase,
-state_ttl=timedelta(days=7))`. Rotating keys can retain a previous key through
-`previous_secrets`.
+state_ttl=timedelta(days=7))`. Every state field must have a default because
+omitting the handle constructs the state with no arguments. Principal binding
+requires `signing="required"`: an unsigned envelope lets the caller rewrite the
+principal, so the binding would claim a boundary it cannot hold. Rotating keys
+can retain a previous key through `previous_secrets`.
 
 Servers with at least one stateful tool also register a `get_decoded_state` tool
 automatically. It verifies a handle and returns its state fields, state type,
