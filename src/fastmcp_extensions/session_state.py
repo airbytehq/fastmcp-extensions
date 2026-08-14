@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_TTL = timedelta(days=30)
 DEFAULT_STATE_SECRET_ENV_VAR = "FASTMCP_SESSION_STATE_SECRET"
-_TOKEN_VERSION = 1
+_TOKEN_VERSION = 2
 _SIGNATURE_SIZE = hashlib.sha256().digest_size
 _STATE_TYPES: dict[type[ToolStateBase], timedelta] = {}
 
@@ -107,6 +107,7 @@ class _TokenEnvelope(msgspec.Struct, kw_only=True):
     expires_at: int
     principal: str | None
     key_id: str | None
+    state_type: str
     state: dict[str, Any]
 
 
@@ -118,6 +119,10 @@ def state_ttl(state_type: type[ToolStateBase]) -> timedelta:
         raise TypeError(
             f"{state_type.__name__} must inherit from ToolStateBase"
         ) from exc
+
+
+def _state_type_name(state_type: type[ToolStateBase]) -> str:
+    return f"{state_type.__module__}.{state_type.__qualname__}"
 
 
 def encode_session_state(
@@ -136,6 +141,7 @@ def encode_session_state(
         + int(state_ttl(type(state)).total_seconds()),
         principal=bound_principal,
         key_id=key_id,
+        state_type=_state_type_name(type(state)),
         state=msgspec.to_builtins(state),
     )
     payload = msgspec.msgpack.encode(envelope)
@@ -210,6 +216,10 @@ def decode_session_state(
     if not config.principal_binding and envelope.principal is not None:
         raise EncodedSessionStateError(
             "This state handle was minted with principal binding enabled; create new state."
+        )
+    if envelope.state_type != _state_type_name(state_type):
+        raise EncodedSessionStateError(
+            "This state handle is for a different tool; create new state."
         )
     try:
         return msgspec.convert(envelope.state, type=state_type)

@@ -25,6 +25,11 @@ class BasketState(ToolStateBase, state_ttl=timedelta(seconds=30)):
     label: str = ""
 
 
+class CompatibleState(ToolStateBase, state_ttl=timedelta(seconds=30)):
+    count: int = 0
+    label: str = ""
+
+
 def test_state_round_trip_and_mutation() -> None:
     config = EncodedSessionStateConfig(
         signing="required",
@@ -69,7 +74,7 @@ def test_state_round_trip_and_mutation() -> None:
         pytest.param(
             "unsigned_for_signed", "not signed", id="unsigned_signed_mismatch"
         ),
-        pytest.param("unknown_version", "unsupported version", id="unknown_version"),
+        pytest.param("old_version", "unsupported version", id="old_version"),
         pytest.param("malformed_base64", "invalid format", id="malformed_base64"),
     ],
 )
@@ -113,11 +118,11 @@ def test_state_decode_rejections_are_actionable(
         config = unsigned
     elif case == "unsigned_for_signed":
         config, token, principal = signed, unsigned_token, None
-    elif case == "unknown_version":
+    elif case == "old_version":
         raw = bytearray(
             base64.urlsafe_b64decode(unsigned_token + "=" * (-len(unsigned_token) % 4))
         )
-        raw[0] = 2
+        raw[0] = 1
         token = base64.urlsafe_b64encode(raw).decode().rstrip("=")
         config, principal = unsigned, None
     elif case == "malformed_base64":
@@ -147,6 +152,25 @@ def test_rotated_signing_key_is_accepted() -> None:
         )
         == BasketState()
     )
+
+
+def test_state_handle_rejects_a_different_compatible_state_type() -> None:
+    config = EncodedSessionStateConfig(signing="disabled")
+    token = encode_session_state(
+        BasketState(),
+        config,
+        principal=None,
+        now=100,
+    )
+
+    with pytest.raises(EncodedSessionStateError, match="different tool"):
+        decode_session_state(
+            token,
+            CompatibleState,
+            config,
+            principal=None,
+            now=100,
+        )
 
 
 @pytest.mark.parametrize(
@@ -254,6 +278,41 @@ async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
         )
     assert first.structured_content["result"] == "1"
     assert second.structured_content["result"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_tools_sharing_a_state_type_can_thread_the_same_handle() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def increment(*, state_handle: BasketState) -> str:
+        state_handle.count += 1
+        return str(state_handle.count)
+
+    @mcp_tool(with_state=BasketState)
+    def label(*, state_handle: BasketState) -> str:
+        state_handle.label = "shared"
+        return state_handle.label
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+        signing="disabled"
+    )
+    register_mcp_tools(app, mcp_module="test_session_state")
+    async with Client(app) as client:
+        first = await client.call_tool(
+            "increment",
+            {"encoded_session_state": None},
+        )
+        second = await client.call_tool(
+            "label",
+            {
+                "encoded_session_state": first.structured_content[
+                    "encoded_session_state"
+                ]
+            },
+        )
+    assert second.structured_content["result"] == "shared"
 
 
 def test_stateful_tool_without_server_config_fails_at_registration() -> None:
