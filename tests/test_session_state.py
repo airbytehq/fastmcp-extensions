@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import pytest
 from fastmcp import Client, FastMCP
+from pydantic import BaseModel
 
 from fastmcp_extensions import (
     EncodedSessionStateConfig,
@@ -28,6 +29,14 @@ class BasketState(ToolStateBase, state_ttl=timedelta(seconds=30)):
 class CompatibleState(ToolStateBase, state_ttl=timedelta(seconds=30)):
     count: int = 0
     label: str = ""
+
+
+class LocalInput(BaseModel):
+    value: str
+
+
+class LocalOutput(BaseModel):
+    value: str
 
 
 def test_state_round_trip_and_mutation() -> None:
@@ -227,13 +236,13 @@ def test_stateful_tool_schema_and_result() -> None:
         return str(state_handle.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
         signing="disabled"
     )
     register_mcp_tools(app, mcp_module="test_session_state")
     tool = next(
         component
-        for component in app._local_provider._components.values()  # type: ignore[attr-defined]
+        for component in app._local_provider._components.values()  # ty: ignore[unresolved-attribute]  # Tests inspect FastMCP's local provider to verify registration.
         if component.name == "increment"
     )
     schema = tool.parameters
@@ -250,6 +259,53 @@ def test_required_principal_without_authentication_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stateful_tool_resolves_module_local_annotations_and_empty_handle() -> (
+    None
+):
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def local_types(
+        value: LocalInput,
+        *,
+        state_handle: BasketState,
+    ) -> LocalOutput:
+        state_handle.label = value.value
+        return LocalOutput(value=state_handle.label)
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+        signing="disabled"
+    )
+    register_mcp_tools(app, mcp_module="test_session_state")
+    async with Client(app) as client:
+        result = await client.call_tool(
+            "local_types",
+            {
+                "value": {"value": "local"},
+                "encoded_session_state": "",
+            },
+        )
+
+    assert result.structured_content["result"] == {"value": "local"}
+
+
+def test_stateful_tool_requires_keyword_only_state_handle() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def invalid(state_handle: BasketState, required: str) -> str:
+        return required
+
+    app = FastMCP("test")
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+        signing="disabled"
+    )
+    with pytest.raises(TypeError, match="must be keyword-only"):
+        register_mcp_tools(app, mcp_module="test_session_state")
+
+
+@pytest.mark.asyncio
 async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
     _clear_registrations()
 
@@ -259,7 +315,7 @@ async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
         return str(state_handle.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
         signing="disabled"
     )
     register_mcp_tools(app, mcp_module="test_session_state")
@@ -295,7 +351,7 @@ async def test_tools_sharing_a_state_type_can_thread_the_same_handle() -> None:
         return state_handle.label
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
         signing="disabled"
     )
     register_mcp_tools(app, mcp_module="test_session_state")
@@ -328,7 +384,7 @@ async def test_state_inspection_tool_reports_each_registered_state_type() -> Non
         return str(state_handle.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
         signing="disabled"
     )
     register_mcp_tools(app, mcp_module="test_session_state")
@@ -380,7 +436,7 @@ async def test_state_inspection_tool_reports_expiry_and_bad_signature() -> None:
 
     config = EncodedSessionStateConfig(signing="required", secret="secret")
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = config  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     register_mcp_tools(app, mcp_module="test_session_state")
     expired = encode_session_state(BasketState(), config, principal=None, now=0)
     valid = encode_session_state(BasketState(), config, principal=None)
@@ -430,7 +486,7 @@ async def test_state_inspection_tool_reports_unknown_state_type() -> None:
 
     config = EncodedSessionStateConfig(signing="disabled")
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = config  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     register_mcp_tools(app, mcp_module="test_session_state")
     unknown = encode_session_state(
         CompatibleState(),
@@ -456,13 +512,13 @@ def test_state_inspection_tool_can_be_disabled() -> None:
         return str(state_handle.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
         signing="disabled",
         enable_state_inspection_tool=False,
     )
     register_mcp_tools(app, mcp_module="test_session_state")
     assert (
-        "get_decoded_state" not in app._local_provider._components  # type: ignore[attr-defined]
+        "get_decoded_state" not in app._local_provider._components  # ty: ignore[unresolved-attribute]  # Tests inspect FastMCP's local provider to verify registration.
     )
 
 

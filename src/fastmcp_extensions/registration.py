@@ -120,7 +120,7 @@ def _register_state_inspection_tool(
             principal=principal,
         )
 
-    app._fastmcp_extensions_state_inspection_tool = True  # ty: ignore[unresolved-attribute]
+    app._fastmcp_extensions_state_inspection_tool = True  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension attributes.
 
 
 def _get_caller_file_stem() -> str:
@@ -235,7 +235,7 @@ def register_mcp_tools(
             set(),
         )
         registered_state_types.update(state_types)
-        app._fastmcp_extensions_state_types = registered_state_types  # ty: ignore[unresolved-attribute]
+        app._fastmcp_extensions_state_types = registered_state_types  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension attributes.
         _register_state_inspection_tool(app, registered_state_types)
 
 

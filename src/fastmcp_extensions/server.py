@@ -347,7 +347,7 @@ def mcp_server(
 
     app.x_mcp_server_config = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     if encoded_session_state is not None:
-        app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]
+        app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])

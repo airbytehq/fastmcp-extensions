@@ -12,8 +12,9 @@ import inspect
 import logging
 from collections.abc import Callable, Mapping
 from datetime import timedelta
+from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast, get_type_hints
 
 from fastmcp.server.providers import Provider
 from pydantic import Field, create_model
@@ -185,8 +186,9 @@ def prepare_stateful_tool(
             "a `state_handle` parameter"
         )
     input_parameter = signature.parameters["state_handle"]
-    if input_parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
-        raise TypeError("Stateful tool `state_handle` must not be positional-only")
+    if input_parameter.kind is not inspect.Parameter.KEYWORD_ONLY:
+        raise TypeError("Stateful tool `state_handle` must be keyword-only")
+    resolved_hints = get_type_hints(func, include_extras=True)
     durability = state_ttl(state_type)
     state_description = (
         "Pass back the `encoded_session_state` returned by the previous call. "
@@ -204,10 +206,12 @@ def prepare_stateful_tool(
             default=None,
         )
         if parameter.name == "state_handle"
-        else parameter
+        else parameter.replace(
+            annotation=resolved_hints.get(parameter.name, parameter.annotation)
+        )
         for parameter in signature.parameters.values()
     ]
-    return_annotation = signature.return_annotation
+    return_annotation = resolved_hints.get("return", signature.return_annotation)
     if return_annotation is inspect.Parameter.empty:
         return_annotation = Any
 
@@ -221,12 +225,13 @@ def prepare_stateful_tool(
         ),
     )
 
+    @wraps(func)
     async def stateful_wrapper(*args: Any, **kwargs: Any) -> Any:
         encoded = kwargs.pop("encoded_session_state", None)
         principal = current_principal(required=config.principal_binding)
         state = (
             state_type()
-            if encoded is None
+            if not encoded
             else decode_session_state(
                 encoded,
                 state_type,
@@ -246,10 +251,10 @@ def prepare_stateful_tool(
             ),
         )
 
-    stateful_wrapper.__signature__ = (  # ty: ignore[unresolved-attribute]
+    stateful_wrapper.__signature__ = (  # ty: ignore[unresolved-attribute]  # Function metadata supports runtime signature replacement.
         signature.replace(parameters=parameters).replace(return_annotation=result_type)
     )
-    wrapper_annotations = dict(getattr(func, "__annotations__", {}))
+    wrapper_annotations = dict(resolved_hints)
     wrapper_annotations.pop("state_handle", None)
     wrapper_annotations["encoded_session_state"] = encoded_state_annotation
     wrapper_annotations["return"] = result_type
