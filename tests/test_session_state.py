@@ -342,7 +342,7 @@ async def test_state_inspection_tool_reports_each_registered_state_type() -> Non
             {"encoded_session_state": None},
         )
         basket_inspection = await client.call_tool(
-            "unfurl_encoded_state",
+            "get_decoded_state",
             {
                 "encoded_session_state": basket_result.structured_content[
                     "encoded_session_state"
@@ -350,7 +350,7 @@ async def test_state_inspection_tool_reports_each_registered_state_type() -> Non
             },
         )
         compatible_inspection = await client.call_tool(
-            "unfurl_encoded_state",
+            "get_decoded_state",
             {
                 "encoded_session_state": compatible_result.structured_content[
                     "encoded_session_state"
@@ -390,11 +390,11 @@ async def test_state_inspection_tool_reports_expiry_and_bad_signature() -> None:
 
     async with Client(app) as client:
         expired_result = await client.call_tool(
-            "unfurl_encoded_state",
+            "get_decoded_state",
             {"encoded_session_state": expired},
         )
         tampered_result = await client.call_tool(
-            "unfurl_encoded_state",
+            "get_decoded_state",
             {"encoded_session_state": tampered},
         )
 
@@ -428,7 +428,7 @@ async def test_state_inspection_tool_reports_unknown_state_type() -> None:
 
     async with Client(app) as client:
         result = await client.call_tool(
-            "unfurl_encoded_state",
+            "get_decoded_state",
             {"encoded_session_state": unknown},
         )
 
@@ -450,7 +450,7 @@ def test_state_inspection_tool_can_be_disabled() -> None:
     )
     register_mcp_tools(app, mcp_module="test_session_state")
     assert (
-        "unfurl_encoded_state" not in app._local_provider._components  # type: ignore[attr-defined]
+        "get_decoded_state" not in app._local_provider._components  # type: ignore[attr-defined]
     )
 
 
