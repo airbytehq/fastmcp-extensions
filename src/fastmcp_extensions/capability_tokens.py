@@ -201,8 +201,6 @@ class CapabilityTokenMiddleware:
                 return message
             if disconnected:
                 return {"type": _HTTP_DISCONNECT}
-            if oversized:
-                return await receive()
             return await receive()
 
         async def send_response(message: Message) -> None:
