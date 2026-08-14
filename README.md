@@ -477,6 +477,9 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 - `run_mcp_http_server` - Build and serve a FastMCP HTTP application with stateless capability carry-through defaults.
 - `DEFAULT_UVICORN_CONFIG` - Default Uvicorn settings used by `run_mcp_http_server`.
+- `ToolStateBase` / `EncodedSessionStateConfig` - Define state fields and configure encoded state handles for stateless tools.
+- `encode_session_state` / `decode_session_state` - Serialize, sign, validate, and restore state handles.
+- `EncodedSessionStateError` - Actionable validation error for expired, invalid, or mismatched handles.
 - `fastmcp_extensions.utils.docs.generate_markdown_docs` - Generate Docusaurus- and pdoc-compatible Markdown docs from a FastMCP server inspection.
 - `register_landing_page` / `render_default_landing_html` - Add a browser-friendly `GET` landing page to an MCP HTTP endpoint.
 - `AuthorizationRedactionFilter` / `install_authorization_redaction` - Scrub credential values from controlled log records.

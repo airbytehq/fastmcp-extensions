@@ -9,6 +9,7 @@ on the functions for later use during registration with a FastMCP app.
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
@@ -25,7 +26,6 @@ from fastmcp_extensions.annotations import (
     REQUIRES_CLIENT_FILESYSTEM,
 )
 from fastmcp_extensions.session_state import (
-    EncodedSessionStateConfig,
     ToolStateBase,
     current_principal,
     decode_session_state,
@@ -43,6 +43,7 @@ _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _REGISTERED_PROVIDERS: list[tuple[Callable[[], Provider], dict[str, Any]]] = []
 _REGISTERED_RESOURCES: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _REGISTERED_PROMPTS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+logger = logging.getLogger(__name__)
 
 
 def _get_caller_file_stem() -> str:
@@ -156,6 +157,10 @@ def prepare_stateful_tool(
         raise RuntimeError(
             "Stateful tools require an explicit encoded_session_state configuration "
             "with signing='required' or signing='disabled'."
+        )
+    if config.signing == "disabled":
+        logger.warning(
+            "Encoded session-state signing is explicitly disabled; handles are bearer credentials"
         )
     signature = inspect.signature(func)
     if "input_state" not in signature.parameters:

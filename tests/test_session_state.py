@@ -12,10 +12,12 @@ from fastmcp_extensions import (
     ToolStateBase,
     decode_session_state,
     encode_session_state,
+    mcp_server,
     mcp_tool,
     register_mcp_tools,
 )
 from fastmcp_extensions.decorators import _clear_registrations
+from fastmcp_extensions.session_state import current_principal
 
 
 class BasketState(ToolStateBase, state_ttl=timedelta(seconds=30)):
@@ -125,13 +127,16 @@ def test_state_ttl_is_class_configuration_only() -> None:
 
     assert not hasattr(DefaultState, "state_ttl")
     token = encode_session_state(
-        DefaultState(), EncodedSessionStateConfig(), principal=None, now=0
+        DefaultState(),
+        EncodedSessionStateConfig(signing="disabled"),
+        principal=None,
+        now=0,
     )
     with pytest.raises(EncodedSessionStateError, match="expired"):
         decode_session_state(
             token,
             DefaultState,
-            EncodedSessionStateConfig(),
+            EncodedSessionStateConfig(signing="disabled"),
             principal=None,
             now=30 * 24 * 60 * 60 + 1,
         )
@@ -151,7 +156,9 @@ def test_stateful_tool_schema_and_result() -> None:
         return str(input_state.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig()  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+        signing="disabled"
+    )
     register_mcp_tools(app, mcp_module="test_session_state")
     tool = next(
         component
@@ -165,8 +172,6 @@ def test_stateful_tool_schema_and_result() -> None:
 
 def test_required_principal_without_authentication_fails() -> None:
     with pytest.raises(EncodedSessionStateError, match="authenticate"):
-        from fastmcp_extensions.session_state import current_principal
-
         current_principal(required=True)
 
 
@@ -180,7 +185,9 @@ async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
         return str(input_state.count)
 
     app = FastMCP("test")
-    app.x_mcp_extensions_session_state = EncodedSessionStateConfig()  # type: ignore[attr-defined]
+    app.x_mcp_extensions_session_state = EncodedSessionStateConfig(  # type: ignore[attr-defined]
+        signing="disabled"
+    )
     register_mcp_tools(app, mcp_module="test_session_state")
     async with Client(app) as client:
         first = await client.call_tool(
@@ -197,3 +204,55 @@ async def test_stateful_tool_returns_named_result_and_threads_state() -> None:
         )
     assert first.structured_content["result"] == "1"
     assert second.structured_content["result"] == "2"
+
+
+def test_stateful_tool_without_server_config_fails_at_registration() -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def increment(*, input_state: BasketState) -> str:
+        input_state.count += 1
+        return str(input_state.count)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"signing='required'.*signing='disabled'",
+    ):
+        register_mcp_tools(FastMCP("test"), mcp_module="test_session_state")
+
+
+def test_explicit_unsigned_state_config_warns(caplog: pytest.LogCaptureFixture) -> None:
+    _clear_registrations()
+
+    @mcp_tool(with_state=BasketState)
+    def increment(*, input_state: BasketState) -> str:
+        return str(input_state.count)
+
+    app = mcp_server(
+        "test",
+        encoded_session_state=EncodedSessionStateConfig(signing="disabled"),
+    )
+    with caplog.at_level("WARNING"):
+        register_mcp_tools(app, mcp_module="test_session_state")
+
+    assert "signing is explicitly disabled" in caplog.text
+
+
+def test_unrecognized_authenticated_user_fails_principal_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class User:
+        def __init__(self) -> None:
+            self.claims: dict[str, str] = {}
+
+    class Request:
+        def __init__(self) -> None:
+            self.scope = {"user": User()}
+
+    request = Request()
+    monkeypatch.setattr(
+        "fastmcp_extensions.session_state.get_http_request",
+        lambda: request,
+    )
+    with pytest.raises(EncodedSessionStateError, match="authenticate"):
+        current_principal(required=True)

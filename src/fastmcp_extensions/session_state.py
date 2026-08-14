@@ -65,11 +65,7 @@ class EncodedSessionStateConfig:
     def __post_init__(self) -> None:
         if not self.key_id:
             raise ValueError("key_id must not be empty")
-        if self.signing == "disabled":
-            logger.warning(
-                "Encoded session-state signing is explicitly disabled; handles are bearer credentials"
-            )
-        else:
+        if self.signing == "required":
             self.resolve_secrets()
 
     def resolve_secrets(self) -> dict[str, bytes]:
