@@ -64,3 +64,6 @@ supported.
 
 Default if not specified: `False` (no client filesystem required).
 """
+
+ANNOTATION_INTERACTIVE_UI = "interactive-ui"
+"""Annotation key for tools requiring MCP Apps UI rendering support."""

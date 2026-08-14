@@ -95,6 +95,11 @@ class LandingPageContent:
       generic MCP explanation. This value is treated as trusted HTML and is not
       escaped, so callers must not pass unsanitized user input here.
     - `powered_by_url`: Footer attribution link.
+    - `version_str`: Optional version line shown as a muted footer, so a human
+      can tell which build they are looking at across deploys. Rendered
+      verbatim, so callers choose the format (`"v1.2.3"`, `"cloud-mcp v1.2.3"`).
+    - `version_url`: Optional link target for the version footer, e.g. a release
+      or changelog page. Ignored when `version_str` is `None`.
     """
 
     title: str
@@ -102,6 +107,8 @@ class LandingPageContent:
     docs_url: str | None = None
     description: str | None = None
     powered_by_url: str = DEFAULT_POWERED_BY_URL
+    version_str: str | None = None
+    version_url: str | None = None
 
 
 def render_default_landing_html(content: LandingPageContent) -> str:
@@ -121,6 +128,14 @@ def render_default_landing_html(content: LandingPageContent) -> str:
     if content.docs_url:
         safe_docs = _safe_href(content.docs_url)
         docs_button = f'<a class="btn" href="{safe_docs}">Setup instructions &rarr;</a>'
+
+    version_footer = ""
+    if content.version_str:
+        version_text = html.escape(content.version_str)
+        if content.version_url:
+            safe_version_url = _safe_href(content.version_url)
+            version_text = f'<a href="{safe_version_url}">{version_text}</a>'
+        version_footer = f'<p class="version">{version_text}</p>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -146,6 +161,8 @@ def render_default_landing_html(content: LandingPageContent) -> str:
     font-weight:600; padding:12px 20px; border-radius:8px; }}
   .foot {{ margin-top:24px; font-size:13px; color:var(--muted); }}
   .foot a {{ color:var(--accent); }}
+  .version {{ margin:16px 0 0; text-align:center; font-size:12px; color:var(--muted); }}
+  .version a {{ color:inherit; }}
 </style>
 </head>
 <body>
@@ -160,6 +177,7 @@ def render_default_landing_html(content: LandingPageContent) -> str:
       <p class="foot">Powered by <a href="{safe_powered_by}">Airbyte</a>.</p>
     </div>
   </div>
+  {version_footer}
 </body>
 </html>
 """
@@ -174,6 +192,8 @@ def register_landing_page(
     docs_url: str | None = None,
     description: str | None = None,
     powered_by_url: str = DEFAULT_POWERED_BY_URL,
+    version_str: str | None = None,
+    version_url: str | None = None,
     render: Callable[[LandingPageContent], str] | None = None,
     route_name: str = DEFAULT_ROUTE_NAME,
 ) -> None:
@@ -190,6 +210,9 @@ def register_landing_page(
     - `endpoint_url`: The public streamable-HTTP URL users configure.
     - `docs_url`: Optional link to setup instructions.
     - `description`: Optional trusted-HTML description (see `LandingPageContent`).
+    - `version_str`: Optional version line shown as a muted centered footer,
+      rendered verbatim (e.g. `"v1.2.3"` or `"cloud-mcp v1.2.3"`).
+    - `version_url`: Optional link target for that version footer.
     - `render`: Optional renderer overriding the built-in template. Receives a
       `LandingPageContent` and returns an HTML string.
     - `route_name`: Starlette route name.
@@ -200,6 +223,8 @@ def register_landing_page(
         docs_url=docs_url,
         description=description,
         powered_by_url=powered_by_url,
+        version_str=version_str,
+        version_url=version_url,
     )
     render_fn = render or render_default_landing_html
     html_body = render_fn(content)
