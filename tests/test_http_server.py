@@ -160,5 +160,33 @@ def test_run_mcp_http_server_default_capability_middleware(
         capability_app = captured["app"].app
         assert isinstance(capability_app, CapabilityTokenMiddleware)
         assert capability_app.app is built_app
+        assert captured["app"].path == "/mcp"
     else:
         assert captured["app"] is built_app
+
+
+@pytest.mark.unit
+def test_run_mcp_http_server_scopes_sse_rejection_to_resolved_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolve the default FastMCP path before scoping SSE rejection."""
+    server = FastMCP("test")
+    built_app = object()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(server, "http_app", lambda **_: built_app)
+    monkeypatch.setattr(http_server.fastmcp.settings, "streamable_http_path", "/custom")
+    monkeypatch.setattr(
+        http_server.uvicorn,
+        "run",
+        lambda app, **kwargs: captured.update(app=app, **kwargs),
+    )
+
+    http_server.run_mcp_http_server(
+        server,
+        transport="streamable-http",
+        stateless_http=True,
+    )
+
+    assert isinstance(captured["app"], RejectEventStreamGetMiddleware)
+    assert captured["app"].path == "/custom"

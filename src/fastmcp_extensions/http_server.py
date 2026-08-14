@@ -80,7 +80,10 @@ def run_mcp_http_server(
         and transport in {"http", "streamable-http"}
     ):
         app = CapabilityTokenMiddleware(app)
-        app = RejectEventStreamGetMiddleware(app)
+        resolved_path = (
+            path if path is not None else fastmcp.settings.streamable_http_path
+        )
+        app = RejectEventStreamGetMiddleware(app, path=resolved_path)
 
     config = dict(DEFAULT_UVICORN_CONFIG)
     config.update(uvicorn_config or {})
