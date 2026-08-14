@@ -51,7 +51,7 @@ jobs:
       # For workflow_dispatch (prereleases): checkout, override version, and build.
       - name: Checkout code
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.git_ref }}
           fetch-depth: 0
