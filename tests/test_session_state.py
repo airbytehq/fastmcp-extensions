@@ -57,47 +57,75 @@ def test_state_round_trip_and_mutation() -> None:
     )
 
 
-def test_expired_state_is_actionable() -> None:
-    config = EncodedSessionStateConfig(signing="disabled")
-    token = encode_session_state(BasketState(), config, principal=None, now=100)
-
-    with pytest.raises(EncodedSessionStateError, match="expired; create new state"):
-        decode_session_state(token, BasketState, config, principal=None, now=131)
-
-
-def test_tampered_state_and_wrong_principal_are_rejected() -> None:
-    config = EncodedSessionStateConfig(
+@pytest.mark.parametrize(
+    ("case", "expected_message"),
+    [
+        pytest.param("expired", "expired; create new state", id="expired"),
+        pytest.param("tampered", "invalid signature", id="tampered_signature"),
+        pytest.param("wrong_principal", "another user", id="wrong_principal"),
+        pytest.param(
+            "signed_for_unsigned", "not unsigned", id="signed_unsigned_mismatch"
+        ),
+        pytest.param(
+            "unsigned_for_signed", "not signed", id="unsigned_signed_mismatch"
+        ),
+        pytest.param("unknown_version", "unsupported version", id="unknown_version"),
+        pytest.param("malformed_base64", "invalid format", id="malformed_base64"),
+    ],
+)
+def test_state_decode_rejections_are_actionable(
+    case: str,
+    expected_message: str,
+) -> None:
+    signed = EncodedSessionStateConfig(
         signing="required",
         secret="secret",
         principal_binding=True,
     )
-    token = encode_session_state(BasketState(), config, principal="alice", now=100)
-    raw = bytearray(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
-    raw[-1] ^= 1
-    tampered = base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-    with pytest.raises(EncodedSessionStateError, match="invalid signature"):
-        decode_session_state(tampered, BasketState, config, principal="alice", now=100)
-    with pytest.raises(EncodedSessionStateError, match="another user"):
-        decode_session_state(token, BasketState, config, principal="bob", now=100)
-
-
-def test_signed_and_unsigned_tokens_do_not_cross_configurations() -> None:
-    signed = EncodedSessionStateConfig(signing="required", secret="secret")
     unsigned = EncodedSessionStateConfig(signing="disabled")
-    signed_token = encode_session_state(BasketState(), signed, principal=None, now=100)
-    unsigned_token = encode_session_state(
-        BasketState(), unsigned, principal=None, now=100
+    signed_token = encode_session_state(
+        BasketState(),
+        signed,
+        principal="alice",
+        now=100,
     )
+    unsigned_token = encode_session_state(
+        BasketState(),
+        unsigned,
+        principal=None,
+        now=100,
+    )
+    config = signed
+    token = signed_token
+    principal = "alice"
+    now = 100
+    if case == "expired":
+        config, token, principal, now = unsigned, unsigned_token, None, 131
+    elif case == "tampered":
+        raw = bytearray(
+            base64.urlsafe_b64decode(signed_token + "=" * (-len(signed_token) % 4))
+        )
+        raw[-1] ^= 1
+        token = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    elif case == "wrong_principal":
+        principal = "bob"
+    elif case == "signed_for_unsigned":
+        config = unsigned
+    elif case == "unsigned_for_signed":
+        config, token, principal = signed, unsigned_token, None
+    elif case == "unknown_version":
+        raw = bytearray(
+            base64.urlsafe_b64decode(unsigned_token + "=" * (-len(unsigned_token) % 4))
+        )
+        raw[0] = 2
+        token = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        config, principal = unsigned, None
+    elif case == "malformed_base64":
+        token = "not valid base64"
+        config, principal = unsigned, None
 
-    with pytest.raises(EncodedSessionStateError, match="not unsigned"):
-        decode_session_state(
-            signed_token, BasketState, unsigned, principal=None, now=100
-        )
-    with pytest.raises(EncodedSessionStateError, match="not signed"):
-        decode_session_state(
-            unsigned_token, BasketState, signed, principal=None, now=100
-        )
+    with pytest.raises(EncodedSessionStateError, match=expected_message):
+        decode_session_state(token, BasketState, config, principal=principal, now=now)
 
 
 def test_rotated_signing_key_is_accepted() -> None:
@@ -121,30 +149,49 @@ def test_rotated_signing_key_is_accepted() -> None:
     )
 
 
-def test_state_ttl_is_class_configuration_only() -> None:
-    class DefaultState(ToolStateBase):
-        _state_tt1 = timedelta(seconds=1)
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("attribute_typo", id="attribute_typo_uses_default_ttl"),
+        pytest.param("unknown_keyword", id="unknown_class_keyword_fails"),
+    ],
+)
+def test_state_class_configuration_contract(case: str) -> None:
+    if case == "attribute_typo":
 
-    assert not hasattr(DefaultState, "state_ttl")
-    token = encode_session_state(
-        DefaultState(),
-        EncodedSessionStateConfig(signing="disabled"),
-        principal=None,
-        now=0,
-    )
-    with pytest.raises(EncodedSessionStateError, match="expired"):
-        decode_session_state(
-            token,
-            DefaultState,
+        class DefaultState(ToolStateBase):
+            _state_tt1 = timedelta(seconds=1)
+
+        assert not hasattr(DefaultState, "state_ttl")
+        token = encode_session_state(
+            DefaultState(),
             EncodedSessionStateConfig(signing="disabled"),
             principal=None,
-            now=30 * 24 * 60 * 60 + 1,
+            now=0,
         )
+        with pytest.raises(EncodedSessionStateError, match="expired"):
+            decode_session_state(
+                token,
+                DefaultState,
+                EncodedSessionStateConfig(signing="disabled"),
+                principal=None,
+                now=30 * 24 * 60 * 60 + 1,
+            )
+    else:
+        with pytest.raises(TypeError):
 
-    with pytest.raises(TypeError):
+            class InvalidState(ToolStateBase, unknown=True):
+                pass
 
-        class InvalidState(ToolStateBase, unknown=True):
-            pass
+
+def test_active_signing_key_cannot_be_reused_as_previous() -> None:
+    with pytest.raises(ValueError, match="active and previous signing keys"):
+        EncodedSessionStateConfig(
+            signing="required",
+            secret="current",
+            key_id="current",
+            previous_secrets={"current": "old"},
+        )
 
 
 def test_stateful_tool_schema_and_result() -> None:
@@ -168,6 +215,9 @@ def test_stateful_tool_schema_and_result() -> None:
     schema = tool.parameters
     assert "encoded_session_state" in schema["properties"]
     assert "input_state" not in schema["properties"]
+    description = schema["properties"]["encoded_session_state"]["description"]
+    assert "30 seconds" in description
+    assert "0:00:30" not in description
 
 
 def test_required_principal_without_authentication_fails() -> None:

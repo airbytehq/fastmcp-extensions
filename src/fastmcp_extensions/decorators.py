@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable, Mapping
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast
 
@@ -44,6 +45,21 @@ _REGISTERED_PROVIDERS: list[tuple[Callable[[], Provider], dict[str, Any]]] = []
 _REGISTERED_RESOURCES: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _REGISTERED_PROMPTS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 logger = logging.getLogger(__name__)
+
+
+def _format_state_ttl(ttl: timedelta) -> str:
+    total_seconds = int(ttl.total_seconds())
+    for unit_seconds, unit_name in (
+        (86_400, "day"),
+        (3_600, "hour"),
+        (60, "minute"),
+        (1, "second"),
+    ):
+        if total_seconds >= unit_seconds and total_seconds % unit_seconds == 0:
+            value = total_seconds // unit_seconds
+            suffix = "" if value == 1 else "s"
+            return f"{value} {unit_name}{suffix}"
+    return str(ttl)
 
 
 def _get_caller_file_stem() -> str:
@@ -174,7 +190,8 @@ def prepare_stateful_tool(
     durability = state_ttl(state_type)
     state_description = (
         "Pass back the `encoded_session_state` returned by the previous call. "
-        f"If omitted, a fresh state is created. This state is durable for {durability}."
+        f"If omitted, a fresh state is created. This state is durable for "
+        f"{_format_state_ttl(durability)}."
     )
     encoded_state_annotation = Annotated[
         str | None,

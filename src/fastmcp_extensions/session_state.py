@@ -65,6 +65,11 @@ class EncodedSessionStateConfig:
     def __post_init__(self) -> None:
         if not self.key_id:
             raise ValueError("key_id must not be empty")
+        if self.key_id in self.previous_secrets:
+            raise ValueError(
+                "key_id must not also appear in previous_secrets; active and previous "
+                "signing keys must be distinct"
+            )
         if self.signing == "required":
             self.resolve_secrets()
 
