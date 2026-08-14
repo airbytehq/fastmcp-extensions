@@ -46,6 +46,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from fastmcp import FastMCP
+from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
@@ -178,6 +179,9 @@ ANNOTATION_MCP_MODULE = "mcp_module"
 
 ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
 """Annotation key for client filesystem requirement."""
+
+ANNOTATION_INTERACTIVE_UI = "interactive-ui"
+"""Annotation key for tools requiring MCP Apps UI rendering support."""
 
 # =============================================================================
 # Standard Config Args
@@ -361,6 +365,18 @@ def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterF
         return client_supports_extension(extension_id)
 
     return filter_tool
+
+
+interactive_ui_filter = extension_tool_filter(
+    UI_EXTENSION_ID,
+    ANNOTATION_INTERACTIVE_UI,
+)
+"""Standard filter for tools requiring MCP Apps UI rendering support.
+
+This is a rendering-capability gate, not a privilege boundary. Adding this
+filter to `STANDARD_TOOL_FILTERS` changes visibility for servers that opt into
+standard filters and define tools with the `interactive-ui` annotation.
+"""
 
 
 # =============================================================================
@@ -570,6 +586,7 @@ def assert_http_trusted_execution_disabled(app: FastMCP) -> None:
 
 
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
+    interactive_ui_filter,
     readonly_mode_filter,
     no_destructive_tools_filter,
     module_filter,

@@ -19,6 +19,11 @@ from fastmcp_extensions import (
     decode_capability_token,
     encode_capability_token,
     extension_tool_filter,
+    interactive_ui_filter,
+)
+from fastmcp_extensions.tool_filters import (
+    ANNOTATION_INTERACTIVE_UI,
+    STANDARD_TOOL_FILTERS,
 )
 
 
@@ -209,6 +214,41 @@ def test_extension_tool_filter_factory(monkeypatch: pytest.MonkeyPatch) -> None:
     app = FastMCP("test")
     assert filter_tool(tool, app) is False
     assert extension_tool_filter("ui", "missing")(tool, app) is True
+
+
+def test_standard_tool_filters_gate_interactive_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Standard filters gate UI rendering without restricting unannotated tools."""
+    annotated_tool = Tool(
+        name="ui_tool",
+        description="ui tool",
+        inputSchema={"type": "object"},
+        annotations=ToolAnnotations.model_validate({ANNOTATION_INTERACTIVE_UI: True}),
+    )
+    plain_tool = Tool(
+        name="plain_tool",
+        description="plain tool",
+        inputSchema={"type": "object"},
+    )
+    app = FastMCP("test")
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    assert interactive_ui_filter in STANDARD_TOOL_FILTERS
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+
+    assert interactive_ui_filter(annotated_tool, app) is False
+    assert interactive_ui_filter(plain_tool, app) is True
+
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: {"x-mcp-extensions": "io.modelcontextprotocol/ui"},
+    )
+    assert interactive_ui_filter(annotated_tool, app) is True
 
 
 @pytest.mark.parametrize(
