@@ -49,6 +49,7 @@ from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
+from fastmcp_extensions.capability_tokens import client_supports_extension
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
 
 ToolFilterFn = Callable[[Tool, FastMCP], bool]
@@ -338,6 +339,21 @@ def _parse_csv_config(value: str) -> list[str]:
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterFn:
+    """Build a filter for tools gated by a client extension.
+
+    Tools without a truthy `annotation_key` annotation remain visible. Annotated
+    tools are visible only when the client declared `extension_id`.
+    """
+
+    def filter_tool(tool: Tool, _app: FastMCP) -> bool:
+        if not get_annotation(tool, annotation_key, default=False):
+            return True
+        return client_supports_extension(extension_id)
+
+    return filter_tool
 
 
 # =============================================================================
