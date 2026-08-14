@@ -27,6 +27,15 @@ from fastmcp_extensions.auth import (
     build_mcp_auth,
     fetch_client_credentials_token,
 )
+from fastmcp_extensions.capability_tokens import (
+    DEFAULT_EXTENSIONS_HEADER,
+    CapabilityTokenMiddleware,
+    RejectEventStreamGetMiddleware,
+    client_declared_extensions_from_headers,
+    client_supports_extension,
+    decode_capability_token,
+    encode_capability_token,
+)
 from fastmcp_extensions.client_credentials_middleware import (
     ClientCredentialsExchangeMiddleware,
     wrap_client_credentials,
@@ -72,15 +81,18 @@ from fastmcp_extensions.server_config import (
 from fastmcp_extensions.tool_filters import (
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
+    extension_tool_filter,
     is_trusted_execution_enabled,
 )
 
 __all__ = [
+    "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
+    "CapabilityTokenMiddleware",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
     "HashKeyNormalizer",
@@ -93,6 +105,7 @@ __all__ = [
     "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
+    "RejectEventStreamGetMiddleware",
     "ResourceDef",
     "TelemetryRecord",
     "TelemetrySinks",
@@ -102,6 +115,11 @@ __all__ = [
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",
+    "client_declared_extensions_from_headers",
+    "client_supports_extension",
+    "decode_capability_token",
+    "encode_capability_token",
+    "extension_tool_filter",
     "fetch_client_credentials_token",
     "get_mcp_config",
     "install_authorization_redaction",
