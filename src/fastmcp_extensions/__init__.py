@@ -79,13 +79,16 @@ from fastmcp_extensions.server_config import (
     get_mcp_config,
 )
 from fastmcp_extensions.tool_filters import (
+    ANNOTATION_INTERACTIVE_UI,
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
     extension_tool_filter,
+    interactive_ui_filter,
     is_trusted_execution_enabled,
 )
 
 __all__ = [
+    "ANNOTATION_INTERACTIVE_UI",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
@@ -123,6 +126,7 @@ __all__ = [
     "fetch_client_credentials_token",
     "get_mcp_config",
     "install_authorization_redaction",
+    "interactive_ui_filter",
     "is_trusted_execution_enabled",
     "mcp_prompt",
     "mcp_provider",
