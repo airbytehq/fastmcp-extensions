@@ -120,11 +120,11 @@ class _AnonymizedAttribution:
     def __init__(
         self,
         *,
-        plaintext_endpoint_domains: Sequence[str] = (),
+        known_public_mcp_domains: Sequence[str] = (),
         anonymization_salt_fallback: Callable[[], str | None] | None = None,
         caller_ip_fallback: bool = False,
     ) -> None:
-        self._plaintext_endpoint_domains = tuple(plaintext_endpoint_domains)
+        self._known_public_mcp_domains = tuple(known_public_mcp_domains)
         self._anonymization_salt_fallback = anonymization_salt_fallback
         self._caller_ip_fallback = caller_ip_fallback
         self._salt_resolved = False
@@ -189,7 +189,7 @@ class _AnonymizedAttribution:
                 properties["mcp_endpoint_hash"] = endpoint_hash
             endpoint = _safe_value(lambda: _request_endpoint(host)) or host
             if _safe_value(
-                lambda: _is_owned_endpoint(host, self._plaintext_endpoint_domains)
+                lambda: _is_owned_endpoint(host, self._known_public_mcp_domains)
             ):
                 properties["mcp_endpoint"] = endpoint
 

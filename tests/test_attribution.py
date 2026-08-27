@@ -110,7 +110,7 @@ def test_hosted_attribution_includes_all_available_properties(
         ),
     )
 
-    properties = _AnonymizedAttribution(plaintext_endpoint_domains=("airbyte.ai",))()
+    properties = _AnonymizedAttribution(known_public_mcp_domains=("airbyte.ai",))()
 
     assert properties == {
         "session_id_hash": _hash_value(
@@ -185,7 +185,7 @@ def test_endpoint_attribution_respects_plaintext_domain_allowlist(
     monkeypatch.setattr(attribution, "get_http_request", lambda: _request(host=host))
     monkeypatch.setattr(attribution, "get_access_token", _no_access_token)
 
-    properties = _AnonymizedAttribution(plaintext_endpoint_domains=("airbyte.ai",))()
+    properties = _AnonymizedAttribution(known_public_mcp_domains=("airbyte.ai",))()
 
     assert properties["mcp_endpoint_hash"] == _hash_value(
         host, "endpoint", host, "test-salt"
@@ -317,7 +317,7 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
     monkeypatch.setattr(attribution, "get_access_token", _no_access_token)
 
     middleware = ToolCallTelemetryMiddleware(
-        plaintext_endpoint_domains=("airbyte.ai",),
+        known_public_mcp_domains=("airbyte.ai",),
         caller_ip_fallback=True,
         extra_properties={"caller_hash": "server-value"},
     )

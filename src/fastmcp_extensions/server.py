@@ -84,7 +84,7 @@ app = mcp_server(
 `extra_properties` accepts a mapping or a zero-argument callable, which is
 re-evaluated per tool call for values that are only known at runtime.
 Anonymized attribution is enabled by default; configure
-`plaintext_endpoint_domains` and `anonymization_salt_fallback` on
+`known_public_mcp_domains` and `anonymization_salt_fallback` on
 `TelemetryConfig` for deployment-specific behavior. IP caller fallback is
 disabled by default with `caller_ip_fallback=False`.
 

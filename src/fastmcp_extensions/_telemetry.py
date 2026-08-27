@@ -76,7 +76,7 @@ class TelemetryConfig:
     extra_properties: (
         Mapping[str, object] | Callable[[], Mapping[str, object]] | None
     ) = None
-    plaintext_endpoint_domains: Sequence[str] = ()
+    known_public_mcp_domains: Sequence[str] = ()
     anonymization_salt_fallback: Callable[[], str | None] | None = None
     caller_ip_fallback: bool = False
     anonymized_attribution: bool = True
