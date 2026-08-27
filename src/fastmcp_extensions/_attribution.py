@@ -97,16 +97,16 @@ def _request_host() -> str | None:
         closing_bracket = host.find("]")
         if closing_bracket == -1:
             return host
-        hostname = host[: closing_bracket + 1].rstrip(".")
-        port = host[closing_bracket + 1 :]
+        hostname = host[: closing_bracket + 1]
+        port = host[closing_bracket + 1 :].removeprefix(":")
     else:
         hostname, separator, port = host.rpartition(":")
         if not separator:
             hostname, port = host, ""
         hostname = hostname.rstrip(".")
-    if port in {":80", ":443"} or port == "80" or port == "443":
+    if port in {"80", "443"}:
         port = ""
-    return f"{hostname}{port}"
+    return f"{hostname}:{port}" if port else hostname
 
 
 def _request_endpoint(host: str) -> str:

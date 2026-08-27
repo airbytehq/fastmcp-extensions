@@ -184,6 +184,36 @@ def test_stdio_attribution_includes_session_and_client_without_http(
             id="owned-subdomain-trailing-dot-default-http-port",
         ),
         pytest.param(
+            "Example.Airbyte.AI:8080",
+            "example.airbyte.ai:8080/mcp",
+            "example.airbyte.ai:8080",
+            id="owned-subdomain-non-default-port",
+        ),
+        pytest.param(
+            "preview.airbyte.ai.:8080",
+            "preview.airbyte.ai:8080/mcp",
+            "preview.airbyte.ai:8080",
+            id="owned-subdomain-trailing-dot-non-default-port",
+        ),
+        pytest.param(
+            "[::1]:8080",
+            None,
+            "[::1]:8080",
+            id="bracketed-ipv6-non-default-port",
+        ),
+        pytest.param(
+            "[::1]:443",
+            None,
+            "[::1]",
+            id="bracketed-ipv6-default-https-port",
+        ),
+        pytest.param(
+            "[::1]",
+            None,
+            "[::1]",
+            id="bracketed-ipv6-without-port",
+        ),
+        pytest.param(
             "customer.example.com",
             None,
             "customer.example.com",
