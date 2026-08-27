@@ -11,28 +11,24 @@ Three telemetry sinks, each independently toggled:
 
 1. **Structured JSON log** - always on (Python `logging`, `INFO` level).
 2. **Sentry breadcrumb** - enabled when a `sentry_dsn` is supplied.
-   Requires `sentry-sdk` (install via `pip install fastmcp-extensions[telemetry]`).
 3. **Segment analytics event** - enabled when a `segment_write_key` is supplied.
-   Requires `analytics-python` (install via `pip install fastmcp-extensions[telemetry]`).
 
 `mcp_server()` registers this middleware automatically with structured logging
 enabled by default. Segment and Sentry require explicit configuration through
-`TelemetryConfig`. Registering this middleware manually on top of that
-automatic registration yields two instances and duplicate structured log
-lines, so prefer `register_tool_call_telemetry()`, which is idempotent.
+`TelemetryConfig`.
 
-Manual usage:
+Configure the automatically registered middleware:
 
 ```python
-from fastmcp_extensions import mcp_server, ToolCallTelemetryMiddleware
+from fastmcp_extensions import TelemetryConfig, mcp_server
 
-app = mcp_server(name="my-server", package_name="my-package")
-app.add_middleware(
-    ToolCallTelemetryMiddleware(
-        package_name="my-package",
+app = mcp_server(
+    name="my-server",
+    package_name="my-package",
+    telemetry=TelemetryConfig(
         sentry_dsn="https://...@sentry.io/...",
         segment_write_key="hnWfMdE...",
-    )
+    ),
 )
 ```
 """
@@ -88,13 +84,13 @@ class ToolCallTelemetryMiddleware(Middleware):
     Example:
 
     ```python
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name="my-package",
+    app = mcp_server(
+        name="my-server",
+        package_name="my-package",
+        telemetry=TelemetryConfig(
             sentry_dsn="https://...@sentry.io/...",
             segment_write_key="hnWfMdE...",
-            extra_properties={"is_hosted_mcp": True},
-        )
+        ),
     )
     ```
     """

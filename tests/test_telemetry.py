@@ -119,6 +119,7 @@ def test_telemetry_config_is_frozen() -> None:
         pytest.param("no", False, id="no"),
         pytest.param("1", True, id="one"),
         pytest.param("true", True, id="true"),
+        pytest.param("yes", True, id="yes"),
     ],
 )
 def test_telemetry_opted_out(
@@ -134,24 +135,36 @@ def test_telemetry_opted_out(
     assert telemetry_opted_out() is expected
 
 
-def test_resolve_extra_properties() -> None:
-    assert resolve_extra_properties(None) == {}
-    static = {"source": "test"}
-    assert resolve_extra_properties(static) is static
-    assert resolve_extra_properties(lambda: {"source": "callable"}) == {
-        "source": "callable"
-    }
-
-
-def test_resolve_extra_properties_ignores_provider_failure(
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("none", id="none"),
+        pytest.param("static", id="static"),
+        pytest.param("callable", id="callable"),
+        pytest.param("raising", id="raising"),
+    ],
+)
+def test_resolve_extra_properties(
+    case: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    def raise_error() -> dict[str, object]:
-        raise RuntimeError("boom")
+    if case == "none":
+        assert resolve_extra_properties(None) == {}
+    elif case == "static":
+        static = {"source": "test"}
+        assert resolve_extra_properties(static) is static
+    elif case == "callable":
+        assert resolve_extra_properties(lambda: {"source": "callable"}) == {
+            "source": "callable"
+        }
+    else:
 
-    with caplog.at_level(logging.DEBUG):
-        assert resolve_extra_properties(raise_error) == {}
-    assert "Failed to resolve telemetry extra properties" in caplog.text
+        def raise_error() -> dict[str, object]:
+            raise RuntimeError("boom")
+
+        with caplog.at_level(logging.DEBUG):
+            assert resolve_extra_properties(raise_error) == {}
+        assert "Failed to resolve telemetry extra properties" in caplog.text
 
 
 def test_sinks_defaults_no_sentry_no_segment() -> None:
