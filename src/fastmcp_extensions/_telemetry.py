@@ -77,7 +77,7 @@ class TelemetryConfig:
         Mapping[str, object] | Callable[[], Mapping[str, object]] | None
     ) = None
     known_public_mcp_domains: Sequence[str] = ()
-    anonymization_salt_fallback: Callable[[], str | None] | None = None
+    anonymization_salt: str | Callable[[], str | None] | None = None
     caller_ip_fallback: bool = False
     anonymized_attribution: bool = True
 

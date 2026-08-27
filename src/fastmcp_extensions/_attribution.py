@@ -1,10 +1,9 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Hash and obfuscation processes for anonymized telemetry.
 
-Deployments set `AIRBYTE_TELEMETRY_ANONYMIZATION_SALT` to a secret value shared
-across every server whose surrogates should be comparable. Servers may supply a
-fallback for environments without that secret, but a fallback derived from
-per-process state makes the surrogates identify instances rather than callers.
+Servers can provide a salt shared across every server whose surrogates should
+be comparable. A salt derived from per-process state makes the surrogates
+identify instances rather than callers.
 
 The `caller` HMAC scope label is part of the telemetry wire contract. Caller
 surrogates prefer verified token subjects, then OAuth client IDs, then IPs.
@@ -15,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 from collections.abc import Callable, Sequence
 from typing import TypeVar
 from urllib.parse import urlsplit
@@ -26,7 +24,6 @@ from fastmcp.server.dependencies import (
     get_http_request,
 )
 
-_TELEMETRY_ANONYMIZATION_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SALT"
 _T = TypeVar("_T")
 
 
@@ -83,8 +80,23 @@ def _request_host() -> str | None:
     host = request.headers.get("host")
     if not host:
         return None
-    host = host.strip()
-    return host or None
+    host = host.strip().lower()
+    if not host:
+        return None
+    if host.startswith("["):
+        closing_bracket = host.find("]")
+        if closing_bracket == -1:
+            return host
+        hostname = host[: closing_bracket + 1].rstrip(".")
+        port = host[closing_bracket + 1 :]
+    else:
+        hostname, separator, port = host.rpartition(":")
+        if not separator:
+            hostname, port = host, ""
+        hostname = hostname.rstrip(".")
+    if port in {":80", ":443"} or port == "80" or port == "443":
+        port = ""
+    return f"{hostname}{port}"
 
 
 def _request_endpoint(host: str) -> str:
@@ -106,11 +118,8 @@ def _is_owned_endpoint(host: str, domains: Sequence[str]) -> bool:
     hostname = urlsplit(f"//{host}").hostname
     if not hostname:
         return False
-    hostname = hostname.rstrip(".").lower()
     return any(
-        hostname == domain.rstrip(".").lower()
-        or hostname.endswith(f".{domain.rstrip('.').lower()}")
-        for domain in domains
+        hostname == domain or hostname.endswith(f".{domain}") for domain in domains
     )
 
 
@@ -121,11 +130,13 @@ class _AnonymizedAttribution:
         self,
         *,
         known_public_mcp_domains: Sequence[str] = (),
-        anonymization_salt_fallback: Callable[[], str | None] | None = None,
+        anonymization_salt: str | Callable[[], str | None] | None = None,
         caller_ip_fallback: bool = False,
     ) -> None:
-        self._known_public_mcp_domains = tuple(known_public_mcp_domains)
-        self._anonymization_salt_fallback = anonymization_salt_fallback
+        self._known_public_mcp_domains = tuple(
+            domain.rstrip(".").lower() for domain in known_public_mcp_domains
+        )
+        self._anonymization_salt = anonymization_salt
         self._caller_ip_fallback = caller_ip_fallback
         self._salt_resolved = False
         self._salt: str | None = None
@@ -137,10 +148,11 @@ class _AnonymizedAttribution:
         return self._salt
 
     def _resolve_salt(self) -> str | None:
-        salt = os.environ.get(_TELEMETRY_ANONYMIZATION_SALT_ENV)
-        if salt is None and self._anonymization_salt_fallback is not None:
-            salt = self._anonymization_salt_fallback()
-        return salt
+        if isinstance(self._anonymization_salt, str):
+            return self._anonymization_salt
+        if self._anonymization_salt is not None:
+            return self._anonymization_salt()
+        return None
 
     def __call__(self) -> dict[str, object]:
         properties: dict[str, object] = {}

@@ -95,7 +95,7 @@ class ToolCallTelemetryMiddleware(Middleware):
             Mapping[str, object] | Callable[[], Mapping[str, object]] | None
         ) = None,
         known_public_mcp_domains: Sequence[str] = (),
-        anonymization_salt_fallback: Callable[[], str | None] | None = None,
+        anonymization_salt: str | Callable[[], str | None] | None = None,
         caller_ip_fallback: bool = False,
         anonymized_attribution: bool = True,
     ) -> None:
@@ -115,7 +115,7 @@ class ToolCallTelemetryMiddleware(Middleware):
         self._attribution = (
             _AnonymizedAttribution(
                 known_public_mcp_domains=known_public_mcp_domains,
-                anonymization_salt_fallback=anonymization_salt_fallback,
+                anonymization_salt=anonymization_salt,
                 caller_ip_fallback=caller_ip_fallback,
             )
             if anonymized_attribution
@@ -189,7 +189,7 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
             segment_user_id=config.segment_user_id,
             extra_properties=config.extra_properties,
             known_public_mcp_domains=config.known_public_mcp_domains,
-            anonymization_salt_fallback=config.anonymization_salt_fallback,
+            anonymization_salt=config.anonymization_salt,
             caller_ip_fallback=config.caller_ip_fallback,
             anonymized_attribution=config.anonymized_attribution,
         )

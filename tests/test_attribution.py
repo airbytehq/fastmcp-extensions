@@ -87,7 +87,6 @@ def test_hosted_attribution_includes_all_available_properties(
     """Hosted requests include scoped identities and owned endpoint metadata."""
     from fastmcp_extensions import _attribution as attribution
 
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(
         attribution,
         "get_context",
@@ -110,7 +109,10 @@ def test_hosted_attribution_includes_all_available_properties(
         ),
     )
 
-    properties = _AnonymizedAttribution(known_public_mcp_domains=("airbyte.ai",))()
+    properties = _AnonymizedAttribution(
+        known_public_mcp_domains=("airbyte.ai",),
+        anonymization_salt="test-salt",
+    )()
 
     assert properties == {
         "session_id_hash": _hash_value(
@@ -138,7 +140,6 @@ def test_stdio_attribution_includes_session_and_client_without_http(
     """Stdio requests use local context attribution without HTTP-only fields."""
     from fastmcp_extensions import _attribution as attribution
 
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(
         attribution,
         "get_context",
@@ -147,7 +148,7 @@ def test_stdio_attribution_includes_session_and_client_without_http(
     monkeypatch.setattr(attribution, "get_http_request", _no_http_request)
     monkeypatch.setattr(attribution, "get_access_token", _no_access_token)
 
-    properties = _AnonymizedAttribution()()
+    properties = _AnonymizedAttribution(anonymization_salt="test-salt")()
 
     assert properties == {
         "session_id_hash": _hash_value(
@@ -162,33 +163,57 @@ def test_stdio_attribution_includes_session_and_client_without_http(
 
 
 @pytest.mark.parametrize(
-    ("host", "expected_endpoint"),
+    ("host", "expected_endpoint", "normalized_host"),
     [
         pytest.param(
             "Preview.Airbyte.AI.",
-            "Preview.Airbyte.AI./mcp",
+            "preview.airbyte.ai/mcp",
+            "preview.airbyte.ai",
             id="owned-subdomain-case-and-trailing-dot",
         ),
-        pytest.param("customer.example.com", None, id="third-party-host"),
+        pytest.param(
+            "preview.airbyte.ai:443",
+            "preview.airbyte.ai/mcp",
+            "preview.airbyte.ai",
+            id="owned-subdomain-default-https-port",
+        ),
+        pytest.param(
+            "preview.airbyte.ai.:80",
+            "preview.airbyte.ai/mcp",
+            "preview.airbyte.ai",
+            id="owned-subdomain-trailing-dot-default-http-port",
+        ),
+        pytest.param(
+            "customer.example.com",
+            None,
+            "customer.example.com",
+            id="third-party-host",
+        ),
     ],
 )
 def test_endpoint_attribution_respects_plaintext_domain_allowlist(
     monkeypatch: pytest.MonkeyPatch,
     host: str,
     expected_endpoint: str | None,
+    normalized_host: str,
 ) -> None:
     """Only configured owned domains receive plaintext endpoint metadata."""
     from fastmcp_extensions import _attribution as attribution
 
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(attribution, "get_context", _context)
     monkeypatch.setattr(attribution, "get_http_request", lambda: _request(host=host))
     monkeypatch.setattr(attribution, "get_access_token", _no_access_token)
 
-    properties = _AnonymizedAttribution(known_public_mcp_domains=("airbyte.ai",))()
+    properties = _AnonymizedAttribution(
+        known_public_mcp_domains=("airbyte.ai",),
+        anonymization_salt="test-salt",
+    )()
 
     assert properties["mcp_endpoint_hash"] == _hash_value(
-        host, "endpoint", host, "test-salt"
+        normalized_host,
+        "endpoint",
+        normalized_host,
+        "test-salt",
     )
     if expected_endpoint is None:
         assert "mcp_endpoint" not in properties
@@ -242,7 +267,6 @@ def test_caller_attribution_uses_identity_precedence(
     """Caller attribution uses subject, client, then IP without competing fields."""
     from fastmcp_extensions import _attribution as attribution
 
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(attribution, "get_context", _context)
     monkeypatch.setattr(
         attribution,
@@ -257,7 +281,10 @@ def test_caller_attribution_uses_identity_precedence(
             lambda: pytest.fail("authenticated caller must not read IP"),
         )
 
-    properties = _AnonymizedAttribution(caller_ip_fallback=caller_ip_fallback)()
+    properties = _AnonymizedAttribution(
+        anonymization_salt="test-salt",
+        caller_ip_fallback=caller_ip_fallback,
+    )()
 
     if expected_value is None:
         assert "caller_hash" not in properties
@@ -274,7 +301,6 @@ def test_attribution_has_no_salt_and_instance_local_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Missing salt omits attribution and fallback salts stay instance-local."""
-    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
     first_calls = 0
     second_calls = 0
 
@@ -288,15 +314,15 @@ def test_attribution_has_no_salt_and_instance_local_cache(
         second_calls += 1
         return "second-salt"
 
-    first = _AnonymizedAttribution(anonymization_salt_fallback=first_fallback)
-    second = _AnonymizedAttribution(anonymization_salt_fallback=second_fallback)
+    first = _AnonymizedAttribution(anonymization_salt=first_fallback)
+    second = _AnonymizedAttribution(anonymization_salt=second_fallback)
     assert first._get_salt() == "first-salt"
     assert first._get_salt() == "first-salt"
     assert second._get_salt() == "second-salt"
     assert first_calls == 1
     assert second_calls == 1
 
-    no_salt = _AnonymizedAttribution(anonymization_salt_fallback=lambda: None)
+    no_salt = _AnonymizedAttribution(anonymization_salt=lambda: None)
     assert no_salt() == {}
 
 
@@ -307,7 +333,6 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
     """Server properties override attribution and the config can disable it."""
     from fastmcp_extensions import _attribution as attribution
 
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(attribution, "get_context", _context)
     monkeypatch.setattr(
         attribution,
@@ -318,6 +343,7 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
 
     middleware = ToolCallTelemetryMiddleware(
         known_public_mcp_domains=("airbyte.ai",),
+        anonymization_salt="test-salt",
         caller_ip_fallback=True,
         extra_properties={"caller_hash": "server-value"},
     )
@@ -350,7 +376,6 @@ def test_attribution_payload_contains_no_raw_identifiers(
     raw_ip = "198.51.100.42"
     raw_session = "session-secret"
     raw_subject = "subject-secret"
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     monkeypatch.setattr(
         attribution,
         "get_context",
@@ -367,7 +392,7 @@ def test_attribution_payload_contains_no_raw_identifiers(
         lambda: SimpleNamespace(claims={"sub": raw_subject}, client_id=None),
     )
 
-    payload = json.dumps(_AnonymizedAttribution()())
+    payload = json.dumps(_AnonymizedAttribution(anonymization_salt="test-salt")())
 
     assert raw_ip not in payload
     assert raw_session not in payload
