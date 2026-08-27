@@ -15,7 +15,10 @@ Three telemetry sinks, each independently toggled:
 
 `mcp_server()` registers this middleware automatically with structured logging
 enabled by default. Segment and Sentry require explicit configuration through
-`TelemetryConfig`.
+`TelemetryConfig`. Adding `ToolCallTelemetryMiddleware` manually on top of the
+automatic registration yields two instances and duplicate structured log lines;
+`register_tool_call_telemetry()` is idempotent and is the way to register onto
+an app built with `telemetry=False`.
 
 Configure the automatically registered middleware:
 
@@ -90,6 +93,7 @@ class ToolCallTelemetryMiddleware(Middleware):
         telemetry=TelemetryConfig(
             sentry_dsn="https://...@sentry.io/...",
             segment_write_key="hnWfMdE...",
+            extra_properties={"is_hosted_mcp": True},
         ),
     )
     ```

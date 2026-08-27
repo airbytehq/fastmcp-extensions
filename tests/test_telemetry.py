@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from unittest.mock import patch
 
 import pytest
@@ -136,35 +137,36 @@ def test_telemetry_opted_out(
 
 
 @pytest.mark.parametrize(
-    "case",
+    "spec,expected",
     [
-        pytest.param("none", id="none"),
-        pytest.param("static", id="static"),
-        pytest.param("callable", id="callable"),
-        pytest.param("raising", id="raising"),
+        pytest.param(None, {}, id="none"),
+        pytest.param({"source": "static"}, {"source": "static"}, id="static"),
+        pytest.param(
+            lambda: {"source": "callable"},
+            {"source": "callable"},
+            id="callable",
+        ),
     ],
 )
 def test_resolve_extra_properties(
-    case: str,
+    spec: Mapping[str, object] | Callable[[], Mapping[str, object]] | None,
+    expected: Mapping[str, object],
+) -> None:
+    resolved = resolve_extra_properties(spec)
+    assert resolved == expected
+    if isinstance(spec, Mapping):
+        assert resolved is spec
+
+
+def test_resolve_extra_properties_ignores_provider_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    if case == "none":
-        assert resolve_extra_properties(None) == {}
-    elif case == "static":
-        static = {"source": "test"}
-        assert resolve_extra_properties(static) is static
-    elif case == "callable":
-        assert resolve_extra_properties(lambda: {"source": "callable"}) == {
-            "source": "callable"
-        }
-    else:
+    def raise_error() -> dict[str, object]:
+        raise RuntimeError("boom")
 
-        def raise_error() -> dict[str, object]:
-            raise RuntimeError("boom")
-
-        with caplog.at_level(logging.DEBUG):
-            assert resolve_extra_properties(raise_error) == {}
-        assert "Failed to resolve telemetry extra properties" in caplog.text
+    with caplog.at_level(logging.DEBUG):
+        assert resolve_extra_properties(raise_error) == {}
+    assert "Failed to resolve telemetry extra properties" in caplog.text
 
 
 def test_sinks_defaults_no_sentry_no_segment() -> None:
