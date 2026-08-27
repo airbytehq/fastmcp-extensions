@@ -24,10 +24,10 @@ install = "uv sync --extra dev"
 install-prod = "uv sync"
 build = "uv build"
 
-# Documentation with pdoc3
-docs-generate = "pdoc --html --output-dir docs/generated fastmcp_extensions --force"
-docs-preview = { shell = "pdoc --html --output-dir docs/generated fastmcp_extensions --force && open docs/generated/fastmcp_extensions/index.html" }
-get-generated-docs-dir = "echo docs/generated/fastmcp_extensions"
+# Documentation with pdoc (Airbyte-branded templates in docs/templates)
+docs-generate = "pdoc fastmcp_extensions --output-directory docs/generated --template-directory docs/templates --logo https://docs.airbyte.com/img/logo-dark.png --favicon https://docs.airbyte.com/img/favicon.png --docformat google"
+docs-preview = { shell = "poe docs-generate && python -m webbrowser -t \"file://$PWD/docs/generated/index.html\"" }
+get-generated-docs-dir = "echo docs/generated"
 
 # Development helpers
 clean = "rm -rf .pytest_cache .coverage htmlcov dist .ruff_cache"

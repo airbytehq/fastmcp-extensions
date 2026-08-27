@@ -117,6 +117,6 @@ DEP004 = [  # imported dev dependency in main code
 
 [dependency-groups]
 dev = [
-    "pdoc3>=0.11.6",
+    "pdoc>=15.0.0",
     "poethepoet>=0.37.0",
 ]
