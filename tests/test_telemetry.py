@@ -203,6 +203,91 @@ def test_sinks_emit_log(caplog: pytest.LogCaptureFixture) -> None:
     assert "fn" in caplog.text
 
 
+def test_sinks_emit_segment_event_with_anonymous_id_per_event() -> None:
+    anonymous_ids = iter(["analytics-id", "next-analytics-id"])
+    with patch("fastmcp_extensions._telemetry._init_segment"), patch(
+        "fastmcp_extensions._telemetry._segment_analytics.track"
+    ) as track:
+        sinks = TelemetrySinks(
+            segment_write_key="fake-key",
+            segment_anonymous_id=lambda: next(anonymous_ids),
+        )
+        record = TelemetryRecord(
+            invocation_type="test",
+            name="fn",
+            timestamp="t",
+            duration_ms=5.0,
+            success=True,
+            error_type=None,
+            package_version="v",
+        )
+        sinks.emit(record)
+        sinks.emit(record)
+
+    assert track.call_args_list == [
+        (
+            (),
+            {
+                "anonymous_id": "analytics-id",
+                "event": "test",
+                "properties": record.to_dict(),
+            },
+        ),
+        (
+            (),
+            {
+                "anonymous_id": "next-analytics-id",
+                "event": "test",
+                "properties": record.to_dict(),
+            },
+        ),
+    ]
+
+
+def test_sinks_emit_segment_event_with_user_id_when_anonymous_id_unset() -> None:
+    with patch("fastmcp_extensions._telemetry._init_segment"), patch(
+        "fastmcp_extensions._telemetry._segment_analytics.track"
+    ) as track:
+        sinks = TelemetrySinks(segment_write_key="fake-key")
+        record = TelemetryRecord(
+            invocation_type="test",
+            name="fn",
+            timestamp="t",
+            duration_ms=5.0,
+            success=True,
+            error_type=None,
+            package_version="v",
+        )
+        sinks.emit(record)
+
+    track.assert_called_once_with("mcp-server", "test", record.to_dict())
+
+
+def test_sinks_emit_segment_event_falls_back_when_anonymous_id_fails() -> None:
+    def raise_error() -> str:
+        raise OSError("boom")
+
+    with patch("fastmcp_extensions._telemetry._init_segment"), patch(
+        "fastmcp_extensions._telemetry._segment_analytics.track"
+    ) as track:
+        sinks = TelemetrySinks(
+            segment_write_key="fake-key",
+            segment_anonymous_id=raise_error,
+        )
+        record = TelemetryRecord(
+            invocation_type="test",
+            name="fn",
+            timestamp="t",
+            duration_ms=5.0,
+            success=True,
+            error_type=None,
+            package_version="v",
+        )
+        sinks.emit(record)
+
+    track.assert_called_once_with("mcp-server", "test", record.to_dict())
+
+
 def test_sinks_capture_exception_calls_sentry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

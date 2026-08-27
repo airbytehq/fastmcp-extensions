@@ -23,7 +23,7 @@ it skips the app when an instance is already installed, so an app built with
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -34,6 +34,7 @@ from fastmcp.server.middleware import (
 )
 from fastmcp.tools import ToolResult
 
+from fastmcp_extensions._attribution import _AnonymizedAttribution
 from fastmcp_extensions._telemetry import (
     TelemetryConfig,
     TelemetryRecord,
@@ -90,9 +91,13 @@ class ToolCallTelemetryMiddleware(Middleware):
         sentry_dsn: str | None = None,
         segment_write_key: str | None = None,
         segment_user_id: str = "mcp-server",
+        segment_anonymous_id: str | Callable[[], str | None] | None = None,
         extra_properties: (
             Mapping[str, object] | Callable[[], Mapping[str, object]] | None
         ) = None,
+        known_public_mcp_domains: Sequence[str] = (),
+        anonymization_salt: str | Callable[[], str | None] | None = None,
+        anonymized_attribution: bool = True,
     ) -> None:
         """Initialize the telemetry middleware.
 
@@ -105,8 +110,17 @@ class ToolCallTelemetryMiddleware(Middleware):
             sentry_dsn=sentry_dsn,
             segment_write_key=segment_write_key,
             segment_user_id=segment_user_id,
+            segment_anonymous_id=segment_anonymous_id,
         )
         self._extra_properties = extra_properties
+        self._attribution = (
+            _AnonymizedAttribution(
+                known_public_mcp_domains=known_public_mcp_domains,
+                anonymization_salt=anonymization_salt,
+            )
+            if anonymized_attribution
+            else None
+        )
 
     @property
     def _sentry_enabled(self) -> bool:
@@ -149,7 +163,10 @@ class ToolCallTelemetryMiddleware(Middleware):
                 success=success,
                 error_type=error_type,
                 package_version=self._sinks.package_version,
-                extra=resolve_extra_properties(self._extra_properties),
+                extra={
+                    **resolve_extra_properties(self._attribution),
+                    **resolve_extra_properties(self._extra_properties),
+                },
             )
             self._sinks.emit(record)
 
@@ -170,6 +187,10 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
             sentry_dsn=config.sentry_dsn,
             segment_write_key=config.segment_write_key,
             segment_user_id=config.segment_user_id,
+            segment_anonymous_id=config.segment_anonymous_id,
             extra_properties=config.extra_properties,
+            known_public_mcp_domains=config.known_public_mcp_domains,
+            anonymization_salt=config.anonymization_salt,
+            anonymized_attribution=config.anonymized_attribution,
         )
     )
