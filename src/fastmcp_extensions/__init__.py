@@ -13,10 +13,15 @@ with FastMCP 2.0, including:
 - Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
 
-from fastmcp_extensions._telemetry import TelemetryRecord, TelemetrySinks
+from fastmcp_extensions._telemetry import (
+    TelemetryConfig,
+    TelemetryRecord,
+    TelemetrySinks,
+)
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
+    register_tool_call_telemetry,
 )
 from fastmcp_extensions.auth import (
     ClientCredentials,
@@ -125,6 +130,7 @@ __all__ = [
     "PromptDef",
     "RejectEventStreamGetMiddleware",
     "ResourceDef",
+    "TelemetryConfig",
     "TelemetryRecord",
     "TelemetrySinks",
     "ToolCallTelemetryMiddleware",
@@ -156,6 +162,7 @@ __all__ = [
     "register_mcp_prompts",
     "register_mcp_resources",
     "register_mcp_tools",
+    "register_tool_call_telemetry",
     "render_default_landing_html",
     "run_mcp_http_server",
     "wrap_client_credentials",

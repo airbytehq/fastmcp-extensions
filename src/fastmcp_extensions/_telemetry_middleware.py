@@ -5,34 +5,25 @@ Intercepts every `tools/call` invocation and records structured telemetry:
 
 - `tool_name`, `timestamp`, `duration_ms`, `success`/`failure`, `error_type`
 - `package_version` (when a `package_name` is provided)
+- Optional attribution properties supplied through `extra_properties`
 
 Three telemetry sinks, each independently toggled:
 
 1. **Structured JSON log** - always on (Python `logging`, `INFO` level).
 2. **Sentry breadcrumb** - enabled when a `sentry_dsn` is supplied.
-   Requires `sentry-sdk` (install via `pip install fastmcp-extensions[telemetry]`).
 3. **Segment analytics event** - enabled when a `segment_write_key` is supplied.
-   Requires `analytics-python` (install via `pip install fastmcp-extensions[telemetry]`).
 
-Usage:
-
-```python
-from fastmcp_extensions import mcp_server, ToolCallTelemetryMiddleware
-
-app = mcp_server(name="my-server", package_name="my-package")
-app.add_middleware(
-    ToolCallTelemetryMiddleware(
-        package_name="my-package",
-        sentry_dsn="https://...@sentry.io/...",
-        segment_write_key="hnWfMdE...",
-    )
-)
-```
+`mcp_server()` registers this middleware automatically from a `TelemetryConfig`;
+see `fastmcp_extensions.server` for the user-facing configuration docs.
+Registration goes through `register_tool_call_telemetry()`, which is idempotent:
+it skips the app when an instance is already installed, so an app built with
+`telemetry=False` can be instrumented later without duplicating log lines.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -43,9 +34,15 @@ from fastmcp.server.middleware import (
 )
 from fastmcp.tools import ToolResult
 
-from fastmcp_extensions._telemetry import TelemetryRecord, TelemetrySinks
+from fastmcp_extensions._telemetry import (
+    TelemetryConfig,
+    TelemetryRecord,
+    TelemetrySinks,
+    resolve_extra_properties,
+)
 
 if TYPE_CHECKING:
+    from fastmcp import FastMCP
     from mcp import types as mt
 
 # Re-export for backward compatibility
@@ -63,6 +60,7 @@ class ToolCallTelemetryMiddleware(Middleware):
     - `success` - whether the call completed without raising
     - `error_type` - the exception class name on failure (`None` on success)
     - `package_version` - the installed version of `package_name`
+    - `extra` - optional attribution properties
 
     Telemetry is emitted to up to three sinks:
 
@@ -73,12 +71,14 @@ class ToolCallTelemetryMiddleware(Middleware):
     Example:
 
     ```python
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name="my-package",
+    app = mcp_server(
+        name="my-server",
+        package_name="my-package",
+        telemetry=TelemetryConfig(
             sentry_dsn="https://...@sentry.io/...",
             segment_write_key="hnWfMdE...",
-        )
+            extra_properties={"is_hosted_mcp": True},
+        ),
     )
     ```
     """
@@ -90,6 +90,9 @@ class ToolCallTelemetryMiddleware(Middleware):
         sentry_dsn: str | None = None,
         segment_write_key: str | None = None,
         segment_user_id: str = "mcp-server",
+        extra_properties: (
+            Mapping[str, object] | Callable[[], Mapping[str, object]] | None
+        ) = None,
     ) -> None:
         """Initialize the telemetry middleware.
 
@@ -103,6 +106,7 @@ class ToolCallTelemetryMiddleware(Middleware):
             segment_write_key=segment_write_key,
             segment_user_id=segment_user_id,
         )
+        self._extra_properties = extra_properties
 
     @property
     def _sentry_enabled(self) -> bool:
@@ -145,7 +149,27 @@ class ToolCallTelemetryMiddleware(Middleware):
                 success=success,
                 error_type=error_type,
                 package_version=self._sinks.package_version,
+                extra=resolve_extra_properties(self._extra_properties),
             )
             self._sinks.emit(record)
 
         return result
+
+
+def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
+    """Register tool-call telemetry on `app` unless it is already present."""
+    if not config.enabled or any(
+        isinstance(middleware, ToolCallTelemetryMiddleware)
+        for middleware in app.middleware
+    ):
+        return
+
+    app.add_middleware(
+        ToolCallTelemetryMiddleware(
+            package_name=config.package_name,
+            sentry_dsn=config.sentry_dsn,
+            segment_write_key=config.segment_write_key,
+            segment_user_id=config.segment_user_id,
+            extra_properties=config.extra_properties,
+        )
+    )
