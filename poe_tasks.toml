@@ -26,7 +26,7 @@ build = "uv build"
 
 # Documentation with pdoc (Airbyte-branded templates in docs/templates)
 docs-generate = "pdoc fastmcp_extensions --output-directory docs/generated --template-directory docs/templates --logo https://docs.airbyte.com/img/logo-dark.png --favicon https://docs.airbyte.com/img/favicon.png --docformat google"
-docs-preview = { shell = "poe docs-generate && open docs/generated/index.html" }
+docs-preview = { shell = "poe docs-generate && python -m webbrowser -t \"file://$PWD/docs/generated/index.html\"" }
 get-generated-docs-dir = "echo docs/generated"
 
 # Development helpers

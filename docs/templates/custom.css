@@ -86,7 +86,6 @@
     --color-green-50: hsl(184, 100%, 12%);
     --color-blue-30: hsl(252, 25%, 18%);
     --color-dark-blue-700: hsl(240, 100%, 98%);
-    --color-white: hsl(0, 0%, 16%);
   }
   
   /* Override pdoc's default theme variables for dark mode - must be in .pdoc selector */
