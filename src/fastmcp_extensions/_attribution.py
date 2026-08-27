@@ -1,9 +1,10 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Hash and obfuscation processes for anonymized telemetry.
 
-Deployments can optionally set `AIRBYTE_TELEMETRY_ANONYMIZATION_SALT` explicitly.
-An analytics-ID fallback may be regenerated per container, which would otherwise
-make the surrogates identify instances instead of callers.
+Deployments set `AIRBYTE_TELEMETRY_ANONYMIZATION_SALT` to a secret value shared
+across every server whose surrogates should be comparable. Servers may supply a
+fallback for environments without that secret, but a fallback derived from
+per-process state makes the surrogates identify instances rather than callers.
 
 The `caller` HMAC scope label is part of the telemetry wire contract. Caller
 surrogates prefer verified token subjects, then OAuth client IDs, then IPs.
