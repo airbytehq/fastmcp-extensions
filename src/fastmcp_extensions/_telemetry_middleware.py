@@ -23,7 +23,7 @@ it skips the app when an instance is already installed, so an app built with
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -34,6 +34,7 @@ from fastmcp.server.middleware import (
 )
 from fastmcp.tools import ToolResult
 
+from fastmcp_extensions._attribution import _AnonymizedAttribution
 from fastmcp_extensions._telemetry import (
     TelemetryConfig,
     TelemetryRecord,
@@ -93,6 +94,10 @@ class ToolCallTelemetryMiddleware(Middleware):
         extra_properties: (
             Mapping[str, object] | Callable[[], Mapping[str, object]] | None
         ) = None,
+        plaintext_endpoint_domains: Sequence[str] = (),
+        anonymization_salt_fallback: Callable[[], str | None] | None = None,
+        caller_ip_fallback: bool = False,
+        anonymized_attribution: bool = True,
     ) -> None:
         """Initialize the telemetry middleware.
 
@@ -107,6 +112,15 @@ class ToolCallTelemetryMiddleware(Middleware):
             segment_user_id=segment_user_id,
         )
         self._extra_properties = extra_properties
+        self._attribution = (
+            _AnonymizedAttribution(
+                plaintext_endpoint_domains=plaintext_endpoint_domains,
+                anonymization_salt_fallback=anonymization_salt_fallback,
+                caller_ip_fallback=caller_ip_fallback,
+            )
+            if anonymized_attribution
+            else None
+        )
 
     @property
     def _sentry_enabled(self) -> bool:
@@ -149,7 +163,10 @@ class ToolCallTelemetryMiddleware(Middleware):
                 success=success,
                 error_type=error_type,
                 package_version=self._sinks.package_version,
-                extra=resolve_extra_properties(self._extra_properties),
+                extra={
+                    **resolve_extra_properties(self._attribution),
+                    **resolve_extra_properties(self._extra_properties),
+                },
             )
             self._sinks.emit(record)
 
@@ -171,5 +188,9 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
             segment_write_key=config.segment_write_key,
             segment_user_id=config.segment_user_id,
             extra_properties=config.extra_properties,
+            plaintext_endpoint_domains=config.plaintext_endpoint_domains,
+            anonymization_salt_fallback=config.anonymization_salt_fallback,
+            caller_ip_fallback=config.caller_ip_fallback,
+            anonymized_attribution=config.anonymized_attribution,
         )
     )

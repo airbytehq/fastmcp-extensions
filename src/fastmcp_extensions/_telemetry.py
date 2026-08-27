@@ -20,7 +20,7 @@ from __future__ import annotations
 import importlib.metadata as md
 import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -76,6 +76,10 @@ class TelemetryConfig:
     extra_properties: (
         Mapping[str, object] | Callable[[], Mapping[str, object]] | None
     ) = None
+    plaintext_endpoint_domains: Sequence[str] = ()
+    anonymization_salt_fallback: Callable[[], str | None] | None = None
+    caller_ip_fallback: bool = False
+    anonymized_attribution: bool = True
 
 
 # ---------------------------------------------------------------------------

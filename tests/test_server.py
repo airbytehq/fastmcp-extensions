@@ -92,6 +92,26 @@ def test_mcp_server_telemetry_inherits_package_and_precedes_tool_filters() -> No
 
 
 @pytest.mark.unit
+def test_mcp_server_passes_attribution_configuration() -> None:
+    config = TelemetryConfig(
+        plaintext_endpoint_domains=("airbyte.ai",),
+        anonymization_salt_fallback=lambda: "fallback-salt",
+        caller_ip_fallback=True,
+        anonymized_attribution=True,
+    )
+    app = mcp_server("test-server", telemetry=config)
+    telemetry = next(
+        middleware
+        for middleware in app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+
+    assert telemetry._attribution is not None
+    assert telemetry._attribution._plaintext_endpoint_domains == ("airbyte.ai",)
+    assert telemetry._attribution._caller_ip_fallback is True
+
+
+@pytest.mark.unit
 def test_mcp_server_has_config_attached() -> None:
     """Test that mcp_server() attaches config to the app."""
     app = mcp_server("test-server")
