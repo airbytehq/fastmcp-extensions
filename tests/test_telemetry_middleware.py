@@ -7,6 +7,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp import FastMCP
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 
@@ -207,8 +208,6 @@ async def test_extra_properties_failure_does_not_break_tool_call(
 
 
 def test_register_tool_call_telemetry_is_idempotent() -> None:
-    from fastmcp import FastMCP
-
     app = FastMCP("test-server")
     config = TelemetryConfig()
 

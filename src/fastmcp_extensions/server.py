@@ -12,10 +12,10 @@ disabled `TelemetryConfig` to opt out of the middleware entirely. The
 `extra_properties` configuration can add attribution properties without
 capturing tool arguments or results.
 
-`airbyte-ops-mcp` currently registers `ToolCallTelemetryMiddleware` manually.
-Until that registration is removed, it will produce duplicate INFO log lines
-but no duplicate Segment or Sentry events because the second middleware has no
-external sink configuration.
+A server that also calls `app.add_middleware(ToolCallTelemetryMiddleware(...))`
+itself ends up with two middleware instances and duplicate structured log
+lines; register through `mcp_server()` or `register_tool_call_telemetry()`,
+both of which are idempotent.
 
 ## Key Components
 

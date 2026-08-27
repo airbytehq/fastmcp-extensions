@@ -17,9 +17,9 @@ Three telemetry sinks, each independently toggled:
 
 `mcp_server()` registers this middleware automatically with structured logging
 enabled by default. Segment and Sentry require explicit configuration through
-`TelemetryConfig`. `airbyte-ops-mcp` currently registers this middleware
-manually, so the transition period produces duplicate INFO log lines only;
-there are no duplicate Segment or Sentry events.
+`TelemetryConfig`. Registering this middleware manually on top of that
+automatic registration yields two instances and duplicate structured log
+lines, so prefer `register_tool_call_telemetry()`, which is idempotent.
 
 Manual usage:
 
