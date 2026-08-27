@@ -66,13 +66,19 @@ class TelemetryRecord:
 
 @dataclass(frozen=True, slots=True)
 class TelemetryConfig:
-    """Configuration for automatic MCP tool-call telemetry."""
+    """Configuration for automatic MCP tool-call telemetry.
+
+    `segment_anonymous_id` takes precedence over `segment_user_id` when it
+    resolves to a value, allowing a server's events to join that identity's
+    other events in the same Segment source.
+    """
 
     enabled: bool = True
     package_name: str | None = None
     sentry_dsn: str | None = None
     segment_write_key: str | None = None
     segment_user_id: str = "mcp-server"
+    segment_anonymous_id: str | Callable[[], str | None] | None = None
     extra_properties: (
         Mapping[str, object] | Callable[[], Mapping[str, object]] | None
     ) = None
@@ -101,6 +107,7 @@ class TelemetrySinks:
         sentry_dsn: str | None = None,
         segment_write_key: str | None = None,
         segment_user_id: str = "mcp-server",
+        segment_anonymous_id: str | Callable[[], str | None] | None = None,
     ) -> None:
         """Initialise sinks.
 
@@ -110,6 +117,8 @@ class TelemetrySinks:
             sentry_dsn: Sentry DSN string. Pass `None` to disable.
             segment_write_key: Segment write key. Pass `None` to disable.
             segment_user_id: The `user_id` stamped on Segment events.
+            segment_anonymous_id: An optional anonymous ID that takes
+                precedence over `segment_user_id`.
         """
         self.package_version = resolve_version(package_name)
 
@@ -117,6 +126,7 @@ class TelemetrySinks:
         self.sentry_enabled = False
         self.segment_enabled = False
         self._segment_user_id = segment_user_id
+        self._segment_anonymous_id = segment_anonymous_id
         if telemetry_opted_out():
             return
 
@@ -144,11 +154,19 @@ class TelemetrySinks:
 
     def _emit_segment_event(self, record: TelemetryRecord) -> None:
         """Track the invocation as a Segment analytics event."""
-        _segment_analytics.track(
-            self._segment_user_id,
-            record.invocation_type,
-            record.to_dict(),
-        )
+        anonymous_id = _resolve_segment_anonymous_id(self._segment_anonymous_id)
+        if anonymous_id is not None:
+            _segment_analytics.track(
+                anonymous_id=anonymous_id,
+                event=record.invocation_type,
+                properties=record.to_dict(),
+            )
+        else:
+            _segment_analytics.track(
+                self._segment_user_id,
+                record.invocation_type,
+                record.to_dict(),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +226,20 @@ def resolve_extra_properties(
         # Telemetry must never break a tool call, so ignore provider failures.
         logger.debug("Failed to resolve telemetry extra properties", exc_info=True)
         return {}
+
+
+def _resolve_segment_anonymous_id(
+    spec: str | Callable[[], str | None] | None,
+) -> str | None:
+    """Resolve a Segment anonymous ID without allowing telemetry to fail calls."""
+    if isinstance(spec, str):
+        return spec or None
+    if spec is None:
+        return None
+    try:
+        return spec() or None
+    except RuntimeError:
+        return None
 
 
 def telemetry_opted_out() -> bool:
