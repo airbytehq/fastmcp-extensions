@@ -238,7 +238,12 @@ def _resolve_segment_anonymous_id(
         return None
     try:
         return spec() or None
-    except RuntimeError:
+    except Exception:
+        logger.debug(
+            "Telemetry must never break a tool call while resolving "
+            "the Segment anonymous ID",
+            exc_info=True,
+        )
         return None
 
 

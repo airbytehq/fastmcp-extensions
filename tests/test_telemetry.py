@@ -265,7 +265,7 @@ def test_sinks_emit_segment_event_with_user_id_when_anonymous_id_unset() -> None
 
 def test_sinks_emit_segment_event_falls_back_when_anonymous_id_fails() -> None:
     def raise_error() -> str:
-        raise RuntimeError("boom")
+        raise OSError("boom")
 
     with patch("fastmcp_extensions._telemetry._init_segment"), patch(
         "fastmcp_extensions._telemetry._segment_analytics.track"
