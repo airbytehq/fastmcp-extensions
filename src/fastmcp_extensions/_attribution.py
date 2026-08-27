@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from collections.abc import Callable, Sequence
-from typing import TypeVar
+from typing import NamedTuple, TypeVar
 from urllib.parse import urlsplit
 
 from fastmcp.server.dependencies import (
@@ -25,6 +25,16 @@ from fastmcp.server.dependencies import (
 )
 
 _T = TypeVar("_T")
+
+
+class _CallerIdentity(NamedTuple):
+    value: str
+    id_type: str
+
+
+class _ClientInfo(NamedTuple):
+    name: str | None
+    version: str | None
 
 
 def _safe_value(resolver: Callable[[], _T]) -> _T | None:
@@ -61,17 +71,17 @@ def _caller_ip() -> str | None:
     return request.client.host if request.client else None
 
 
-def _auth_identity() -> tuple[str, str] | None:
+def _auth_identity() -> _CallerIdentity | None:
     access_token = get_access_token()
     if access_token is None:
         return None
     claims = access_token.claims or {}
     subject = claims.get("sub")
     if isinstance(subject, str) and subject:
-        return subject, "subject"
+        return _CallerIdentity(subject, "subject")
     client_id = claims.get("client_id") or access_token.client_id
     if isinstance(client_id, str) and client_id:
-        return client_id, "client"
+        return _CallerIdentity(client_id, "client")
     return None
 
 
@@ -105,13 +115,13 @@ def _request_endpoint(host: str) -> str:
     return f"{host}{path}" if path and path != "/" else host
 
 
-def _client_info() -> tuple[str | None, str | None]:
+def _client_info() -> _ClientInfo:
     context = get_context()
     client_params = context.session.client_params
     if client_params is None or client_params.clientInfo is None:
-        return None, None
+        return _ClientInfo(None, None)
     client_info = client_params.clientInfo
-    return client_info.name, client_info.version
+    return _ClientInfo(client_info.name, client_info.version)
 
 
 def _is_owned_endpoint(host: str, domains: Sequence[str]) -> bool:
@@ -177,7 +187,8 @@ class _AnonymizedAttribution:
         caller_identity = _safe_value(_auth_identity)
         caller_id_type: str | None = None
         if caller_identity is not None:
-            caller_value, caller_id_type = caller_identity
+            caller_value = caller_identity.value
+            caller_id_type = caller_identity.id_type
         elif self._caller_ip_fallback:
             caller_value = _safe_value(_caller_ip)
             if caller_value is not None:
@@ -207,7 +218,8 @@ class _AnonymizedAttribution:
 
         client_data = _safe_value(_client_info)
         if client_data is not None:
-            client_name, client_version = client_data
+            client_name = client_data.name
+            client_version = client_data.version
             if client_name:
                 properties["mcp_client_name"] = client_name
             if client_version:
