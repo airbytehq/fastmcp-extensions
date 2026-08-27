@@ -5,18 +5,6 @@ This module provides a factory function to create FastMCP servers with common
 patterns built-in, including server info resources and HTTP header credential
 resolution.
 
-Tool-call telemetry is enabled by default and emits structured logs for every
-MCP tool invocation. Segment and Sentry remain disabled unless their write key
-or DSN is supplied through `TelemetryConfig`. Set `telemetry=False` or use a
-disabled `TelemetryConfig` to opt out of the middleware entirely. The
-`extra_properties` configuration can add attribution properties without
-capturing tool arguments or results.
-
-A server that also calls `app.add_middleware(ToolCallTelemetryMiddleware(...))`
-itself ends up with two middleware instances and duplicate structured log
-lines; register through `mcp_server()` or `register_tool_call_telemetry()`,
-both of which are idempotent.
-
 ## Key Components
 
 - `mcp_server`: Factory function to create a FastMCP instance with built-in features
@@ -70,6 +58,38 @@ app = mcp_server(
     auto_discover_assets=True,  # Discovers non-private sibling modules
 )
 ```
+
+## Tool-Call Telemetry
+
+Telemetry is enabled by default and emits a structured log line for every MCP
+tool invocation, recording the tool name, timestamp, duration, success or
+failure, error type, and package version. Tool arguments and results are never
+captured. Segment and Sentry stay disabled unless a write key or DSN is
+supplied:
+
+```py
+from fastmcp_extensions import TelemetryConfig, mcp_server
+
+app = mcp_server(
+    name="my-server",
+    package_name="my-package",
+    telemetry=TelemetryConfig(
+        sentry_dsn="https://...@sentry.io/...",
+        segment_write_key="hnWfMdE...",
+        extra_properties={"is_hosted_mcp": True},
+    ),
+)
+```
+
+`extra_properties` accepts a mapping or a zero-argument callable, which is
+re-evaluated per tool call for values that are only known at runtime.
+
+Set `telemetry=False` (or `TelemetryConfig(enabled=False)`) to opt out. Servers
+built with `telemetry=False` can register later via
+`register_tool_call_telemetry(app, config)`. That registration helper is
+idempotent, while calling
+`app.add_middleware(ToolCallTelemetryMiddleware(...))` directly on top of an
+automatically instrumented app yields two instances and duplicate log lines.
 """
 
 from __future__ import annotations

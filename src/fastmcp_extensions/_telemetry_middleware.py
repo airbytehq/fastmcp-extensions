@@ -13,27 +13,11 @@ Three telemetry sinks, each independently toggled:
 2. **Sentry breadcrumb** - enabled when a `sentry_dsn` is supplied.
 3. **Segment analytics event** - enabled when a `segment_write_key` is supplied.
 
-`mcp_server()` registers this middleware automatically with structured logging
-enabled by default. Segment and Sentry require explicit configuration through
-`TelemetryConfig`. Adding `ToolCallTelemetryMiddleware` manually on top of the
-automatic registration yields two instances and duplicate structured log lines;
-`register_tool_call_telemetry()` is idempotent and is the way to register onto
-an app built with `telemetry=False`.
-
-Configure the automatically registered middleware:
-
-```python
-from fastmcp_extensions import TelemetryConfig, mcp_server
-
-app = mcp_server(
-    name="my-server",
-    package_name="my-package",
-    telemetry=TelemetryConfig(
-        sentry_dsn="https://...@sentry.io/...",
-        segment_write_key="hnWfMdE...",
-    ),
-)
-```
+`mcp_server()` registers this middleware automatically from a `TelemetryConfig`;
+see `fastmcp_extensions.server` for the user-facing configuration docs.
+Registration goes through `register_tool_call_telemetry()`, which is idempotent:
+it skips the app when an instance is already installed, so an app built with
+`telemetry=False` can be instrumented later without duplicating log lines.
 """
 
 from __future__ import annotations
