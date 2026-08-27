@@ -1,4 +1,4 @@
-name: TK-TODO Check  # IGNORE:TK - this workflow checks for TK-TODO markers
+name: TK-TODO Check  # IGNORE:TK
 
 on:
   push:
@@ -18,28 +18,4 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Check for TK-TODO markers  # IGNORE:TK
-        run: |
-          # Find all TK-TODO markers (case-insensitive) that don't have IGNORE:TK on the same line  # IGNORE:TK
-          # Exit with error if any are found
-          
-          echo "Checking for TK-TODO markers..."  # IGNORE:TK
-          
-          # Use git ls-files to only check tracked files (excludes gitignored files like sdks/)
-          # grep -i for case-insensitive matching
-          # grep -v for excluding lines with IGNORE:TK
-          # grep -n for line numbers
-          
-          FOUND_TODOS=$(git ls-files | xargs grep -i -n "TK-TODO" 2>/dev/null | grep -i -v "IGNORE:TK" || true)  # IGNORE:TK
-          
-          if [ -n "$FOUND_TODOS" ]; then
-            echo ""
-            echo "ERROR: Found TK-TODO markers that must be resolved before merge:"  # IGNORE:TK
-            echo ""
-            echo "$FOUND_TODOS"
-            echo ""
-            echo "To suppress a TK-TODO, add 'IGNORE:TK' (case-insensitive) on the same line."  # IGNORE:TK
-            echo ""
-            exit 1
-          else
-            echo "No unresolved TK-TODO markers found."  # IGNORE:TK
-          fi
+        uses: aaronsteers/tk-todo-check-action@76cd8dbb434bc93c7898ebdf43eff6105ca186ac # v1.0.0 IGNORE:TK
