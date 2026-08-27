@@ -9,9 +9,12 @@ from unittest.mock import patch
 import pytest
 
 from fastmcp_extensions._telemetry import (
+    TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
+    resolve_extra_properties,
     resolve_version,
+    telemetry_opted_out,
 )
 
 # ---------------------------------------------------------------------------
@@ -57,6 +60,30 @@ def test_telemetry_record_to_dict() -> None:
     assert d["success"] is True
 
 
+def test_telemetry_record_includes_extra_without_overwriting_core_fields() -> None:
+    record = TelemetryRecord(
+        invocation_type="test_call",
+        name="my_fn",
+        timestamp="2025-01-01T00:00:00+00:00",
+        duration_ms=10.5,
+        success=True,
+        error_type=None,
+        package_version="0.1.0",
+        extra={"name": "wrong", "custom_property": "value"},
+    )
+
+    assert record.to_dict() == {
+        "invocation_type": "test_call",
+        "name": "my_fn",
+        "timestamp": "2025-01-01T00:00:00+00:00",
+        "duration_ms": 10.5,
+        "success": True,
+        "error_type": None,
+        "package_version": "0.1.0",
+        "custom_property": "value",
+    }
+
+
 def test_telemetry_record_is_immutable() -> None:
     record = TelemetryRecord(
         invocation_type="x",
@@ -76,6 +103,57 @@ def test_telemetry_record_is_immutable() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_telemetry_config_is_frozen() -> None:
+    config = TelemetryConfig()
+    with pytest.raises(AttributeError):
+        config.enabled = False  # ty: ignore[invalid-assignment]  # The test intentionally mutates a frozen config.
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        pytest.param(None, False, id="unset"),
+        pytest.param("", False, id="empty"),
+        pytest.param("0", False, id="zero"),
+        pytest.param("FALSE", False, id="false"),
+        pytest.param("no", False, id="no"),
+        pytest.param("1", True, id="one"),
+        pytest.param("true", True, id="true"),
+    ],
+)
+def test_telemetry_opted_out(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str | None,
+    expected: bool,
+) -> None:
+    if value is None:
+        monkeypatch.delenv("DO_NOT_TRACK", raising=False)
+    else:
+        monkeypatch.setenv("DO_NOT_TRACK", value)
+
+    assert telemetry_opted_out() is expected
+
+
+def test_resolve_extra_properties() -> None:
+    assert resolve_extra_properties(None) == {}
+    static = {"source": "test"}
+    assert resolve_extra_properties(static) is static
+    assert resolve_extra_properties(lambda: {"source": "callable"}) == {
+        "source": "callable"
+    }
+
+
+def test_resolve_extra_properties_ignores_provider_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def raise_error() -> dict[str, object]:
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.DEBUG):
+        assert resolve_extra_properties(raise_error) == {}
+    assert "Failed to resolve telemetry extra properties" in caplog.text
+
+
 def test_sinks_defaults_no_sentry_no_segment() -> None:
     sinks = TelemetrySinks()
     assert sinks.sentry_enabled is False
@@ -83,7 +161,11 @@ def test_sinks_defaults_no_sentry_no_segment() -> None:
     assert sinks.package_version == "unknown"
 
 
-def test_sinks_with_sentry(caplog: pytest.LogCaptureFixture) -> None:
+def test_sinks_with_sentry(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DO_NOT_TRACK", raising=False)
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
         sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
@@ -106,7 +188,10 @@ def test_sinks_emit_log(caplog: pytest.LogCaptureFixture) -> None:
     assert "fn" in caplog.text
 
 
-def test_sinks_capture_exception_calls_sentry() -> None:
+def test_sinks_capture_exception_calls_sentry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DO_NOT_TRACK", raising=False)
     with patch("fastmcp_extensions._telemetry.sentry_sdk") as mock_sentry:
         mock_sentry.is_initialized.return_value = True
         sinks = TelemetrySinks(sentry_dsn="https://fake@sentry.io/1")
@@ -118,3 +203,35 @@ def test_sinks_capture_exception_calls_sentry() -> None:
 def test_sinks_capture_exception_noop_without_sentry() -> None:
     sinks = TelemetrySinks()
     sinks.capture_exception(ValueError("test"))  # should not raise
+
+
+def test_sinks_do_not_initialize_external_sinks_when_opted_out(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    with patch("fastmcp_extensions._telemetry._init_sentry") as init_sentry, patch(
+        "fastmcp_extensions._telemetry._init_segment"
+    ) as init_segment:
+        sinks = TelemetrySinks(
+            sentry_dsn="https://fake@sentry.io/1",
+            segment_write_key="fake-key",
+        )
+
+    assert sinks.sentry_enabled is False
+    assert sinks.segment_enabled is False
+    init_sentry.assert_not_called()
+    init_segment.assert_not_called()
+
+    record = TelemetryRecord(
+        invocation_type="test",
+        name="fn",
+        timestamp="t",
+        duration_ms=5.0,
+        success=True,
+        error_type=None,
+        package_version="v",
+    )
+    with caplog.at_level(logging.INFO):
+        sinks.emit(record)
+    assert "fn" in caplog.text

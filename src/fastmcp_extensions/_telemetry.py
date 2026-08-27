@@ -10,13 +10,19 @@ Three telemetry sinks, each independently toggled:
 1. **Structured JSON log** - always on (Python `logging`, `INFO` level).
 2. **Sentry breadcrumb** - enabled when a `sentry_dsn` is supplied.
 3. **Segment analytics event** - enabled when a `segment_write_key` is supplied.
+
+Set `DO_NOT_TRACK` to a non-empty value other than `0`, `false`, or `no` to
+disable Sentry and Segment while keeping structured logs enabled.
 """
 
 from __future__ import annotations
 
 import importlib.metadata as md
 import logging
-from dataclasses import dataclass
+import os
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from typing import cast
 
 import sentry_sdk
 from segment import analytics as _segment_analytics
@@ -40,10 +46,11 @@ class TelemetryRecord:
     success: bool
     error_type: str | None
     package_version: str
+    extra: Mapping[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to a plain dict suitable for logging / analytics."""
-        return {
+        core = {
             "invocation_type": self.invocation_type,
             "name": self.name,
             "timestamp": self.timestamp,
@@ -52,6 +59,23 @@ class TelemetryRecord:
             "error_type": self.error_type,
             "package_version": self.package_version,
         }
+        return core | {
+            key: value for key, value in self.extra.items() if key not in core
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetryConfig:
+    """Configuration for automatic MCP tool-call telemetry."""
+
+    enabled: bool = True
+    package_name: str | None = None
+    sentry_dsn: str | None = None
+    segment_write_key: str | None = None
+    segment_user_id: str = "mcp-server"
+    extra_properties: (
+        Mapping[str, object] | Callable[[], Mapping[str, object]] | None
+    ) = None
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +87,8 @@ class TelemetrySinks:
     """Manages Sentry and Segment initialisation and event emission.
 
     Consumers create an instance with optional DSN / write key. Sinks whose
-    key is `None` are skipped.
+    key is `None` are skipped. Setting `DO_NOT_TRACK` disables Sentry and
+    Segment initialization while leaving structured logging enabled.
     """
 
     def __init__(
@@ -87,13 +112,16 @@ class TelemetrySinks:
 
         # Sentry
         self.sentry_enabled = False
+        self.segment_enabled = False
+        self._segment_user_id = segment_user_id
+        if telemetry_opted_out():
+            return
+
         if sentry_dsn is not None:
             _init_sentry(sentry_dsn, package_name)
             self.sentry_enabled = True
 
         # Segment
-        self.segment_enabled = False
-        self._segment_user_id = segment_user_id
         if segment_write_key is not None:
             _init_segment(segment_write_key)
             self.segment_enabled = True
@@ -160,6 +188,29 @@ def resolve_version(package_name: str | None) -> str:
         return md.version(package_name)
     except md.PackageNotFoundError:
         return "unknown"
+
+
+def resolve_extra_properties(
+    spec: Mapping[str, object] | Callable[[], Mapping[str, object]] | None,
+) -> Mapping[str, object]:
+    """Resolve static or dynamic telemetry attribution properties."""
+    if spec is None:
+        return {}
+    if isinstance(spec, Mapping):
+        return spec
+    provider = cast(Callable[[], Mapping[str, object]], spec)
+    try:
+        return provider()
+    except Exception:
+        # Telemetry must never break a tool call, so ignore provider failures.
+        logger.debug("Failed to resolve telemetry extra properties", exc_info=True)
+        return {}
+
+
+def telemetry_opted_out() -> bool:
+    """Return whether external telemetry sinks are disabled by the environment."""
+    value = os.environ.get("DO_NOT_TRACK", "")
+    return bool(value) and value.lower() not in {"0", "false", "no"}
 
 
 def _init_sentry(dsn: str, package_name: str | None) -> None:

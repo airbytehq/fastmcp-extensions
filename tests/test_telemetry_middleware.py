@@ -10,9 +10,11 @@ import pytest
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 
+from fastmcp_extensions import TelemetryConfig
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
+    register_tool_call_telemetry,
 )
 
 # ---------------------------------------------------------------------------
@@ -135,6 +137,90 @@ async def test_on_call_tool_failure(caplog: pytest.LogCaptureFixture) -> None:
 
     assert "bad_tool" in caplog.text
     assert "error=ValueError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_extra_properties_are_added_to_telemetry_record() -> None:
+    mw = ToolCallTelemetryMiddleware(
+        extra_properties={"is_hosted_mcp": True, "name": "wrong"}
+    )
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        return _make_tool_result()
+
+    await mw.on_call_tool(_make_context(), call_next)
+
+    record = emit.call_args.args[0]
+    assert record.to_dict()["is_hosted_mcp"] is True
+    assert record.to_dict()["name"] == "test_tool"
+
+
+@pytest.mark.asyncio
+async def test_extra_properties_callable_is_evaluated_for_each_call() -> None:
+    calls = 0
+
+    def extra_properties() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"call_number": calls}
+
+    mw = ToolCallTelemetryMiddleware(extra_properties=extra_properties)
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        return _make_tool_result()
+
+    await mw.on_call_tool(_make_context(), call_next)
+    await mw.on_call_tool(_make_context(), call_next)
+
+    assert calls == 2
+    assert [call.args[0].to_dict()["call_number"] for call in emit.call_args_list] == [
+        1,
+        2,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_extra_properties_failure_does_not_break_tool_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def extra_properties() -> dict[str, object]:
+        raise RuntimeError("boom")
+
+    mw = ToolCallTelemetryMiddleware(extra_properties=extra_properties)
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        return _make_tool_result()
+
+    with caplog.at_level(logging.DEBUG):
+        result = await mw.on_call_tool(_make_context(), call_next)
+
+    assert result.content[0].text == "ok"
+    assert emit.call_count == 1
+    assert emit.call_args.args[0].extra == {}
+    assert "Failed to resolve telemetry extra properties" in caplog.text
+
+
+def test_register_tool_call_telemetry_is_idempotent() -> None:
+    from fastmcp import FastMCP
+
+    app = FastMCP("test-server")
+    config = TelemetryConfig()
+
+    assert register_tool_call_telemetry(app, config) is None
+    assert register_tool_call_telemetry(app, config) is None
+    assert (
+        sum(
+            isinstance(middleware, ToolCallTelemetryMiddleware)
+            for middleware in app.middleware
+        )
+        == 1
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,18 @@ This module provides a factory function to create FastMCP servers with common
 patterns built-in, including server info resources and HTTP header credential
 resolution.
 
+Tool-call telemetry is enabled by default and emits structured logs for every
+MCP tool invocation. Segment and Sentry remain disabled unless their write key
+or DSN is supplied through `TelemetryConfig`. Set `telemetry=False` or use a
+disabled `TelemetryConfig` to opt out of the middleware entirely. The
+`extra_properties` configuration can add attribution properties without
+capturing tool arguments or results.
+
+`airbyte-ops-mcp` currently registers `ToolCallTelemetryMiddleware` manually.
+Until that registration is removed, it will produce duplicate INFO log lines
+but no duplicate Segment or Sentry events because the second middleware has no
+external sink configuration.
+
 ## Key Components
 
 - `mcp_server`: Factory function to create a FastMCP instance with built-in features
@@ -68,12 +80,15 @@ import json
 import pkgutil
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
 from fastmcp import FastMCP
 
 from fastmcp_extensions._middleware import ToolFilterMiddleware
+from fastmcp_extensions._telemetry import TelemetryConfig
+from fastmcp_extensions._telemetry_middleware import register_tool_call_telemetry
 from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
@@ -242,6 +257,7 @@ def mcp_server(
     tool_filters: list[ToolFilterFn] | None = None,
     include_standard_tool_filters: bool = False,
     encoded_session_state: EncodedSessionStateConfig | None = None,
+    telemetry: TelemetryConfig | bool = True,
     **fastmcp_kwargs: Any,
 ) -> FastMCP:
     """Create a FastMCP server with built-in server info and credential resolution.
@@ -274,6 +290,9 @@ def mcp_server(
             and tool filters for readonly_mode and safe_mode. These filters use
             tool annotations (readOnlyHint, destructiveHint) to control visibility.
         encoded_session_state: Server-level policy for encoded state handles.
+        telemetry: Tool-call telemetry configuration. Defaults to structured
+            log-only telemetry. Set to False or use
+            `TelemetryConfig(enabled=False)` to disable the middleware.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
     Returns:
@@ -348,6 +367,19 @@ def mcp_server(
     app.x_mcp_server_config = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     if encoded_session_state is not None:
         app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+
+    telemetry_config: TelemetryConfig | None
+    if telemetry is True:
+        telemetry_config = TelemetryConfig()
+    elif telemetry is False:
+        telemetry_config = None
+    else:
+        telemetry_config = telemetry
+
+    if telemetry_config is not None and telemetry_config.enabled:
+        if telemetry_config.package_name is None:
+            telemetry_config = replace(telemetry_config, package_name=package_name)
+        register_tool_call_telemetry(app, telemetry_config)
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])

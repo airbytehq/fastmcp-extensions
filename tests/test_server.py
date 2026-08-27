@@ -13,9 +13,13 @@ from mcp.types import Tool, ToolAnnotations
 from fastmcp_extensions import (
     MCPServerConfig,
     MCPServerConfigArg,
+    TelemetryConfig,
+    ToolCallTelemetryMiddleware,
     get_mcp_config,
     mcp_server,
 )
+from fastmcp_extensions._middleware import ToolFilterMiddleware
+from fastmcp_extensions._telemetry import resolve_version
 from fastmcp_extensions.tool_filters import (
     _parse_csv_config,
     no_client_filesystem_filter,
@@ -27,6 +31,65 @@ def test_mcp_server_returns_fastmcp_instance() -> None:
     """Test that mcp_server() returns a FastMCP instance."""
     app = mcp_server("test-server")
     assert isinstance(app, FastMCP)
+
+
+@pytest.mark.unit
+def test_mcp_server_registers_telemetry_by_default() -> None:
+    app = mcp_server("test-server")
+
+    assert (
+        sum(
+            isinstance(middleware, ToolCallTelemetryMiddleware)
+            for middleware in app.middleware
+        )
+        == 1
+    )
+
+
+@pytest.mark.unit
+def test_mcp_server_can_disable_telemetry() -> None:
+    disabled_apps = [
+        mcp_server("test-server", telemetry=False),
+        mcp_server("test-server", telemetry=TelemetryConfig(enabled=False)),
+    ]
+
+    for app in disabled_apps:
+        assert not any(
+            isinstance(middleware, ToolCallTelemetryMiddleware)
+            for middleware in app.middleware
+        )
+
+
+@pytest.mark.unit
+def test_mcp_server_inherits_package_name_for_telemetry() -> None:
+    app = mcp_server("test-server", package_name="fastmcp-extensions")
+
+    telemetry = next(
+        middleware
+        for middleware in app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    assert telemetry._package_version == resolve_version("fastmcp-extensions")
+
+
+@pytest.mark.unit
+def test_mcp_server_registers_telemetry_before_tool_filters() -> None:
+    def allow_all_filter(tool: Tool, app: FastMCP) -> bool:
+        return True
+
+    app = mcp_server("test-server", tool_filters=[allow_all_filter])
+    telemetry_index = next(
+        index
+        for index, middleware in enumerate(app.middleware)
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    filter_index = next(
+        index
+        for index, middleware in enumerate(app.middleware)
+        if isinstance(middleware, ToolFilterMiddleware)
+    )
+
+    assert telemetry_index < filter_index
 
 
 @pytest.mark.unit
