@@ -6,8 +6,8 @@ be comparable. A salt derived from per-process state makes the surrogates
 identify instances rather than callers.
 
 The `caller` HMAC scope label is part of the telemetry wire contract. Caller
-surrogates prefer verified token subjects, then OAuth client IDs, then IPs.
-IP fallback is disabled by default and must be explicitly enabled.
+surrogates prefer verified token subjects, then OAuth client IDs. IPs are never
+read for caller attribution.
 """
 
 from __future__ import annotations
@@ -59,16 +59,6 @@ def _hash_value(
 
 def _session_id() -> str | None:
     return get_context().session_id
-
-
-def _caller_ip() -> str | None:
-    request = get_http_request()
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        first_hop = forwarded_for.split(",", 1)[0].strip()
-        if first_hop:
-            return first_hop
-    return request.client.host if request.client else None
 
 
 def _auth_identity() -> _CallerIdentity | None:
@@ -141,13 +131,11 @@ class _AnonymizedAttribution:
         *,
         known_public_mcp_domains: Sequence[str] = (),
         anonymization_salt: str | Callable[[], str | None] | None = None,
-        caller_ip_fallback: bool = False,
     ) -> None:
         self._known_public_mcp_domains = tuple(
             domain.rstrip(".").lower() for domain in known_public_mcp_domains
         )
         self._anonymization_salt = anonymization_salt
-        self._caller_ip_fallback = caller_ip_fallback
         self._salt_resolved = False
         self._salt: str | None = None
 
@@ -189,10 +177,6 @@ class _AnonymizedAttribution:
         if caller_identity is not None:
             caller_value = caller_identity.value
             caller_id_type = caller_identity.id_type
-        elif self._caller_ip_fallback:
-            caller_value = _safe_value(_caller_ip)
-            if caller_value is not None:
-                caller_id_type = "ip"
         else:
             caller_value = None
         if caller_value is not None and caller_id_type is not None:

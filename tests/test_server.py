@@ -96,7 +96,6 @@ def test_mcp_server_passes_attribution_configuration() -> None:
     config = TelemetryConfig(
         known_public_mcp_domains=("airbyte.ai",),
         anonymization_salt=lambda: "fallback-salt",
-        caller_ip_fallback=True,
         anonymized_attribution=True,
     )
     app = mcp_server("test-server", telemetry=config)
@@ -109,7 +108,6 @@ def test_mcp_server_passes_attribution_configuration() -> None:
     assert telemetry._attribution is not None
     assert telemetry._attribution._known_public_mcp_domains == ("airbyte.ai",)
     assert telemetry._attribution._anonymization_salt is config.anonymization_salt
-    assert telemetry._attribution._caller_ip_fallback is True
 
 
 @pytest.mark.unit

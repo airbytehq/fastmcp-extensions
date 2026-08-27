@@ -78,7 +78,6 @@ class TelemetryConfig:
     ) = None
     known_public_mcp_domains: Sequence[str] = ()
     anonymization_salt: str | Callable[[], str | None] | None = None
-    caller_ip_fallback: bool = False
     anonymized_attribution: bool = True
 
 

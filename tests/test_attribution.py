@@ -252,49 +252,38 @@ def test_endpoint_attribution_respects_plaintext_domain_allowlist(
 
 
 @pytest.mark.parametrize(
-    ("token", "caller_ip_fallback", "expected_value", "expected_type"),
+    ("token", "expected_value", "expected_type"),
     [
         pytest.param(
             SimpleNamespace(
                 claims={"sub": "subject-secret", "client_id": "client-id"},
                 client_id="fallback-client-id",
             ),
-            False,
             "subject-secret",
             "subject",
             id="verified-subject",
         ),
         pytest.param(
             SimpleNamespace(claims={"client_id": "client-id"}, client_id=None),
-            False,
             "client-id",
             "client",
             id="oauth-client-id",
         ),
         pytest.param(
             None,
-            False,
             None,
             None,
-            id="unauthenticated-ip-fallback-disabled",
-        ),
-        pytest.param(
-            None,
-            True,
-            "198.51.100.23",
-            "ip",
-            id="unauthenticated-forwarded-ip-fallback",
+            id="unauthenticated",
         ),
     ],
 )
 def test_caller_attribution_uses_identity_precedence(
     monkeypatch: pytest.MonkeyPatch,
     token: SimpleNamespace | None,
-    caller_ip_fallback: bool,
     expected_value: str | None,
     expected_type: str | None,
 ) -> None:
-    """Caller attribution uses subject, client, then IP without competing fields."""
+    """Caller attribution uses token subject, then OAuth client ID."""
     from fastmcp_extensions import _attribution as attribution
 
     monkeypatch.setattr(attribution, "get_context", _context)
@@ -304,16 +293,9 @@ def test_caller_attribution_uses_identity_precedence(
         lambda: _request(forwarded_for="198.51.100.23, 192.0.2.10"),
     )
     monkeypatch.setattr(attribution, "get_access_token", lambda: token)
-    if token is not None or not caller_ip_fallback:
-        monkeypatch.setattr(
-            attribution,
-            "_caller_ip",
-            lambda: pytest.fail("authenticated caller must not read IP"),
-        )
 
     properties = _AnonymizedAttribution(
         anonymization_salt="test-salt",
-        caller_ip_fallback=caller_ip_fallback,
     )()
 
     if expected_value is None:
@@ -374,7 +356,6 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
     middleware = ToolCallTelemetryMiddleware(
         known_public_mcp_domains=("airbyte.ai",),
         anonymization_salt="test-salt",
-        caller_ip_fallback=True,
         extra_properties={"caller_hash": "server-value"},
     )
     emit = MagicMock()
