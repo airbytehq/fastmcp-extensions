@@ -90,6 +90,12 @@ built with `telemetry=False` can register later via
 idempotent, while calling
 `app.add_middleware(ToolCallTelemetryMiddleware(...))` directly on top of an
 automatically instrumented app yields two instances and duplicate log lines.
+
+## User-Facing Errors
+
+Pass `user_facing_errors` to `mcp_server()` to convert selected exception types
+into concise `ToolError`s without tracebacks. Use
+`user_facing_error_formatter` to customize the client-facing message.
 """
 
 from __future__ import annotations
@@ -99,7 +105,7 @@ import inspect
 import json
 import pkgutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import lru_cache
 from typing import Any
@@ -115,6 +121,10 @@ from fastmcp_extensions.server_config import (
 )
 from fastmcp_extensions.session_state import EncodedSessionStateConfig
 from fastmcp_extensions.tool_filters import ToolFilterFn
+from fastmcp_extensions.user_facing_errors import (
+    UserFacingErrorFormatter,
+    UserFacingErrorMiddleware,
+)
 
 
 @lru_cache(maxsize=1)
@@ -278,6 +288,8 @@ def mcp_server(
     include_standard_tool_filters: bool = False,
     encoded_session_state: EncodedSessionStateConfig | None = None,
     telemetry: TelemetryConfig | bool = True,
+    user_facing_errors: Sequence[type[BaseException]] | None = None,
+    user_facing_error_formatter: UserFacingErrorFormatter = str,
     **fastmcp_kwargs: Any,
 ) -> FastMCP:
     """Create a FastMCP server with built-in server info and credential resolution.
@@ -289,6 +301,7 @@ def mcp_server(
     - Optional MCP module auto-discovery
     - Per-request tool filtering via middleware
     - Optional standard tool filters (readonly mode, safe mode)
+    - Optional conversion of configured exceptions into concise `ToolError`s
 
     Args:
         name: The name of the MCP server.
@@ -313,6 +326,11 @@ def mcp_server(
         telemetry: Tool-call telemetry configuration. Defaults to structured
             log-only telemetry. Set to False or use
             `TelemetryConfig(enabled=False)` to disable the middleware.
+        user_facing_errors: Exception types to convert into concise `ToolError`s
+            for MCP clients. Exceptions not in this sequence use FastMCP's
+            default error handling.
+        user_facing_error_formatter: Callable used to format configured
+            exceptions before returning them to MCP clients.
         **fastmcp_kwargs: Additional arguments passed to FastMCP constructor.
 
     Returns:
@@ -387,6 +405,14 @@ def mcp_server(
     app.x_mcp_server_config = config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
     if encoded_session_state is not None:
         app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+
+    if user_facing_errors:
+        app.add_middleware(
+            UserFacingErrorMiddleware(
+                user_facing_errors,
+                formatter=user_facing_error_formatter,
+            )
+        )
 
     telemetry_config: TelemetryConfig | None
     if telemetry is True:

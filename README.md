@@ -447,6 +447,21 @@ trusted execution is enabled for a local stdio server. The gate is always forced
 off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
 an HTTP entrypoint to fail fast if its configuration is enabled.
 
+## User-Facing Errors
+
+Convert expected exceptions into concise MCP client errors without tracebacks by
+passing their types to `mcp_server()`. A formatter can customize the message:
+
+```python
+from fastmcp_extensions import mcp_server
+
+app = mcp_server(
+    name="my-server",
+    user_facing_errors=[ValueError],
+    user_facing_error_formatter=lambda error: f"Invalid request: {error}",
+)
+```
+
 ## Poe Tasks for MCP Servers
 
 This library provides template scripts for common MCP development tasks. Copy these to your project and customize:
