@@ -50,6 +50,7 @@ class UserFacingErrorMiddleware(Middleware):
         if not error_types:
             raise ValueError("error_types must contain at least one exception type")
         self._error_types = tuple(error_types)
+        self._caught_types = (ToolError, *self._error_types)
         self._formatter = formatter
 
     async def on_call_tool(
@@ -59,7 +60,7 @@ class UserFacingErrorMiddleware(Middleware):
     ) -> ToolResult:
         try:
             return await call_next(context)
-        except Exception as error:
+        except self._caught_types as error:
             user_error = self._match(error)
             if user_error is None:
                 raise
