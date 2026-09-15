@@ -72,9 +72,9 @@ class UserFacingErrorMiddleware(Middleware):
         FastMCP may wrap tool exceptions in `ToolError` before middleware sees them;
         the original exception is then available as `__cause__`.
         """
-        if isinstance(error, self._error_types):
-            return error
         cause = error.__cause__
         if isinstance(error, ToolError) and isinstance(cause, self._error_types):
             return cause
+        if isinstance(error, self._error_types):
+            return error
         return None

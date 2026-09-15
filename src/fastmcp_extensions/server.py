@@ -114,7 +114,10 @@ from fastmcp import FastMCP
 
 from fastmcp_extensions._middleware import ToolFilterMiddleware
 from fastmcp_extensions._telemetry import TelemetryConfig
-from fastmcp_extensions._telemetry_middleware import register_tool_call_telemetry
+from fastmcp_extensions._telemetry_middleware import (
+    ToolCallTelemetryMiddleware,
+    register_tool_call_telemetry,
+)
 from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
@@ -407,12 +410,21 @@ def mcp_server(
         app.x_mcp_extensions_session_state = encoded_session_state  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
 
     if user_facing_errors:
-        app.add_middleware(
-            UserFacingErrorMiddleware(
-                user_facing_errors,
-                formatter=user_facing_error_formatter,
-            )
+        user_facing_middleware = UserFacingErrorMiddleware(
+            user_facing_errors,
+            formatter=user_facing_error_formatter,
         )
+        # Must run outside telemetry (earlier in the list) so telemetry records
+        # the original exception type, including telemetry passed via `middleware=`.
+        telemetry_positions = [
+            index
+            for index, existing in enumerate(app.middleware)
+            if isinstance(existing, ToolCallTelemetryMiddleware)
+        ]
+        if telemetry_positions:
+            app.middleware.insert(telemetry_positions[0], user_facing_middleware)
+        else:
+            app.add_middleware(user_facing_middleware)
 
     telemetry_config: TelemetryConfig | None
     if telemetry is True:

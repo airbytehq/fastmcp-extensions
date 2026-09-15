@@ -138,6 +138,8 @@ class ToolCallTelemetryMiddleware(Middleware):
             result = await call_next(context)
         except Exception as exc:
             success = False
+            # FastMCP 3.4+ wraps tool exceptions in `ToolError`; report the cause
+            # so telemetry records the real failure type, not the wrapper.
             telemetry_error = (
                 exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
             )

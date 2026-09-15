@@ -101,6 +101,47 @@ async def test_custom_formatter_is_applied() -> None:
     assert str(raised.value) == "formatted: bad"
 
 
+@pytest.mark.asyncio
+async def test_broad_base_type_formats_original_exception() -> None:
+    server = FastMCP(
+        "test",
+        middleware=[UserFacingErrorMiddleware((Exception,))],
+    )
+
+    @server.tool
+    def raise_error() -> None:
+        raise ValueError("bad input")
+
+    with pytest.raises(ToolError) as raised:
+        await _call_tool(server)
+
+    assert str(raised.value) == "bad input"
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_inserts_before_caller_supplied_telemetry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    server = mcp_server(
+        "test",
+        middleware=[ToolCallTelemetryMiddleware()],
+        user_facing_errors=[MyError],
+    )
+
+    @server.tool
+    def raise_error() -> None:
+        raise MyError("caller telemetry")
+
+    assert isinstance(server.middleware[0], UserFacingErrorMiddleware)
+
+    with caplog.at_level(
+        logging.INFO, logger="fastmcp_extensions._telemetry"
+    ), pytest.raises(ToolError, match="caller telemetry"):
+        await _call_tool(server)
+
+    assert "error=MyError" in caplog.text
+
+
 def test_empty_error_types_are_rejected() -> None:
     with pytest.raises(ValueError, match="error_types"):
         UserFacingErrorMiddleware(())
