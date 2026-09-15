@@ -59,13 +59,21 @@ class UserFacingErrorMiddleware(Middleware):
     ) -> ToolResult:
         try:
             return await call_next(context)
-        except self._error_types as error:
-            cause = error.__cause__
-            if isinstance(error, ToolError) and cause is not None:
-                error = cause
-            raise ToolError(self._formatter(error)) from None
-        except ToolError as error:
-            cause = error.__cause__
-            if cause is not None and isinstance(cause, self._error_types):
-                raise ToolError(self._formatter(cause)) from None
-            raise
+        except Exception as error:
+            user_error = self._match(error)
+            if user_error is None:
+                raise
+            raise ToolError(self._formatter(user_error)) from None
+
+    def _match(self, error: BaseException) -> BaseException | None:
+        """Return the configured exception behind `error`, if any.
+
+        FastMCP may wrap tool exceptions in `ToolError` before middleware sees them;
+        the original exception is then available as `__cause__`.
+        """
+        if isinstance(error, self._error_types):
+            return error
+        cause = error.__cause__
+        if isinstance(error, ToolError) and isinstance(cause, self._error_types):
+            return cause
+        return None
