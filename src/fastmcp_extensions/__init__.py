@@ -101,6 +101,10 @@ from fastmcp_extensions.tool_filters import (
     interactive_ui_filter,
     is_trusted_execution_enabled,
 )
+from fastmcp_extensions.user_facing_errors import (
+    UserFacingErrorFormatter,
+    UserFacingErrorMiddleware,
+)
 
 __all__ = [
     "ANNOTATION_INTERACTIVE_UI",
@@ -137,6 +141,8 @@ __all__ = [
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
     "ToolStateBase",
+    "UserFacingErrorFormatter",
+    "UserFacingErrorMiddleware",
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",

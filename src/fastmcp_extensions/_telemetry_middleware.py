@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import (
     CallNext,
     Middleware,
@@ -137,7 +138,12 @@ class ToolCallTelemetryMiddleware(Middleware):
             result = await call_next(context)
         except Exception as exc:
             success = False
-            error_type = type(exc).__name__
+            # FastMCP 3.4+ wraps tool exceptions in `ToolError`; report the cause
+            # so telemetry records the real failure type, not the wrapper.
+            telemetry_error = (
+                exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
+            )
+            error_type = type(telemetry_error).__name__
             raise
         finally:
             duration_ms = round((time.monotonic() - start) * 1000, 2)
