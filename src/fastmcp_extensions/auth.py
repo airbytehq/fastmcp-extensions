@@ -132,6 +132,36 @@ class OIDCAuthConfig:
     downstream and strict per-resource audience binding is required. Mirrors
     `OIDCProxy(forward_resource=...)`, whose own default is `True`.
     """
+    require_authorization_consent: bool | Literal["external"] = True
+    """Whether `OIDCProxy` shows its own consent screen before handing off to
+    the upstream IdP.
+
+    The built-in screen is generic FastMCP chrome — it renders the server's
+    `name`, `icons[0]`, and `website_url`, and nothing else is themeable. When
+    the upstream IdP already collects consent on its own branded login page,
+    leaving this at `True` shows the user two consent prompts in a row, the
+    first of which looks nothing like the product they are signing in to.
+
+    Set to `"external"` when consent lives upstream, normally together with
+    `extra_authorize_params={"prompt": "consent"}` so the IdP actually prompts
+    instead of silently reusing an existing browser session. `"external"` and
+    `False` both skip the screen, but `False` logs a warning on every startup
+    because it reads as "no consent collected anywhere"; `"external"` records
+    that consent simply moved to the IdP. Mirrors
+    `OIDCProxy(require_authorization_consent=...)` and keeps its default of
+    `True`. FastMCP 3.4 added a third value, `"remember"`, which is not typed
+    here because the supported FastMCP range starts before it existed.
+    """
+    extra_authorize_params: dict[str, str] | None = None
+    """Extra query parameters to forward to the upstream IdP's authorization
+    endpoint.
+
+    Covers provider-specific behavior the OAuth flow itself does not model —
+    `{"prompt": "consent"}` to force the IdP's login/consent page rather than a
+    silent re-auth against an existing session, or `{"access_type": "offline"}`
+    to ask for a refresh token. Mirrors
+    `OIDCProxy(extra_authorize_params=...)`, whose own default is `None`.
+    """
     client_storage: AsyncKeyValue | None = None
     """Durable backend for `OIDCProxy`'s OAuth state (upstream access + refresh
     tokens, JTI mappings, and dynamic client registrations).
@@ -235,6 +265,8 @@ def _build_oidc_proxy(config: OIDCAuthConfig, base_url: str | None) -> OIDCProxy
         "required_scopes": config.required_scopes,
         "enable_cimd": config.enable_cimd,
         "forward_resource": config.forward_resource,
+        "require_authorization_consent": config.require_authorization_consent,
+        "extra_authorize_params": config.extra_authorize_params,
     }
     if config.client_storage is not None:
         # Only override `OIDCProxy`'s default in-memory store when a durable
