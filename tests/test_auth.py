@@ -7,9 +7,12 @@ variables**. Each MCP server owns its own env-var names and maps them into
 these config objects, so these tests exercise the typed API directly.
 """
 
+import inspect
+
 import httpx
 import pytest
 from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
+from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.jwt import (
     JWTVerifier,
     RSAKeyPair,
@@ -173,6 +176,74 @@ def test_build_mcp_auth_forwards_enable_cimd_flag(
     auth = build_mcp_auth(oidc=_oidc_config(**config_kwargs))
     assert isinstance(auth, _CapturingOIDCProxy)
     assert auth.kwargs["enable_cimd"] is expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_kwargs,expected",
+    [
+        pytest.param({}, True, id="default_true"),
+        pytest.param(
+            {"require_authorization_consent": "external"},
+            "external",
+            id="external",
+        ),
+        pytest.param(
+            {"require_authorization_consent": False}, False, id="explicit_false"
+        ),
+    ],
+)
+def test_build_mcp_auth_forwards_require_authorization_consent(
+    monkeypatch: pytest.MonkeyPatch,
+    config_kwargs: dict[str, object],
+    expected: object,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = build_mcp_auth(oidc=_oidc_config(**config_kwargs))
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["require_authorization_consent"] == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_kwargs,expected",
+    [
+        pytest.param({}, None, id="default_none"),
+        pytest.param(
+            {"extra_authorize_params": {"prompt": "consent"}},
+            {"prompt": "consent"},
+            id="prompt_consent",
+        ),
+    ],
+)
+def test_build_mcp_auth_forwards_extra_authorize_params(
+    monkeypatch: pytest.MonkeyPatch,
+    config_kwargs: dict[str, object],
+    expected: dict[str, str] | None,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    auth = build_mcp_auth(oidc=_oidc_config(**config_kwargs))
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["extra_authorize_params"] == expected
+
+
+@pytest.mark.unit
+def test_oidc_proxy_accepts_every_forwarded_kwarg() -> None:
+    # The passthrough tests swap in `_CapturingOIDCProxy`, so they stay green
+    # even if the resolved FastMCP drops one of these kwargs. This library
+    # supports `fastmcp>=3.0,<4.0`, and `_build_oidc_proxy` passes them all
+    # unconditionally, so a rename or removal is a `TypeError` at startup.
+    params = inspect.signature(OIDCProxy.__init__).parameters
+    for kwarg in (
+        "audience",
+        "required_scopes",
+        "enable_cimd",
+        "forward_resource",
+        "require_authorization_consent",
+        "extra_authorize_params",
+        "client_storage",
+    ):
+        assert kwarg in params, f"OIDCProxy no longer accepts {kwarg!r}"
 
 
 @pytest.mark.unit
