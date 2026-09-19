@@ -53,11 +53,20 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
 
+      - name: Authenticate as GitHub App
+        if: github.event_name == 'push'
+        id: get-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
       - name: Publish release
         if: github.event_name == 'push'
         uses: aaronsteers/semantic-pr-release-drafter@v2.3.4
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App token so the published release triggers publish.yml (GITHUB_TOKEN-created events don't spawn workflow runs).
+          GITHUB_TOKEN: ${{ steps.get-app-token.outputs.token }}
         with:
           # Publish only after all assets are attached; manual dispatches leave the draft in place.
           prepared-release-id: ${{ steps.not-ready-draft.outputs.id }}
