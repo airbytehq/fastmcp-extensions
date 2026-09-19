@@ -40,6 +40,6 @@ file-wide suppressions. Ty does not honor coded mypy-style
 
 ## 🚀 Releasing
 
-This project uses [`semantic-pr-release-drafter`](https://github.com/aaronsteers/semantic-pr-release-drafter) for automated release management. To release, simply click "`Edit`" on the latest release draft from the [releases page](https://github.com/airbytehq/fastmcp-extensions/releases), and then click "`Publish release`". This publish operation will trigger all necessary downstream publish operations.
+This project uses [`semantic-pr-release-drafter`](https://github.com/aaronsteers/semantic-pr-release-drafter) for automated release management. Merging to `main` publishes the release automatically, which triggers the PyPI publish. Running the Release Drafter workflow manually via `workflow_dispatch` only refreshes the draft — it can then be published by hand from the [releases page](https://github.com/airbytehq/fastmcp-extensions/releases).
 
 ℹ️ For more detailed instructions, please see the [Releasing Guide](https://github.com/aaronsteers/semantic-pr-release-drafter/blob/main/docs/releasing.md).

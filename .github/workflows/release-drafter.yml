@@ -52,5 +52,13 @@ jobs:
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
-          # Pushes to main publish immediately; manual dispatches only refresh the draft.
-          publish: ${{ github.event_name == 'push' }}
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        uses: aaronsteers/semantic-pr-release-drafter@v2.3.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Publish only after all assets are attached; manual dispatches leave the draft in place.
+          prepared-release-id: ${{ steps.not-ready-draft.outputs.id }}
+          publish: true
