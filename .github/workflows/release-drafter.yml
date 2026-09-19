@@ -14,6 +14,7 @@ jobs:
   draft_release:
     name: Draft Release
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
@@ -52,3 +53,20 @@ jobs:
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
+          # Pushes to main publish immediately; manual dispatches only refresh the draft.
+          publish: ${{ github.event_name == 'push' }}
+
+      # A release published with GITHUB_TOKEN does not fire the `release: published`
+      # trigger in publish.yml, so dispatch it explicitly for the new tag.
+      - name: Trigger PyPI publish
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.not-ready-draft.outputs.tag-name }}
+          VERSION: ${{ steps.not-ready-draft.outputs.resolved-version }}
+        run: >
+          gh workflow run publish.yml
+          --ref main
+          -f git_ref="$TAG"
+          -f version_override="$VERSION"
+          -f publish=true

@@ -2,7 +2,8 @@
 #
 # Triggers:
 # - release: published - When user clicks "Publish" on a draft release (downloads pre-built assets)
-# - workflow_dispatch - On-demand prerelease builds from a PR branch (see prerelease-command.yml)
+# - workflow_dispatch - On-demand prerelease builds from a PR branch (see prerelease-command.yml);
+#   also dispatched by release-drafter.yml after an auto-published release on main
 #
 # Authentication: This workflow expects GitHub OIDC for passwordless PyPI publishing.
 # For more info: https://docs.pypi.org/trusted-publishers/
