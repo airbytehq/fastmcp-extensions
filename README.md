@@ -235,6 +235,14 @@ injects it via `OIDCAuthConfig(client_storage=...)` — keeping all
 backend-specific config (project, database, encryption) in the deployment, not
 in this library.
 
+**Consent screen.** `OIDCProxy` shows its own consent page before redirecting to
+the IdP, rendered from the server's `name`, `icons[0]`, and `website_url` and
+otherwise not themeable. When the IdP already collects consent on a branded
+login page, that is two prompts in a row — pass
+`OIDCAuthConfig(require_authorization_consent="external",
+extra_authorize_params={"prompt": "consent"})` to skip the built-in page and let
+the IdP prompt instead of silently reusing an existing session.
+
 **Client side.** A headless client mints its own short-lived bearer token and
 sends it as `Authorization: Bearer <token>`; use
 `fetch_client_credentials_token(ClientCredentials(...))` for an OAuth 2.0
