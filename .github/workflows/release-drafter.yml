@@ -56,7 +56,7 @@ jobs:
       - name: Authenticate as GitHub App
         if: github.event_name == 'push'
         id: get-app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
           private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
