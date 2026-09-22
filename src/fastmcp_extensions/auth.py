@@ -62,7 +62,7 @@ app = mcp_server(name="my-server", auth=auth)
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -177,6 +177,20 @@ class OIDCAuthConfig:
     all backend-specific config (project, database, encryption) lives in the
     deployment, never in this library.
     """
+    proxy_factory: Callable[..., OIDCProxy] | None = None
+    """Callable that constructs the proxy in place of `OIDCProxy` itself.
+
+    `build_mcp_auth` maps this config into `OIDCProxy` constructor kwargs and
+    then calls `(proxy_factory or OIDCProxy)(**kwargs)`, so the factory
+    receives exactly what the stock proxy would have and must return an
+    `OIDCProxy` (normally an instance of a subclass). Use it when a deployment
+    has to change proxy *behavior* — the `authorize` redirect, extra routes,
+    per-request upstream endpoints, the token verifier — rather than a
+    constructor setting, while still getting the kwarg mapping,
+    `client_storage` handling, and `MultiAuth` assembly this factory provides.
+    Typically a `functools.partial` of the subclass that binds its own extra
+    keyword-only arguments. Leave `None` to construct a stock `OIDCProxy`.
+    """
 
 
 @dataclass(kw_only=True)
@@ -272,7 +286,7 @@ def _build_oidc_proxy(config: OIDCAuthConfig, base_url: str | None) -> OIDCProxy
         # Only override `OIDCProxy`'s default in-memory store when a durable
         # backend was supplied, so unconfigured callers keep the default.
         proxy_kwargs["client_storage"] = config.client_storage
-    return OIDCProxy(**proxy_kwargs)
+    return (config.proxy_factory or OIDCProxy)(**proxy_kwargs)
 
 
 def _assemble_auth(

@@ -243,6 +243,14 @@ login page, that is two prompts in a row — pass
 extra_authorize_params={"prompt": "consent"})` to skip the built-in page and let
 the IdP prompt instead of silently reusing an existing session.
 
+**Custom proxy class.** When a deployment has to change how the proxy *behaves*
+— its `authorize` redirect, extra routes, per-request upstream endpoints, or
+token verifier — rather than a constructor setting, subclass `OIDCProxy` and
+pass `OIDCAuthConfig(proxy_factory=functools.partial(MyProxy, extra=...))`.
+`build_mcp_auth` still does the kwarg mapping, `client_storage` handling, and
+`MultiAuth` assembly; the factory only replaces the final `OIDCProxy(...)` call
+and receives the same kwargs.
+
 **Client side.** A headless client mints its own short-lived bearer token and
 sends it as `Authorization: Bearer <token>`; use
 `fetch_client_credentials_token(ClientCredentials(...))` for an OAuth 2.0
