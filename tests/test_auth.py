@@ -7,6 +7,7 @@ variables**. Each MCP server owns its own env-var names and maps them into
 these config objects, so these tests exercise the typed API directly.
 """
 
+import functools
 import inspect
 
 import httpx
@@ -225,6 +226,51 @@ def test_build_mcp_auth_forwards_extra_authorize_params(
     auth = build_mcp_auth(oidc=_oidc_config(**config_kwargs))
     assert isinstance(auth, _CapturingOIDCProxy)
     assert auth.kwargs["extra_authorize_params"] == expected
+
+
+@pytest.mark.unit
+def test_build_mcp_auth_proxy_factory_defaults_to_none() -> None:
+    assert _oidc_config().proxy_factory is None
+
+
+@pytest.mark.unit
+def test_build_mcp_auth_uses_proxy_factory_with_same_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A subclass supplied via `proxy_factory` must get exactly the kwargs the
+    # stock `OIDCProxy` would have, so it inherits the same wiring. The
+    # factory itself is a build-time hook, not a proxy setting, so it is not
+    # forwarded.
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    store = object()
+
+    class _SubclassProxy(_CapturingOIDCProxy):
+        pass
+
+    baseline = build_mcp_auth(oidc=_oidc_config(client_storage=store))
+    auth = build_mcp_auth(
+        oidc=_oidc_config(client_storage=store, proxy_factory=_SubclassProxy)
+    )
+    assert isinstance(baseline, _CapturingOIDCProxy)
+    assert isinstance(auth, _SubclassProxy)
+    assert auth.kwargs == baseline.kwargs
+    assert "proxy_factory" not in auth.kwargs
+
+
+@pytest.mark.unit
+def test_build_mcp_auth_proxy_factory_accepts_partial_with_bound_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The intended shape: `functools.partial(Subclass, extra=...)` binds the
+    # subclass's own keyword-only arguments while the standard proxy kwargs
+    # still arrive from `build_mcp_auth`.
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    factory = functools.partial(_CapturingOIDCProxy, realm_hint="acme")
+    auth = build_mcp_auth(oidc=_oidc_config(proxy_factory=factory))
+    assert isinstance(auth, _CapturingOIDCProxy)
+    assert auth.kwargs["realm_hint"] == "acme"
+    assert auth.kwargs["client_id"] == "cid"
+    assert auth.kwargs["base_url"] == "https://mcp.example"
 
 
 @pytest.mark.unit
