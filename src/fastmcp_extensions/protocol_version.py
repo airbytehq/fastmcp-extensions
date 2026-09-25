@@ -36,16 +36,16 @@ _PROTOCOL_VERSION_HEADER = b"mcp-protocol-version"
 _MAX_BODY_BYTES = 64 * 1024
 
 
-def _request_id(body: bytes) -> str | int | None:
+def _request_id(body: bytes) -> str | int | float | None:
     """Return the JSON-RPC request id from a buffered body, or `None`."""
     try:
         payload = json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None
     request_id = payload.get("id")
-    if isinstance(request_id, str | int) and not isinstance(request_id, bool):
+    if isinstance(request_id, str | int | float) and not isinstance(request_id, bool):
         return request_id
     return None
 
@@ -80,10 +80,7 @@ class ProtocolVersionNegotiationMiddleware:
         if (
             scope.get("type") != _HTTP_REQUEST
             or scope.get(_HTTP_REQUEST_METHOD) != "POST"
-            or (
-                self.path is not None
-                and _normalize_path(scope.get("path", "")) != self.path
-            )
+            or (self.path is not None and self._routing_path(scope) != self.path)
         ):
             await self.app(scope, receive, send)
             return
@@ -131,3 +128,12 @@ class ProtocolVersionNegotiationMiddleware:
             media_type="application/json",
         )
         await response(scope, receive, send)
+
+    @staticmethod
+    def _routing_path(scope: Scope) -> str:
+        """Return the normalized request path with any `root_path` mount stripped."""
+        path = scope.get("path", "")
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :]
+        return _normalize_path(path)

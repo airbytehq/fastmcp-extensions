@@ -122,6 +122,7 @@ def test_string_request_id_is_echoed() -> None:
         pytest.param(
             b'[{"jsonrpc":"2.0","id":0,"method":"server/discover"}]', id="batch"
         ),
+        pytest.param(b"[" * 30_000 + b"]" * 30_000, id="deeply-nested"),
         pytest.param(b"x" * (64 * 1024 + 1), id="oversized"),
     ],
 )
@@ -221,6 +222,52 @@ def test_path_scoping_intercepts_matching_path() -> None:
     )
     assert responses[0]["status"] == 400
     assert json.loads(_response_body(responses))["id"] == 0
+
+
+def test_float_request_id_is_echoed() -> None:
+    """Float ids echo back unchanged."""
+    body = b'{"jsonrpc":"2.0","id":1.5,"method":"server/discover"}'
+    _, responses = _run(
+        _middleware(),
+        _post_scope(headers=_headers(**{"mcp-protocol-version": "2026-07-28"})),
+        [{"type": "http.request", "body": body, "more_body": False}],
+    )
+    assert json.loads(_response_body(responses))["id"] == 1.5
+
+
+def test_root_path_mounted_app_is_intercepted() -> None:
+    """A `root_path` mount prefix is stripped before path matching."""
+    body = b'{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
+    scope = _post_scope(
+        path="/proxy/mcp",
+        headers=_headers(**{"mcp-protocol-version": "2026-07-28"}),
+    )
+    scope["root_path"] = "/proxy"
+    _, responses = _run(
+        _middleware(path="/mcp"),
+        scope,
+        [{"type": "http.request", "body": body, "more_body": False}],
+    )
+    assert responses[0]["status"] == 400
+    payload = json.loads(_response_body(responses))
+    assert payload["id"] == 0
+    assert payload["error"]["code"] == UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE
+
+
+def test_root_path_mounted_app_non_matching_path_passes_through() -> None:
+    """Requests outside the configured path still pass through under `root_path`."""
+    body = b'{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
+    scope = _post_scope(
+        path="/proxy/other",
+        headers=_headers(**{"mcp-protocol-version": "2026-07-28"}),
+    )
+    scope["root_path"] = "/proxy"
+    _, responses = _run(
+        _middleware(path="/mcp"),
+        scope,
+        [{"type": "http.request", "body": body, "more_body": False}],
+    )
+    assert responses[0]["status"] == 200
 
 
 def test_custom_supported_versions_are_advertised() -> None:
