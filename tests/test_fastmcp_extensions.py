@@ -1,10 +1,13 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the fastmcp_extensions module."""
 
+import warnings
+
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.providers import Provider
 from fastmcp.tools import Tool
+from mcp.types import Tool as McpTool
 from mcp.types import ToolAnnotations
 
 import fastmcp_extensions
@@ -31,6 +34,7 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,
     _clear_registrations,
 )
+from fastmcp_extensions.tool_filters import get_annotation
 
 
 @pytest.mark.parametrize(
@@ -157,7 +161,7 @@ async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
     tool = await app.get_tool("show_dashboard")
     assert tool is not None
     assert tool.annotations is not None
-    assert tool.annotations.model_extra[ANNOTATION_INTERACTIVE_UI] is True
+    assert (tool.meta or {}).get(ANNOTATION_INTERACTIVE_UI) is True
 
     def no_context() -> None:
         raise RuntimeError
@@ -198,9 +202,9 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
                     annotations=ToolAnnotations.model_validate(
                         {
                             "readOnlyHint": True,
-                            "provider-owned": True,
                         }
                     ),
+                    meta={"provider-owned": True},
                 )
             ]
 
@@ -219,8 +223,8 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
     tool = await app.get_tool("provider_tool")
     assert tool is not None
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
-    assert tool.annotations.model_extra == {
+    assert tool.annotations.read_only_hint is True
+    assert tool.meta == {
         "interactive-ui": True,
         "mcp_module": "test_fastmcp_extensions",
         "provider-owned": True,
@@ -274,3 +278,94 @@ def test_mcp_resource_decorator() -> None:
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
     _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_register_mcp_tools_exclude_args_hides_param_and_injects_default() -> (
+    None
+):
+    """Excluded params leave the tool schema but still receive their default."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def list_things(prefix: str, workspace_id: str = "ws-default") -> str:
+        """List things."""
+        return f"{prefix}:{workspace_id}"
+
+    app = FastMCP("test")
+    register_mcp_tools(
+        app, mcp_module="test_fastmcp_extensions", exclude_args=["workspace_id"]
+    )
+
+    tool = await app.get_tool("list_things")
+    assert tool is not None
+    assert "workspace_id" not in tool.parameters["properties"]
+    result = await tool.run({"prefix": "p"})
+    assert result.structured_content == {"result": "p:ws-default"}
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_register_mcp_tools_exclude_args_requires_default() -> None:
+    """Excluding a parameter without a default raises a clear ValueError."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def needs_arg(workspace_id: str) -> str:
+        """Needs an argument."""
+        return workspace_id
+
+    app = FastMCP("test")
+    with pytest.raises(ValueError, match="workspace_id"):
+        register_mcp_tools(
+            app, mcp_module="test_fastmcp_extensions", exclude_args=["workspace_id"]
+        )
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
+    """Standard hints land on `tool.annotations`; custom keys land on `tool.meta`."""
+    _clear_registrations()
+
+    @mcp_tool(read_only=True, interactive_ui=True, requires_client_filesystem=True)
+    def annotated_tool() -> str:
+        """Annotated tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("annotated_tool")
+    assert tool is not None
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is True
+    assert tool.meta == {
+        "interactive-ui": True,
+        "requiresClientFilesystem": True,
+        "mcp_module": "test_fastmcp_extensions",
+    }
+    assert get_annotation(tool, "readOnlyHint") is True
+    assert get_annotation(tool, "interactive-ui") is True
+    assert get_annotation(tool, "mcp_module") == "test_fastmcp_extensions"
+    assert get_annotation(tool, "missing", default=False) is False
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_get_annotation_camelcase_hint_emits_no_deprecation_warning() -> None:
+    """`readOnlyHint` lookups resolve without the camelCase deprecation shim."""
+    tool = McpTool(
+        name="tool",
+        description="tool",
+        inputSchema={"type": "object"},
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert get_annotation(tool, "readOnlyHint") is True

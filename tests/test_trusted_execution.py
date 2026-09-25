@@ -36,14 +36,15 @@ _HTTP_REQUEST_PATH = "fastmcp_extensions.tool_filters.get_http_request"
 
 def _make_tool(*, requires_client_filesystem: bool) -> Tool:
     """Build a `Tool`, optionally annotated `requiresClientFilesystem=True`."""
-    annotations_kwargs: dict[str, object] = {}
+    meta: dict[str, object] = {}
     if requires_client_filesystem:
-        annotations_kwargs["requiresClientFilesystem"] = True
+        meta["requiresClientFilesystem"] = True
     return Tool(
         name="local_tool",
         description="A tool that may require client filesystem access",
         inputSchema={"type": "object", "properties": {}},
-        annotations=ToolAnnotations(**annotations_kwargs),
+        annotations=ToolAnnotations(),
+        meta=meta,
     )
 
 

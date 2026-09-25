@@ -19,7 +19,29 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
 12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
-14. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 3.x, and we expect to absorb the 4.x move the same way.
+14. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
+
+## Upgrading to 0.x (FastMCP 4)
+
+This release requires **FastMCP 4.x** (`fastmcp>=4.0.9`), which itself requires
+`mcp` 2.x — the dependency floor moved, so upgrade both together. For servers
+built on this library, the changes are mostly internal:
+
+- **Custom annotation keys now travel in `meta`.** `mcp` 2.x `ToolAnnotations`
+  drops unknown keys, so keys like `interactive-ui`, `mcp_module`, and
+  `requiresClientFilesystem` are surfaced via `meta` on the wire instead of
+  `annotations`. Keep passing them to our decorators unchanged —
+  `register_mcp_tools` and `get_annotation` route and read them for you.
+- **`exclude_args` still works.** `register_mcp_tools(..., exclude_args=[...])`
+  hides parameters from the tool schema exactly as before (FastMCP 4 removed
+  the underlying kwarg; the library emulates it via dependency injection).
+- **MCP 2026-07-28 is served natively.** FastMCP 4 / `mcp` 2.x answer
+  `server/discover` and still serve legacy `initialize`-handshake clients
+  (2024-11-05 through 2025-11-25) on the same endpoint — no middleware needed
+  for modern or legacy clients.
+
+See the [FastMCP 3→4 upgrade guide](https://gofastmcp.com/getting-started/upgrading/from-fastmcp-3)
+for changes that may touch your own FastMCP API usage outside this library.
 
 ### Philosophy
 

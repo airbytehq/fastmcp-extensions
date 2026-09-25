@@ -43,12 +43,12 @@ app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from fastmcp import FastMCP
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from fastmcp_extensions.annotations import ANNOTATION_INTERACTIVE_UI
 from fastmcp_extensions.capability_tokens import client_supports_extension
@@ -71,7 +71,7 @@ Example:
             annotations = tool.annotations
             if annotations is None:
                 return False
-            return getattr(annotations, "readOnlyHint", False)
+            return getattr(annotations, "read_only_hint", False)
         return True
     ```
 """
@@ -305,6 +305,16 @@ STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
 # =============================================================================
 
 
+_ANNOTATION_FIELD_BY_KEY: dict[str, str] = {
+    field_name: field_name for field_name in ToolAnnotations.model_fields
+} | {
+    field.alias: field_name
+    for field_name, field in ToolAnnotations.model_fields.items()
+    if field.alias is not None
+}
+"""Map of accepted annotation keys (field names and camelCase aliases) to field names."""
+
+
 def get_annotation(
     tool_or_asset: Tool,
     annotation_name: str,
@@ -312,8 +322,11 @@ def get_annotation(
 ) -> bool | str | None:
     """Get an annotation value from a tool or asset.
 
-    This helper hides the messy getattr implementation needed to access
-    annotations stored in pydantic's model_extra.
+    Standard `ToolAnnotations` fields are read off `tool.annotations` (the
+    caller may pass either the snake_case field name or the camelCase wire
+    alias, e.g. `readOnlyHint`, which is resolved via the field metadata so
+    no deprecation shim is triggered). Non-standard keys — which `mcp` 2.x
+    `ToolAnnotations` drops — are read from `tool.meta`.
 
     Args:
         tool_or_asset: The Tool (or other MCP asset) to get the annotation from.
@@ -324,9 +337,13 @@ def get_annotation(
         The annotation value, or the default if not present.
     """
     annotations = tool_or_asset.annotations
-    if annotations is None:
-        return default
-    return getattr(annotations, annotation_name, default)
+    field_name = _ANNOTATION_FIELD_BY_KEY.get(annotation_name)
+    if annotations is not None and field_name is not None:
+        return getattr(annotations, field_name, default)
+    meta = getattr(tool_or_asset, "meta", None)
+    if isinstance(meta, Mapping) and annotation_name in meta:
+        return meta[annotation_name]
+    return default
 
 
 def _parse_csv_config(value: str) -> list[str]:

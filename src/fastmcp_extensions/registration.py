@@ -7,16 +7,19 @@ with a FastMCP app, filtered by mcp_module.
 
 from __future__ import annotations
 
+import functools
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, get_args
 
 from fastmcp import FastMCP
+from fastmcp.dependencies import Depends
 from fastmcp.server.transforms import GetToolNext, Transform
 from fastmcp.tools import Tool
 from fastmcp.utilities.versions import VersionSpec
+from mcp.types import ToolAnnotations
 
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
@@ -53,11 +56,90 @@ class ResourceDef:
     func: Callable[..., Any]
 
 
+def _split_annotations(
+    annotations: Mapping[str, Any],
+) -> tuple[ToolAnnotations | None, dict[str, Any]]:
+    """Partition annotation keys into standard `ToolAnnotations` fields and extras.
+
+    `mcp` 2.x `ToolAnnotations` no longer retains unknown keys, so keys that
+    are not standard annotation fields (accepting both the snake_case field
+    names and their camelCase wire aliases) must travel in `meta` instead.
+    Returns a `(standard_annotations, meta_extras)` pair where
+    `standard_annotations` is `None` when no standard keys were present.
+    """
+    standard_keys = {
+        field_name for field_name, field in ToolAnnotations.model_fields.items()
+    } | {
+        field.alias
+        for field in ToolAnnotations.model_fields.values()
+        if field.alias is not None
+    }
+    standard = {
+        key: value for key, value in annotations.items() if key in standard_keys
+    }
+    extras = {
+        key: value for key, value in annotations.items() if key not in standard_keys
+    }
+    return (ToolAnnotations(**standard) if standard else None, extras)
+
+
+def _constant(value: Any) -> Callable[[], Any]:
+    """Return a zero-argument dependency factory yielding `value`."""
+
+    def _factory() -> Any:
+        return value
+
+    return _factory
+
+
+def _exclude_parameters(
+    callable_fn: Callable[..., Any],
+    exclude_args: Sequence[str],
+) -> Callable[..., Any]:
+    """Rebind `callable_fn`'s signature so excluded params resolve via `Depends`.
+
+    FastMCP 4 removed the `exclude_args` tool kwarg; exclusion is emulated by
+    making each excluded parameter a `Depends(_constant(default))` injection,
+    which hides it from the tool schema while the original default is still
+    delivered at call time. Excluded parameters must declare a default.
+    """
+    signature = inspect.signature(callable_fn)
+    parameters = list(signature.parameters.values())
+    excluded = [param for param in parameters if param.name in exclude_args]
+    if not excluded:
+        return callable_fn
+    for param in excluded:
+        if param.default is inspect.Parameter.empty:
+            raise ValueError(
+                f"register_mcp_tools: cannot exclude parameter '{param.name}' "
+                f"of {getattr(callable_fn, '__name__', callable_fn)!r}: excluded "
+                "parameters must declare a default value so it can be injected "
+                "via a Depends() factory."
+            )
+    rebound_parameters = [
+        param.replace(default=Depends(_constant(param.default)))
+        if param.name in exclude_args
+        else param
+        for param in parameters
+    ]
+
+    @functools.wraps(callable_fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return callable_fn(*args, **kwargs)
+
+    wrapper.__signature__ = signature.replace(  # ty: ignore[unresolved-attribute]  # functools.wraps callables accept a __signature__ override.
+        parameters=rebound_parameters
+    )
+    return wrapper
+
+
 class _ProviderToolAnnotations(Transform):
     """Transform that fills missing annotations on provider-sourced tools."""
 
     def __init__(self, annotations: dict[str, Any]) -> None:
-        self._annotations = annotations
+        self._standard_annotations, self._meta_annotations = _split_annotations(
+            annotations
+        )
 
     async def list_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
         return [self._apply_annotations(tool) for tool in tools]
@@ -78,7 +160,12 @@ class _ProviderToolAnnotations(Transform):
         tool_annotations = (
             tool.annotations.model_dump(exclude_none=True) if tool.annotations else {}
         )
-        merged_annotations = dict(self._annotations)
+        default_annotations = (
+            self._standard_annotations.model_dump(exclude_none=True)
+            if self._standard_annotations is not None
+            else {}
+        )
+        merged_annotations = default_annotations
         merged_annotations.update(tool_annotations)
         tool_annotations_type = next(
             annotation_type
@@ -87,11 +174,14 @@ class _ProviderToolAnnotations(Transform):
             )
             if annotation_type is not type(None)
         )
-        return tool.model_copy(
-            update={
-                "annotations": tool_annotations_type(**merged_annotations),
-            },
-        )
+        merged_meta: dict[str, Any] = dict(self._meta_annotations)
+        merged_meta.update(tool.meta or {})
+        update: dict[str, Any] = {
+            "annotations": tool_annotations_type(**merged_annotations),
+        }
+        if merged_meta:
+            update["meta"] = merged_meta
+        return tool.model_copy(update=update)
 
 
 def _register_state_inspection_tool(
@@ -198,16 +288,16 @@ def register_mcp_tools(
         if state_type is not None:
             state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
-        tool_exclude_args: list[str] | None = None
         if exclude_args:
-            params = set(inspect.signature(callable_fn).parameters.keys())
-            excluded = [name for name in exclude_args if name in params]
-            tool_exclude_args = excluded if excluded else None
+            callable_fn = _exclude_parameters(callable_fn, exclude_args)
 
+        standard_annotations, meta_annotations = _split_annotations(
+            registration_annotations
+        )
         app.tool(
             callable_fn,
-            annotations=registration_annotations,
-            exclude_args=tool_exclude_args,
+            annotations=standard_annotations,
+            meta=meta_annotations or None,
         )
 
     _register_mcp_callables(

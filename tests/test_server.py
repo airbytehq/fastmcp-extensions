@@ -598,15 +598,16 @@ def test_no_client_filesystem_filter(
     """Test `no_client_filesystem_filter` hides annotated tools when config is enabled."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
 
-    annotations_kwargs: dict[str, object] = {}
+    meta: dict[str, object] = {}
     if has_annotation:
-        annotations_kwargs["requiresClientFilesystem"] = True
+        meta["requiresClientFilesystem"] = True
 
     tool = Tool(
         name="local_tool",
         description="A tool requiring client filesystem",
         inputSchema={"type": "object", "properties": {}},
-        annotations=ToolAnnotations(**annotations_kwargs),
+        annotations=ToolAnnotations(),
+        meta=meta,
     )
 
     env_patch = {"MCP_NO_CLIENT_FILESYSTEM": config_value} if config_value else {}

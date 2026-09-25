@@ -224,7 +224,8 @@ def test_standard_tool_filters_gate_interactive_ui(
         name="ui_tool",
         description="ui tool",
         inputSchema={"type": "object"},
-        annotations=ToolAnnotations.model_validate({ANNOTATION_INTERACTIVE_UI: True}),
+        annotations=ToolAnnotations(),
+        meta={ANNOTATION_INTERACTIVE_UI: True},
     )
     plain_tool = Tool(
         name="plain_tool",

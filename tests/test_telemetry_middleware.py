@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.middleware import MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools.base import ToolResult
 
 from fastmcp_extensions import TelemetryConfig
 from fastmcp_extensions._telemetry_middleware import (
