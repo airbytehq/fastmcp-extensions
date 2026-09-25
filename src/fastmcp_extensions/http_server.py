@@ -25,6 +25,9 @@ from fastmcp_extensions.capability_tokens import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
 )
+from fastmcp_extensions.protocol_version import (
+    ProtocolVersionNegotiationMiddleware,
+)
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -45,6 +48,7 @@ def run_mcp_http_server(
     stateless_http: bool | None = None,
     wrapper: Callable[[ASGIApp], ASGIApp] | None = None,
     enable_stateless_capability_middleware: bool = True,
+    enable_protocol_version_negotiation: bool = True,
     host: str | None = None,
     port: int | None = None,
     uvicorn_config: Mapping[str, Any] | None = None,
@@ -55,7 +59,12 @@ def run_mcp_http_server(
     `RejectEventStreamGetMiddleware` by default, so client extension
     declarations survive per-request session recreation without any per-server
     wiring. Set `enable_stateless_capability_middleware` to `False` to opt out.
-    `wrapper`, when provided, is the innermost of those layers and remains the
+    HTTP transports also get `ProtocolVersionNegotiationMiddleware`, which
+    answers requests carrying an unsupported `MCP-Protocol-Version` header
+    with a correlated `-32022` JSON-RPC error instead of the legacy
+    transport's uncorrelated `"server-error"` rejection; set
+    `enable_protocol_version_negotiation` to `False` to opt out. `wrapper`,
+    when provided, is the innermost of those layers and remains the
     outermost layer everywhere else. Values in `uvicorn_config` override the
     parity defaults and the resolved log level. Host and port are controlled by
     their dedicated arguments.
@@ -74,15 +83,18 @@ def run_mcp_http_server(
         if stateless_http is not None
         else fastmcp.settings.stateless_http
     )
-    if (
-        enable_stateless_capability_middleware
+    is_http_transport = transport in {"http", "streamable-http"}
+    apply_stateless_layers = (
+        is_http_transport
+        and enable_stateless_capability_middleware
         and resolved_stateless_http
-        and transport in {"http", "streamable-http"}
-    ):
+    )
+    if apply_stateless_layers:
         app = CapabilityTokenMiddleware(app)
-        resolved_path = (
-            path if path is not None else fastmcp.settings.streamable_http_path
-        )
+    resolved_path = path if path is not None else fastmcp.settings.streamable_http_path
+    if is_http_transport and enable_protocol_version_negotiation:
+        app = ProtocolVersionNegotiationMiddleware(app, path=resolved_path)
+    if apply_stateless_layers:
         app = RejectEventStreamGetMiddleware(app, path=resolved_path)
 
     config = dict(DEFAULT_UVICORN_CONFIG)
