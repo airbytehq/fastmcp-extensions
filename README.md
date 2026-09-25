@@ -32,6 +32,7 @@ built on this library, the changes are mostly internal:
   `requiresClientFilesystem` are surfaced via `meta` on the wire instead of
   `annotations`. Keep passing them to our decorators unchanged —
   `register_mcp_tools` and `get_annotation` route and read them for you.
+  All custom keys are declared in `fastmcp_extensions.annotations`.
 - **`exclude_args` still works.** `register_mcp_tools(..., exclude_args=[...])`
   hides parameters from the tool schema exactly as before (FastMCP 4 removed
   the underlying kwarg; the library emulates it via dependency injection).

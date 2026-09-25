@@ -10,6 +10,12 @@ https://gofastmcp.com/concepts/tools#mcp-annotations
 
 from __future__ import annotations
 
+from mcp.types import ToolAnnotations
+
+# =============================================================================
+# Standard MCP spec annotations (ToolAnnotations fields)
+# =============================================================================
+
 READ_ONLY_HINT = "readOnlyHint"
 """Indicates if the tool only reads data without making any changes.
 
@@ -50,6 +56,18 @@ When False, the tool only operates on local state or resources.
 FastMCP default if not specified: True
 """
 
+# =============================================================================
+# Custom metadata keys (surfaced via Tool.meta on the wire, not ToolAnnotations)
+# =============================================================================
+
+ANNOTATION_MCP_MODULE = "mcp_module"
+"""Metadata key for the module a capability was declared in.
+
+Set automatically by the ``@mcp_tool`` / ``@mcp_prompt`` / ``@mcp_resource`` /
+``@mcp_provider`` decorators from the caller's file stem, and used by
+``register_mcp_tools`` and the docs generator to route capabilities.
+"""
+
 REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
 """Indicates that the tool requires access to the client's local filesystem.
 
@@ -58,12 +76,33 @@ available (e.g., reading/writing files, scanning directories, accessing a
 local git checkout). In hosted environments where the client has no local
 filesystem, tools with this annotation should be hidden.
 
-This is a custom annotation (not part of the MCP spec). The MCP spec's
-`ToolAnnotations` model uses `extra="allow"`, so custom annotations are
-supported.
+This is a custom annotation (not part of the MCP spec). `mcp` 2.x
+`ToolAnnotations` drops unknown keys, so custom keys like this one travel
+in `meta` instead of `annotations` on the wire.
 
 Default if not specified: `False` (no client filesystem required).
 """
 
 ANNOTATION_INTERACTIVE_UI = "interactive-ui"
 """Annotation key for tools requiring MCP Apps UI rendering support."""
+
+WITH_STATE_ANNOTATION = "_fastmcp_extensions_with_state"
+"""Internal registration-time key carrying the `ToolStateBase` subclass.
+
+Set by ``@mcp_tool(with_state=...)`` and popped at registration time — it is
+never sent on the wire.
+"""
+
+
+def standard_annotation_field_names() -> dict[str, str]:
+    """Map every accepted standard annotation key to its `ToolAnnotations` field.
+
+    Keys include both the snake_case field names and their camelCase wire
+    aliases, so callers can resolve either spelling without triggering the
+    deprecated camelCase attribute shims.
+    """
+    return {field_name: field_name for field_name in ToolAnnotations.model_fields} | {
+        field.alias: field_name
+        for field_name, field in ToolAnnotations.model_fields.items()
+        if field.alias is not None
+    }

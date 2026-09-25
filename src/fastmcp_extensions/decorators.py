@@ -21,11 +21,13 @@ from pydantic import Field, create_model
 
 from fastmcp_extensions.annotations import (
     ANNOTATION_INTERACTIVE_UI,
+    ANNOTATION_MCP_MODULE,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
     REQUIRES_CLIENT_FILESYSTEM,
+    WITH_STATE_ANNOTATION,
 )
 from fastmcp_extensions.session_state import (
     ToolStateBase,
@@ -137,7 +139,7 @@ def mcp_tool(
     mcp_module_str = _get_caller_file_stem()
 
     annotations: dict[str, Any] = {
-        "mcp_module": mcp_module_str,
+        ANNOTATION_MCP_MODULE: mcp_module_str,
         READ_ONLY_HINT: read_only,
         DESTRUCTIVE_HINT: destructive,
         IDEMPOTENT_HINT: idempotent,
@@ -150,7 +152,7 @@ def mcp_tool(
     if with_state is not None:
         if not issubclass(with_state, ToolStateBase):
             raise TypeError("with_state must be a ToolStateBase subclass")
-        annotations["_fastmcp_extensions_with_state"] = with_state
+        annotations[WITH_STATE_ANNOTATION] = with_state
 
     def decorator(func: F) -> F:
         if extra_help_text:
@@ -289,7 +291,7 @@ def mcp_provider(
     mcp_module_str = _get_caller_file_stem()
 
     provider_annotations: dict[str, Any] = {
-        "mcp_module": mcp_module_str,
+        ANNOTATION_MCP_MODULE: mcp_module_str,
     }
     if interactive_ui:
         provider_annotations[ANNOTATION_INTERACTIVE_UI] = True
@@ -333,7 +335,7 @@ def mcp_prompt(
         annotations = {
             "name": name,
             "description": description,
-            "mcp_module": mcp_module_str,
+            ANNOTATION_MCP_MODULE: mcp_module_str,
         }
         _REGISTERED_PROMPTS.append((func, annotations))
         return func
@@ -371,7 +373,7 @@ def mcp_resource(
             "uri": uri,
             "description": description,
             "mime_type": mime_type,
-            "mcp_module": mcp_module_str,
+            ANNOTATION_MCP_MODULE: mcp_module_str,
         }
         _REGISTERED_RESOURCES.append((func, annotations))
         return func

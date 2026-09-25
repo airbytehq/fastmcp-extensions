@@ -48,9 +48,16 @@ from collections.abc import Callable, Mapping
 from fastmcp import FastMCP
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
-from mcp.types import Tool, ToolAnnotations
+from mcp.types import Tool
 
-from fastmcp_extensions.annotations import ANNOTATION_INTERACTIVE_UI
+from fastmcp_extensions.annotations import (
+    ANNOTATION_INTERACTIVE_UI,
+    ANNOTATION_MCP_MODULE,
+    DESTRUCTIVE_HINT,
+    READ_ONLY_HINT,
+    REQUIRES_CLIENT_FILESYSTEM,
+    standard_annotation_field_names,
+)
 from fastmcp_extensions.capability_tokens import client_supports_extension
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
 
@@ -169,16 +176,13 @@ HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 # Constants - Annotation Keys
 # =============================================================================
 
-ANNOTATION_READ_ONLY_HINT = "readOnlyHint"
+ANNOTATION_READ_ONLY_HINT = READ_ONLY_HINT
 """Annotation key for read-only hint (MCP spec)."""
 
-ANNOTATION_DESTRUCTIVE_HINT = "destructiveHint"
+ANNOTATION_DESTRUCTIVE_HINT = DESTRUCTIVE_HINT
 """Annotation key for destructive hint (MCP spec)."""
 
-ANNOTATION_MCP_MODULE = "mcp_module"
-"""Annotation key for MCP module name (set by @mcp_tool decorator)."""
-
-ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
+ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = REQUIRES_CLIENT_FILESYSTEM
 """Annotation key for client filesystem requirement."""
 
 # =============================================================================
@@ -305,13 +309,7 @@ STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
 # =============================================================================
 
 
-_ANNOTATION_FIELD_BY_KEY: dict[str, str] = {
-    field_name: field_name for field_name in ToolAnnotations.model_fields
-} | {
-    field.alias: field_name
-    for field_name, field in ToolAnnotations.model_fields.items()
-    if field.alias is not None
-}
+_ANNOTATION_FIELD_BY_KEY: dict[str, str] = standard_annotation_field_names()
 """Map of accepted annotation keys (field names and camelCase aliases) to field names."""
 
 
@@ -340,7 +338,7 @@ def get_annotation(
     field_name = _ANNOTATION_FIELD_BY_KEY.get(annotation_name)
     if annotations is not None and field_name is not None:
         return getattr(annotations, field_name, default)
-    meta = getattr(tool_or_asset, "meta", None)
+    meta = tool_or_asset.meta
     if isinstance(meta, Mapping) and annotation_name in meta:
         return meta[annotation_name]
     return default

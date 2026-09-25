@@ -84,6 +84,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.utilities.inspect import format_fastmcp_info, inspect_fastmcp
 
+from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
     _REGISTERED_RESOURCES,
@@ -207,9 +208,9 @@ def _build_extra_module_map() -> dict[str, str]:
     try:
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
-                mapping[name] = ann.get("mcp_module") or MISC_MODULE
+                mapping[name] = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
         for _fn, ann in _REGISTERED_RESOURCES:
-            mcp_module = ann.get("mcp_module") or MISC_MODULE
+            mcp_module = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
             if uri := ann.get("uri"):
                 mapping[uri] = mcp_module
                 # FastMCP exposes the URI stem as the resource `name` in
@@ -234,10 +235,10 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
 def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
     """Extract the `mcp_module` for a tool / resource / prompt."""
     annotations = item.get("annotations") or {}
-    if mcp_module := annotations.get("mcp_module"):
+    if mcp_module := annotations.get(ANNOTATION_MCP_MODULE):
         return str(mcp_module)
     meta = item.get("meta") or {}
-    if mcp_module := meta.get("mcp_module"):
+    if mcp_module := meta.get(ANNOTATION_MCP_MODULE):
         return str(mcp_module)
     name = item.get("name")
     uri = item.get("uri") or item.get("uri_template")

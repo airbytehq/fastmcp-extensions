@@ -21,6 +21,11 @@ from fastmcp.tools import Tool
 from fastmcp.utilities.versions import VersionSpec
 from mcp.types import ToolAnnotations
 
+from fastmcp_extensions.annotations import (
+    ANNOTATION_MCP_MODULE,
+    WITH_STATE_ANNOTATION,
+    standard_annotation_field_names,
+)
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
     _REGISTERED_PROVIDERS,
@@ -67,13 +72,7 @@ def _split_annotations(
     Returns a `(standard_annotations, meta_extras)` pair where
     `standard_annotations` is `None` when no standard keys were present.
     """
-    standard_keys = {
-        field_name for field_name, field in ToolAnnotations.model_fields.items()
-    } | {
-        field.alias
-        for field in ToolAnnotations.model_fields.values()
-        if field.alias is not None
-    }
+    standard_keys = set(standard_annotation_field_names())
     standard = {
         key: value for key, value in annotations.items() if key in standard_keys
     }
@@ -249,7 +248,7 @@ def _register_mcp_callables(
     filtered_callables = [
         (func, ann)
         for func, ann in resource_list
-        if ann.get("mcp_module") == mcp_module_str
+        if ann.get(ANNOTATION_MCP_MODULE) == mcp_module_str
     ]
 
     for callable_fn, callable_annotations in filtered_callables:
@@ -282,9 +281,7 @@ def register_mcp_tools(
         annotations: dict[str, Any],
     ) -> None:
         registration_annotations = dict(annotations)
-        state_type = registration_annotations.pop(
-            "_fastmcp_extensions_with_state", None
-        )
+        state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         if state_type is not None:
             state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
@@ -310,7 +307,8 @@ def register_mcp_tools(
     matching_providers = [
         (provider_factory, provider_annotations)
         for provider_factory, provider_annotations in _REGISTERED_PROVIDERS
-        if provider_annotations.get("mcp_module") == _normalize_mcp_module(mcp_module)
+        if provider_annotations.get(ANNOTATION_MCP_MODULE)
+        == _normalize_mcp_module(mcp_module)
     ]
 
     for provider_factory, provider_annotations in matching_providers:
