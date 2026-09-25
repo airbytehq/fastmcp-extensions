@@ -4,7 +4,7 @@
 `mcp` 2.x `ToolAnnotations` drops unknown keys, and we deliberately keep
 custom keys like `mcp_module` and `requiresClientFilesystem` off the wire
 entirely. Instead, `register_mcp_tools` records each tool's traits — the
-module it was declared in and the client capabilities it requires — here,
+module it was declared in and the capabilities it requires — here,
 keyed by the FastMCP app instance and tool name. Internal filters read them
 back via `get_tool_traits`; `capability_filter` is the general consumer.
 Entries are held weakly by app so they die with the server.
@@ -22,7 +22,13 @@ if TYPE_CHECKING:
 
 
 class Capability(str, Enum):
-    """A client capability a tool may require."""
+    """A capability a tool may require.
+
+    Each member is satisfied either client-side (declared in the client's MCP
+    capabilities) or deployment-side (transport, server settings). Tools
+    declare *required* capabilities; `available_capabilities(app)` resolves
+    what the current request actually has.
+    """
 
     # MCP-native: satisfied client-side — the client declares the MCP Apps
     # UI extension in its capabilities.
