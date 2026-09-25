@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -25,10 +25,11 @@ from fastmcp_extensions.annotations import (
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
-    REQUIRES_CLIENT_FILESYSTEM,
     TOOL_APP_KEY,
     TOOL_META_KEY,
+    TOOL_REQUIRES_KEY,
     WITH_STATE_ANNOTATION,
+    standard_annotation_field_names,
 )
 from fastmcp_extensions.session_state import (
     ToolStateBase,
@@ -37,6 +38,7 @@ from fastmcp_extensions.session_state import (
     encode_session_state,
     state_ttl,
 )
+from fastmcp_extensions.tool_traits import Capability
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -50,6 +52,28 @@ _REGISTERED_PROVIDERS: list[tuple[Callable[[], Provider], dict[str, Any]]] = []
 _REGISTERED_RESOURCES: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _REGISTERED_PROMPTS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 logger = logging.getLogger(__name__)
+
+_ALLOWED_ANNOTATION_KEYS = set(standard_annotation_field_names()) | {
+    ANNOTATION_MCP_MODULE
+}
+
+
+def _validate_annotation_keys(
+    annotations: Mapping[str, object],
+    decorator_name: str,
+) -> None:
+    """Reject annotation keys that cannot be carried by `ToolAnnotations`.
+
+    `mcp` 2.x `ToolAnnotations` drops unknown keys, so only the standard
+    hints (plus the internal `mcp_module` routing key) may be passed.
+    """
+    unsupported = sorted(set(annotations) - _ALLOWED_ANNOTATION_KEYS)
+    if unsupported:
+        raise ValueError(
+            f"{decorator_name}: unsupported annotation key(s) {unsupported}; "
+            "MCP 2 ToolAnnotations only accepts the standard hints. "
+            "Use meta= for custom wire metadata."
+        )
 
 
 def _format_state_ttl(ttl: timedelta) -> str:
@@ -108,6 +132,8 @@ def mcp_tool(
     with_state: type[ToolStateBase] | None = None,
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
+    annotations: Mapping[str, object] | None = None,
+    required_capabilities: Iterable[Capability] | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -133,6 +159,14 @@ def mcp_tool(
         meta: Optional extra keys merged into the tool's wire `meta` field.
         app: Optional `AppConfig` linking the tool to an MCP Apps UI resource
             via `_meta.ui`.
+        annotations: Optional standard annotation overrides; only
+            `ToolAnnotations` field names/aliases are accepted (unknown keys
+            raise `ValueError` — use `meta=` for custom wire metadata).
+        required_capabilities: Optional iterable of `Capability` values the
+            client must satisfy for the tool to be visible. The
+            `requires_client_filesystem` and `app=`/`interactive_ui` sugar
+            add `Capability.CLIENT_FILESYSTEM` / `Capability.UI`
+            respectively.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -145,21 +179,30 @@ def mcp_tool(
             ...
     """
     mcp_module_str = _get_caller_file_stem()
+    if annotations:
+        _validate_annotation_keys(annotations, "mcp_tool")
 
-    annotations: dict[str, Any] = {
+    annotations_dict: dict[str, Any] = {
         ANNOTATION_MCP_MODULE: mcp_module_str,
         READ_ONLY_HINT: read_only,
         DESTRUCTIVE_HINT: destructive,
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
     }
+    annotations_dict.update(annotations or {})
+    annotations = annotations_dict
     if interactive_ui and app is None:
         raise ValueError(
             "interactive_ui=True requires app=AppConfig(...) so the tool is "
             "linked to a UI resource via _meta.ui"
         )
+    capabilities = set(required_capabilities or ())
     if requires_client_filesystem:
-        annotations[REQUIRES_CLIENT_FILESYSTEM] = True
+        capabilities.add(Capability.CLIENT_FILESYSTEM)
+    if app is not None or interactive_ui:
+        capabilities.add(Capability.UI)
+    if capabilities:
+        annotations[TOOL_REQUIRES_KEY] = frozenset(capabilities)
     if meta:
         annotations[TOOL_META_KEY] = dict(meta)
     if app is not None:
@@ -292,6 +335,7 @@ def mcp_provider(
     *,
     interactive_ui: bool = False,
     annotations: Mapping[str, object] | None = None,
+    required_capabilities: Iterable[Capability] | None = None,
 ) -> Callable[[P], P]:
     """Decorator to tag an MCP provider factory for deferred registration.
 
@@ -301,6 +345,10 @@ def mcp_provider(
             marker, which providers attach per tool through `app=`
             (`AppConfig`) when constructing them.
         annotations: Extra annotations to apply to provider-sourced tools.
+        required_capabilities: Optional iterable of `Capability` values the
+            client must satisfy for every provider-sourced tool. Provider
+            tools carrying the `_meta.ui` marker additionally require
+            `Capability.UI`.
 
     Returns:
         Decorator function that tags the provider factory for registration
@@ -310,7 +358,11 @@ def mcp_provider(
     provider_annotations: dict[str, Any] = {
         ANNOTATION_MCP_MODULE: mcp_module_str,
     }
+    if annotations:
+        _validate_annotation_keys(annotations, "mcp_provider")
     provider_annotations.update(annotations or {})
+    if required_capabilities:
+        provider_annotations[TOOL_REQUIRES_KEY] = frozenset(required_capabilities)
 
     def decorator(func: P) -> P:
         _REGISTERED_PROVIDERS.append((func, provider_annotations))

@@ -57,31 +57,19 @@ FastMCP default if not specified: True
 """
 
 # =============================================================================
-# Custom metadata keys (surfaced via Tool.meta on the wire, not ToolAnnotations)
+# Custom metadata keys (internal only — never sent on the wire)
 # =============================================================================
 
 ANNOTATION_MCP_MODULE = "mcp_module"
-"""Metadata key for the module a capability was declared in.
+"""Registration-time routing key for the module a capability was declared in.
 
 Set automatically by the ``@mcp_tool`` / ``@mcp_prompt`` / ``@mcp_resource`` /
 ``@mcp_provider`` decorators from the caller's file stem, and used by
-``register_mcp_tools`` and the docs generator to route capabilities.
+``register_mcp_tools`` and the docs generator to route capabilities. Never
+sent on the wire: registered tools expose it via `get_tool_traits`.
 """
 
-REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
-"""Indicates that the tool requires access to the client's local filesystem.
-
-When `True`, the tool depends on the MCP client having a local filesystem
-available (e.g., reading/writing files, scanning directories, accessing a
-local git checkout). In hosted environments where the client has no local
-filesystem, tools with this annotation should be hidden.
-
-This is a custom annotation (not part of the MCP spec). `mcp` 2.x
-`ToolAnnotations` drops unknown keys, so custom keys like this one travel
-in `meta` instead of `annotations` on the wire.
-
-Default if not specified: `False` (no client filesystem required).
-"""
+# Standard wire metadata keys (not ToolAnnotations fields)
 
 UI_META_KEY = "ui"
 """MCP Apps standard `_meta.ui` key linking a tool to its UI resource.
@@ -96,8 +84,8 @@ TOOL_META_KEY = "_fastmcp_extensions_meta"
 """Internal registration-time key carrying user-supplied tool `meta`.
 
 Set by ``@mcp_tool(meta=...)`` and popped at registration time — the mapping
-itself is merged into `tool.meta` (the wire `meta` field); the key is never
-sent on the wire.
+itself becomes `tool.meta` (the wire `meta` field); the key is never sent on
+the wire.
 """
 
 TOOL_APP_KEY = "_fastmcp_extensions_app"
@@ -113,6 +101,15 @@ WITH_STATE_ANNOTATION = "_fastmcp_extensions_with_state"
 
 Set by ``@mcp_tool(with_state=...)`` and popped at registration time — it is
 never sent on the wire.
+"""
+
+TOOL_REQUIRES_KEY = "_fastmcp_extensions_requires"
+"""Internal registration-time key carrying the tool's `Capability` set.
+
+Set by ``@mcp_tool(required_capabilities=...)`` /
+``@mcp_provider(required_capabilities=...)`` (and the
+`requires_client_filesystem` / `app=` sugar) and popped at registration
+time into `ToolTraits.required_capabilities` — it is never sent on the wire.
 """
 
 

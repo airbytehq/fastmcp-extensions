@@ -11,7 +11,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 3. 🕵️ **Credential hygiene when you wire it in** - An installable redaction filter scrubs bearer tokens and other credential values from controlled log records, while one-way key normalization makes arbitrary client IDs and other store keys legal for durable backends.
 4. 🎚️ **Tool filtering from MCP annotations** - Read-only mode, no-destructive mode, and module/tool exclusion use MCP tool annotations (`readOnlyHint`, `destructiveHint`, …) and request/server configuration. Filters compose with logical AND, so layering can only narrow the surface, never widen it. See [Tool Filtering](#tool-filtering).
 5. 🧩 **MCP Apps UI support without per-server wiring** - Link a tool to a UI resource with `app=AppConfig(...)`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI (detected via the standard `_meta.ui` marker). `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
-6. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard trusted-execution filter hides tools annotated `requiresClientFilesystem=True` by default, and the gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
+6. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard `capability_filter` hides tools whose `required_capabilities` (e.g. `Capability.CLIENT_FILESYSTEM`, set via `requires_client_filesystem=True`) are unavailable in the current request, and the filesystem gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
 7. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
 8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
 9. 🖥️ **One codebase, two front-ends** - `cli_app()` is the CLI counterpart of `mcp_server()`: shared tool functions and the same telemetry sinks can power both surfaces. Write a tool once; call it from the command line and expose it over MCP.
@@ -27,15 +27,17 @@ This release requires **FastMCP 4.x** (`fastmcp>=4.0.9`), which itself requires
 `mcp` 2.x — the dependency floor moved, so upgrade both together. For servers
 built on this library, the changes are mostly internal:
 
-- **Custom annotation keys now travel in `meta`.** `mcp` 2.x `ToolAnnotations`
-  drops unknown keys, so keys like `mcp_module` and
-  `requiresClientFilesystem` are surfaced via `meta` on the wire instead of
-  `annotations`. Keep passing them to our decorators unchanged —
-  `register_mcp_tools` and `get_annotation` route and read them for you.
-  All custom keys are declared in `fastmcp_extensions.annotations`. The old
-  `interactive-ui` custom key is gone entirely: UI tools are detected via the
-  standard `_meta.ui` marker written by FastMCP's `AppConfig`, and `mcp_tool`
-  now accepts `meta=` and `app=` directly.
+- **Custom annotation keys are gone from the wire.** `mcp` 2.x
+  `ToolAnnotations` drops unknown keys, and we no longer emit custom keys
+  anywhere: `annotations=` accepts only the standard spec hints (anything
+  else raises `ValueError` — use `meta=` for deliberate custom wire
+  metadata). `mcp_module` and `requires_client_filesystem` are now internal
+  registration-time traits, readable in-process via
+  `get_tool_traits(app, tool_name)` (`ToolTraits.mcp_module` /
+  `ToolTraits.required_capabilities`). All custom keys are declared in
+  `fastmcp_extensions.annotations`. UI tools are detected via the standard
+  `_meta.ui` marker written by FastMCP's `AppConfig`, and `mcp_tool` accepts
+  `meta=` / `app=` / `required_capabilities=` directly.
 - **`exclude_args` still works.** `register_mcp_tools(..., exclude_args=[...])`
   hides parameters from the tool schema exactly as before (FastMCP 4 removed
   the underlying kwarg; the library emulates it via dependency injection).
@@ -489,7 +491,7 @@ def list_items() -> list[str]:
 ```
 
 Filters compose with logical **AND**, so each filter can only narrow the visible
-tool set. Tools annotated `requiresClientFilesystem=True` remain hidden unless
+tool set. Tools requiring `Capability.CLIENT_FILESYSTEM` remain hidden unless
 trusted execution is enabled for a local stdio server. The gate is always forced
 off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
 an HTTP entrypoint to fail fast if its configuration is enabled.
@@ -548,7 +550,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Tool Filtering
 
 - Standard filters - Read-only, no-destructive, module/tool exclusion, and trusted-execution filters based on MCP annotations and server configuration; enable them with `include_standard_tool_filters=True`.
-- `interactive_ui_filter` - Gate tools carrying the standard `_meta.ui` marker on the client's `io.modelcontextprotocol/ui` rendering capability.
+- `capability_filter` - Hide tools whose `required_capabilities` aren't satisfied by `available_capabilities(app)` for the request; `interactive_ui_filter` / `trusted_execution_filter` are thin wrappers kept for compatibility.
 - `extension_tool_filter` - Build a rendering-capability filter for any extension ID and annotation key.
 - `assert_http_trusted_execution_disabled` - Fail fast when trusted execution is enabled for an HTTP entrypoint.
 
@@ -583,10 +585,10 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Decorators
 
-- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
+- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, annotations, required_capabilities, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
 - `@mcp_prompt(name, description)` - Tag a prompt for deferred registration
 - `@mcp_resource(uri, description, mime_type)` - Tag a resource for deferred registration
-- `@mcp_provider(interactive_ui, annotations)` - Tag a provider factory for deferred tool registration (`interactive_ui` is accepted but has no effect; provider tools are gated via their own `_meta.ui` marker).
+- `@mcp_provider(interactive_ui, annotations, required_capabilities)` - Tag a provider factory for deferred tool registration (`interactive_ui` is accepted but has no effect; provider tools are gated via their own `_meta.ui` marker and inherit `required_capabilities`).
 
 ### Registration Functions
 

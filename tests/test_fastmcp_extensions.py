@@ -34,7 +34,8 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,
     _clear_registrations,
 )
-from fastmcp_extensions.tool_filters import get_annotation
+from fastmcp_extensions.tool_filters import capability_filter, get_annotation
+from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
 
 @pytest.mark.parametrize(
@@ -97,7 +98,7 @@ def test_mcp_provider_decorator() -> None:
     class TestProvider(Provider):
         pass
 
-    @mcp_provider(annotations={"custom-flag": True})
+    @mcp_provider(annotations={"readOnlyHint": True})
     def my_test_provider() -> Provider:
         """A test provider."""
         return TestProvider()
@@ -106,7 +107,7 @@ def test_mcp_provider_decorator() -> None:
     func, annotations = _REGISTERED_PROVIDERS[0]
     assert func.__name__ == "my_test_provider"
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
-    assert annotations["custom-flag"] is True
+    assert annotations["readOnlyHint"] is True
 
     _clear_registrations()
 
@@ -206,12 +207,7 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
                 )
             ]
 
-    @mcp_provider(
-        annotations={
-            "custom-flag": True,
-            "provider-owned": False,
-        }
-    )
+    @mcp_provider(annotations={"readOnlyHint": True})
     def my_test_provider() -> Provider:
         return TestProvider()
 
@@ -222,11 +218,10 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
     assert tool is not None
     assert tool.annotations is not None
     assert tool.annotations.read_only_hint is True
-    assert tool.meta == {
-        "custom-flag": True,
-        "mcp_module": "test_fastmcp_extensions",
-        "provider-owned": True,
-    }
+    # The provider tool's own meta is preserved; nothing custom is added.
+    assert tool.meta == {"provider-owned": True}
+    traits = get_tool_traits(app, "provider_tool")
+    assert traits.mcp_module == "test_fastmcp_extensions"
 
     _clear_registrations()
 
@@ -351,11 +346,16 @@ async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
     assert tool.meta == {
         "ui": {"resourceUri": "ui://test/annotated.html"},
         "custom-flag": True,
-        "requiresClientFilesystem": True,
-        "mcp_module": "test_fastmcp_extensions",
     }
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert "mcp_module" not in dumped
+    assert "requiresClientFilesystem" not in dumped
+    traits = get_tool_traits(app, "annotated_tool")
+    assert traits.mcp_module == "test_fastmcp_extensions"
+    assert traits.required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM, Capability.UI}
+    )
     assert get_annotation(tool, "readOnlyHint") is True
-    assert get_annotation(tool, "mcp_module") == "test_fastmcp_extensions"
     assert get_annotation(tool, "missing", default=False) is False
 
     _clear_registrations()
@@ -391,7 +391,106 @@ async def test_mcp_tool_meta_arg_lands_in_tool_meta() -> None:
 
     tool = await app.get_tool("meta_tool")
     assert tool is not None
-    assert tool.meta == {"foo": 1, "mcp_module": "test_fastmcp_extensions"}
+    assert tool.meta == {"foo": 1}
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_unknown_annotation_key_raises() -> None:
+    """Non-standard annotation keys are a configuration error, not wire data."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="unsupported annotation key"):
+
+        @mcp_tool(annotations={"bogus-key": True})
+        def bad_tool() -> str:
+            return "ok"
+
+    class TestProvider(Provider):
+        pass
+
+    with pytest.raises(ValueError, match="unsupported annotation key"):
+
+        @mcp_provider(annotations={"bogus-key": True})
+        def bad_provider() -> Provider:
+            return TestProvider()
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_required_capabilities_on_tool_and_provider() -> None:
+    """`required_capabilities=` lands in traits for tools and provider tools."""
+    _clear_registrations()
+
+    @mcp_tool(required_capabilities=[Capability.CLIENT_FILESYSTEM])
+    def fs_tool() -> str:
+        """FS tool."""
+        return "ok"
+
+    class TestProvider(Provider):
+        async def _list_tools(self) -> list[Tool]:
+            def provider_tool() -> str:
+                return "test"
+
+            return [Tool.from_function(provider_tool, name="provider_tool")]
+
+    @mcp_provider(required_capabilities=[Capability.CLIENT_FILESYSTEM])
+    def fs_provider() -> Provider:
+        return TestProvider()
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    assert get_tool_traits(app, "fs_tool").required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM}
+    )
+    await app.list_tools()  # populate provider traits
+    assert get_tool_traits(app, "provider_tool").required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM}
+    )
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_capability_filter_gates_ui_and_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`capability_filter` hides tools whose required capabilities are absent."""
+    _clear_registrations()
+
+    @mcp_tool(app=AppConfig(resource_uri="ui://test/x.html"))
+    def ui_tool() -> str:
+        """UI tool."""
+        return "ok"
+
+    app = fastmcp_extensions.mcp_server("test", include_standard_tool_filters=True)
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+    tool = await app.get_tool("ui_tool")
+    assert tool is not None
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+    assert capability_filter(tool, app) is False
+
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: {"x-mcp-extensions": "io.modelcontextprotocol/ui"},
+    )
+    assert capability_filter(tool, app) is True
+
+    # Capability values are internal — never on the wire.
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    for capability in Capability:
+        assert capability.value not in str(dumped)
 
     _clear_registrations()
 

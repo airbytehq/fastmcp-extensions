@@ -21,7 +21,10 @@ from fastmcp_extensions import (
     extension_tool_filter,
     interactive_ui_filter,
 )
-from fastmcp_extensions.tool_filters import STANDARD_TOOL_FILTERS
+from fastmcp_extensions.tool_filters import (
+    STANDARD_TOOL_FILTERS,
+    capability_filter,
+)
 
 
 @pytest.mark.parametrize(
@@ -199,14 +202,15 @@ def test_capability_middleware_forwards_disconnect() -> None:
 
 
 def test_extension_tool_filter_factory(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The factory gates annotated tools and leaves others visible."""
+    """The factory gates meta-marked tools and leaves others visible."""
     tool = Tool(
         name="tool",
         description="tool",
         inputSchema={"type": "object"},
         annotations=ToolAnnotations(readOnlyHint=True),
+        meta={"my-ext": {"marker": True}},
     )
-    filter_tool = extension_tool_filter("ui", "readOnlyHint")
+    filter_tool = extension_tool_filter("ui", "my-ext")
     monkeypatch.setattr(tool_filters, "client_supports_extension", lambda _: False)
     app = FastMCP("test")
     assert filter_tool(tool, app) is False
@@ -234,7 +238,7 @@ def test_standard_tool_filters_gate_interactive_ui(
     def no_context() -> None:
         raise RuntimeError
 
-    assert interactive_ui_filter in STANDARD_TOOL_FILTERS
+    assert capability_filter in STANDARD_TOOL_FILTERS
     monkeypatch.setattr(capability_tokens, "get_context", no_context)
     monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
 

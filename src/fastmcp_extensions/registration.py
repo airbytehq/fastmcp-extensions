@@ -25,6 +25,8 @@ from fastmcp_extensions.annotations import (
     ANNOTATION_MCP_MODULE,
     TOOL_APP_KEY,
     TOOL_META_KEY,
+    TOOL_REQUIRES_KEY,
+    UI_META_KEY,
     WITH_STATE_ANNOTATION,
     standard_annotation_field_names,
 )
@@ -41,6 +43,11 @@ from fastmcp_extensions.session_state import (
     ToolStateBase,
     current_principal,
     inspect_session_state,
+)
+from fastmcp_extensions.tool_traits import (
+    Capability,
+    ToolTraits,
+    set_tool_traits,
 )
 
 
@@ -135,12 +142,28 @@ def _exclude_parameters(
 
 
 class _ProviderToolAnnotations(Transform):
-    """Transform that fills missing annotations on provider-sourced tools."""
+    """Transform that fills missing annotations on provider-sourced tools.
 
-    def __init__(self, annotations: dict[str, Any]) -> None:
-        self._standard_annotations, self._meta_annotations = _split_annotations(
-            annotations
+    Also records the provider's `mcp_module` / `requiresClientFilesystem`
+    traits for each tool in the in-process traits registry — custom keys
+    never reach the wire.
+    """
+
+    def __init__(self, app: FastMCP, annotations: dict[str, Any]) -> None:
+        self._app = app
+        annotations = dict(annotations)
+        provider_requires = frozenset(annotations.pop(TOOL_REQUIRES_KEY, None) or ())
+        self._traits = ToolTraits(
+            mcp_module=annotations.pop(ANNOTATION_MCP_MODULE, None),
+            required_capabilities=provider_requires,
         )
+        self._standard_annotations, extras = _split_annotations(annotations)
+        if extras:
+            raise ValueError(
+                "mcp_provider: unsupported annotation key(s) "
+                f"{sorted(extras)}; MCP 2 ToolAnnotations only accepts the "
+                "standard hints."
+            )
 
     async def list_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
         return [self._apply_annotations(tool) for tool in tools]
@@ -175,14 +198,20 @@ class _ProviderToolAnnotations(Transform):
             )
             if annotation_type is not type(None)
         )
-        merged_meta: dict[str, Any] = dict(self._meta_annotations)
-        merged_meta.update(tool.meta or {})
-        update: dict[str, Any] = {
-            "annotations": tool_annotations_type(**merged_annotations),
-        }
-        if merged_meta:
-            update["meta"] = merged_meta
-        return tool.model_copy(update=update)
+        required_capabilities = self._traits.required_capabilities
+        if (tool.meta or {}).get(UI_META_KEY):
+            required_capabilities = required_capabilities | {Capability.UI}
+        set_tool_traits(
+            self._app,
+            tool.name,
+            ToolTraits(
+                mcp_module=self._traits.mcp_module,
+                required_capabilities=required_capabilities,
+            ),
+        )
+        return tool.model_copy(
+            update={"annotations": tool_annotations_type(**merged_annotations)}
+        )
 
 
 def _register_state_inspection_tool(
@@ -286,21 +315,37 @@ def register_mcp_tools(
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
+        traits = ToolTraits(
+            mcp_module=registration_annotations.pop(ANNOTATION_MCP_MODULE, None),
+            required_capabilities=frozenset(
+                registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
+            ),
+        )
         if state_type is not None:
             state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
         if exclude_args:
             callable_fn = _exclude_parameters(callable_fn, exclude_args)
 
-        standard_annotations, meta_annotations = _split_annotations(
-            registration_annotations
-        )
-        meta_annotations.update(tool_meta)
+        standard_annotations, extras = _split_annotations(registration_annotations)
+        if extras:
+            raise ValueError(
+                "register_mcp_tools: unsupported annotation key(s) "
+                f"{sorted(extras)} on "
+                f"{getattr(callable_fn, '__name__', callable_fn)!r}; MCP 2 "
+                "ToolAnnotations only accepts the standard hints. "
+                "Use meta= for custom wire metadata."
+            )
         app.tool(
             callable_fn,
             annotations=standard_annotations,
-            meta=meta_annotations or None,
+            meta=tool_meta or None,
             app=tool_app,
+        )
+        set_tool_traits(
+            app,
+            getattr(callable_fn, "__name__", str(callable_fn)),
+            traits,
         )
 
     _register_mcp_callables(
@@ -319,7 +364,7 @@ def register_mcp_tools(
 
     for provider_factory, provider_annotations in matching_providers:
         provider = provider_factory()
-        provider.add_transform(_ProviderToolAnnotations(provider_annotations))
+        provider.add_transform(_ProviderToolAnnotations(app, provider_annotations))
         app.add_provider(provider)
 
     if state_types:

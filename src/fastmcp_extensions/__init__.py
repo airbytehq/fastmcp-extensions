@@ -96,10 +96,12 @@ from fastmcp_extensions.session_state import (
 from fastmcp_extensions.tool_filters import (
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
+    capability_filter,
     extension_tool_filter,
     interactive_ui_filter,
     is_trusted_execution_enabled,
 )
+from fastmcp_extensions.tool_traits import Capability, ToolTraits, get_tool_traits
 from fastmcp_extensions.user_facing_errors import (
     UserFacingErrorFormatter,
     UserFacingErrorMiddleware,
@@ -114,6 +116,7 @@ __all__ = [
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
+    "Capability",
     "CapabilityTokenMiddleware",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
@@ -139,11 +142,13 @@ __all__ = [
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
     "ToolStateBase",
+    "ToolTraits",
     "UserFacingErrorFormatter",
     "UserFacingErrorMiddleware",
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",
+    "capability_filter",
     "client_declared_extensions_from_headers",
     "client_supports_extension",
     "decode_capability_token",
@@ -153,6 +158,7 @@ __all__ = [
     "extension_tool_filter",
     "fetch_client_credentials_token",
     "get_mcp_config",
+    "get_tool_traits",
     "install_authorization_redaction",
     "interactive_ui_filter",
     "is_trusted_execution_enabled",

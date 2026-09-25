@@ -7,11 +7,12 @@ Runs `fastmcp inspect` against a server spec (e.g.
 it into one Markdown file **per MCP module** under the chosen output
 directory, plus an `index.md` overview.
 
-Per-module grouping uses the `mcp_module` annotation that this package's
-`mcp_tool` decorator attaches to every registered tool (derived from the
-Python file the tool is defined in). Prompts and resources fall back to
-`meta.mcp_module` when present, and otherwise to an import-based lookup
-against `fastmcp_extensions.decorators._REGISTERED_PROMPTS` /
+Per-module grouping uses the `mcp_module` registration key that this
+package's decorators attach to every capability (derived from the Python
+file it is defined in). The key is internal and never on the wire, so the
+inspect JSON alone cannot group anything: tools, prompts, and resources all
+resolve through an import-based lookup against
+`fastmcp_extensions.decorators._REGISTERED_TOOLS` / `_REGISTERED_PROMPTS` /
 `_REGISTERED_RESOURCES`; anything still unresolved lands in `misc.md`.
 
 Inside each module file, content is grouped by primitive with L2 headings:
@@ -88,6 +89,7 @@ from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
     _REGISTERED_RESOURCES,
+    _REGISTERED_TOOLS,
 )
 
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
@@ -189,23 +191,25 @@ def _import_server_module(server_spec: str) -> None:
 
 
 def _build_extra_module_map() -> dict[str, str]:
-    """Scan registered prompts/resources for their `mcp_module` values.
+    """Scan registered tools/prompts/resources for their `mcp_module` values.
 
-    The `mcp_tool` decorator embeds `mcp_module` in the MCP tool
-    `annotations` dict, which the inspect JSON surfaces directly. But
-    `mcp_prompt` and `mcp_resource` store `mcp_module` on this package's
-    internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
-    annotation, so it doesn't appear in the inspect JSON.
+    `mcp_module` is a registration-time key kept off the wire: the
+    decorators store it on this package's internal `_REGISTERED_*` lists
+    only, so it never appears in the inspect JSON.
 
     The server module must already be imported before this function is called.
     If scanning fails (unusual shape or metadata drift), it silently returns
     an empty map and the caller falls back to `MISC_MODULE`.
 
-    Returns a map of `name / uri -> mcp_module` covering both prompts and
+    Returns a map of `name / uri -> mcp_module` covering tools, prompts and
     resources.
     """
     mapping: dict[str, str] = {}
     try:
+        for fn, ann in _REGISTERED_TOOLS:
+            tool_module = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
+            if name := ann.get("name") or getattr(fn, "__name__", None):
+                mapping[name] = tool_module
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
                 mapping[name] = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
@@ -233,7 +237,12 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
 
 
 def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
-    """Extract the `mcp_module` for a tool / resource / prompt."""
+    """Extract the `mcp_module` for a tool / resource / prompt.
+
+    `mcp_module` is internal and never on the wire, so `annotations`/`meta`
+    lookups are only kept for robustness against older or external servers;
+    the fallback map built from the registration lists is the real source.
+    """
     annotations = item.get("annotations") or {}
     if mcp_module := annotations.get(ANNOTATION_MCP_MODULE):
         return str(mcp_module)
