@@ -70,6 +70,10 @@ from fastmcp_extensions.logging_redaction import (
     install_authorization_redaction,
     redact_authorization,
 )
+from fastmcp_extensions.protocol_version import (
+    UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
+    ProtocolVersionNegotiationMiddleware,
+)
 from fastmcp_extensions.registration import (
     PromptDef,
     ResourceDef,
@@ -115,6 +119,7 @@ __all__ = [
     "DEFAULT_STATE_TTL",
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
+    "UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE",
     "AuthorizationRedactionFilter",
     "Capability",
     "CapabilityTokenMiddleware",
@@ -133,6 +138,7 @@ __all__ = [
     "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
+    "ProtocolVersionNegotiationMiddleware",
     "RejectEventStreamGetMiddleware",
     "ResourceDef",
     "TelemetryConfig",

@@ -467,6 +467,16 @@ while allowing the browser landing page and unrelated routes through. Pass
 `enable_stateless_capability_middleware=False` to opt out. Stateful HTTP and
 SSE transport do not receive these stateless-only layers.
 
+On `http`/`streamable-http` transports, `ProtocolVersionNegotiationMiddleware`
+is also applied by default (between `CapabilityTokenMiddleware` and
+`RejectEventStreamGetMiddleware`). Legacy `mcp` 1.x rejects an unknown
+`MCP-Protocol-Version` header with an uncorrelated `id: "server-error"`, which
+clients that open with a `server/discover` probe (rmcp, Goose CLI) cannot
+correlate, so they abort instead of falling back to `initialize`. The
+middleware answers such POSTs itself with a `-32022` JSON-RPC error echoing
+the request id and listing the supported versions. Pass
+`enable_protocol_version_negotiation=False` to opt out.
+
 ## Tool Filtering
 
 `mcp_server()` can add the standard filters with
@@ -570,6 +580,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### MCP Apps and capability carry-through
 
 - `CapabilityTokenMiddleware` / `RejectEventStreamGetMiddleware` - Carry extension declarations through stateless HTTP and reject SSE-style `GET` requests at the MCP path.
+- `ProtocolVersionNegotiationMiddleware` - Answer POSTs carrying an unsupported `MCP-Protocol-Version` header with a correlated `-32022` JSON-RPC error so modern clients fall back to `initialize`.
 - `encode_capability_token` / `decode_capability_token` - Encode and fail-closed decode self-describing capability tokens.
 - `client_supports_extension` / `client_declared_extensions_from_headers` - Resolve client extension declarations from FastMCP session capabilities, the session token, and the fallback header.
 - `DEFAULT_EXTENSIONS_HEADER` - Default fallback header name, `X-MCP-Extensions`.

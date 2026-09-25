@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 import fastmcp_extensions.http_server as http_server
 from fastmcp_extensions import (
     CapabilityTokenMiddleware,
+    ProtocolVersionNegotiationMiddleware,
     RejectEventStreamGetMiddleware,
 )
 
@@ -94,6 +95,7 @@ def test_run_mcp_http_server_builds_and_serves_with_expected_config(
         stateless_http=True,
         wrapper=wrapper if use_wrapper else None,
         enable_stateless_capability_middleware=False,
+        enable_protocol_version_negotiation=False,
         host="127.0.0.1",
         port=port,
         uvicorn_config=uvicorn_config,
@@ -157,12 +159,68 @@ def test_run_mcp_http_server_default_capability_middleware(
 
     if wrapped:
         assert isinstance(captured["app"], RejectEventStreamGetMiddleware)
-        capability_app = captured["app"].app
+        negotiation_app = captured["app"].app
+        assert isinstance(negotiation_app, ProtocolVersionNegotiationMiddleware)
+        assert negotiation_app.path == "/mcp"
+        capability_app = negotiation_app.app
         assert isinstance(capability_app, CapabilityTokenMiddleware)
         assert capability_app.app is built_app
         assert captured["app"].path == "/mcp"
     else:
-        assert captured["app"] is built_app
+        assert isinstance(captured["app"], ProtocolVersionNegotiationMiddleware)
+        assert captured["app"].app is built_app
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("transport", "stateless_http", "enable_negotiation", "expected"),
+    [
+        pytest.param(
+            "http", True, True, ["reject", "negotiate", "capability"], id="stateless"
+        ),
+        pytest.param("http", False, True, ["negotiate"], id="stateful"),
+        pytest.param("streamable-http", False, True, ["negotiate"], id="streamable"),
+        pytest.param("http", True, False, ["reject", "capability"], id="opt-out"),
+        pytest.param("sse", True, True, [], id="sse"),
+    ],
+)
+def test_run_mcp_http_server_protocol_version_negotiation_layering(
+    transport: str,
+    stateless_http: bool,
+    enable_negotiation: bool,
+    expected: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The negotiation layer wraps the capability layer and skips SSE."""
+    server = FastMCP("test")
+    built_app = object()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(server, "http_app", lambda **_: built_app)
+    monkeypatch.setattr(
+        http_server.uvicorn,
+        "run",
+        lambda app, **kwargs: captured.update(app=app, **kwargs),
+    )
+
+    http_server.run_mcp_http_server(
+        server,
+        transport=transport,  # type: ignore[arg-type]
+        stateless_http=stateless_http,
+        enable_protocol_version_negotiation=enable_negotiation,
+    )
+
+    names = []
+    app = captured["app"]
+    while app is not built_app:
+        if isinstance(app, RejectEventStreamGetMiddleware):
+            names.append("reject")
+        elif isinstance(app, ProtocolVersionNegotiationMiddleware):
+            names.append("negotiate")
+        elif isinstance(app, CapabilityTokenMiddleware):
+            names.append("capability")
+        app = app.app
+    assert names == expected
 
 
 @pytest.mark.unit
