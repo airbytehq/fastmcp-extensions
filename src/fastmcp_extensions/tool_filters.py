@@ -51,11 +51,11 @@ from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
 from fastmcp_extensions.annotations import (
-    ANNOTATION_INTERACTIVE_UI,
     ANNOTATION_MCP_MODULE,
     DESTRUCTIVE_HINT,
     READ_ONLY_HINT,
     REQUIRES_CLIENT_FILESYSTEM,
+    UI_META_KEY,
     standard_annotation_field_names,
 )
 from fastmcp_extensions.capability_tokens import client_supports_extension
@@ -380,16 +380,17 @@ def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterF
     return filter_tool
 
 
-interactive_ui_filter = extension_tool_filter(
-    UI_EXTENSION_ID,
-    ANNOTATION_INTERACTIVE_UI,
-)
-"""Standard filter for tools requiring MCP Apps UI rendering support.
+def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:
+    """Hide MCP Apps UI tools from clients that cannot render them.
 
-This is a rendering-capability gate, not a privilege boundary. Adding this
-filter to `STANDARD_TOOL_FILTERS` changes visibility for servers that opt into
-standard filters and define tools with the `interactive-ui` annotation.
-"""
+    Tools linked to a UI resource carry the standard `_meta.ui` marker
+    (`meta["ui"]`, written by FastMCP from `AppConfig`); when the client
+    did not declare `io.modelcontextprotocol/ui` support the tool is
+    hidden. This is a rendering-capability gate, not a privilege boundary.
+    """
+    if not (tool.meta or {}).get(UI_META_KEY):
+        return True
+    return client_supports_extension(UI_EXTENSION_ID)
 
 
 # =============================================================================

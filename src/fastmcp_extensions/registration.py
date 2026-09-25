@@ -23,6 +23,8 @@ from mcp.types import ToolAnnotations
 
 from fastmcp_extensions.annotations import (
     ANNOTATION_MCP_MODULE,
+    TOOL_APP_KEY,
+    TOOL_META_KEY,
     WITH_STATE_ANNOTATION,
     standard_annotation_field_names,
 )
@@ -282,6 +284,8 @@ def register_mcp_tools(
     ) -> None:
         registration_annotations = dict(annotations)
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
+        tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
+        tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         if state_type is not None:
             state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
@@ -291,10 +295,12 @@ def register_mcp_tools(
         standard_annotations, meta_annotations = _split_annotations(
             registration_annotations
         )
+        meta_annotations.update(tool_meta)
         app.tool(
             callable_fn,
             annotations=standard_annotations,
             meta=meta_annotations or None,
+            app=tool_app,
         )
 
     _register_mcp_callables(

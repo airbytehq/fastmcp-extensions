@@ -20,13 +20,14 @@ from fastmcp.server.providers import Provider
 from pydantic import Field, create_model
 
 from fastmcp_extensions.annotations import (
-    ANNOTATION_INTERACTIVE_UI,
     ANNOTATION_MCP_MODULE,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
     REQUIRES_CLIENT_FILESYSTEM,
+    TOOL_APP_KEY,
+    TOOL_META_KEY,
     WITH_STATE_ANNOTATION,
 )
 from fastmcp_extensions.session_state import (
@@ -39,6 +40,7 @@ from fastmcp_extensions.session_state import (
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from fastmcp.apps import AppConfig
 
 F = TypeVar("F", bound=Callable[..., Any])
 P = TypeVar("P", bound=Callable[[], Provider])
@@ -104,6 +106,8 @@ def mcp_tool(
     requires_client_filesystem: bool = False,
     interactive_ui: bool = False,
     with_state: type[ToolStateBase] | None = None,
+    meta: Mapping[str, object] | None = None,
+    app: AppConfig | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -121,10 +125,14 @@ def mcp_tool(
         open_world: If True, tool interacts with external systems (default: False)
         requires_client_filesystem: If True, tool requires the client to have a
             local filesystem available (default: False)
-        interactive_ui: If True, tool requires MCP Apps UI rendering support
-            (default: False)
+        interactive_ui: If True, tool requires MCP Apps UI rendering support.
+            Requires `app=` so the tool is linked to a UI resource via the
+            standard `_meta.ui` marker (default: False)
         with_state: Optional `ToolStateBase` subclass for explicit state carried
             between calls.
+        meta: Optional extra keys merged into the tool's wire `meta` field.
+        app: Optional `AppConfig` linking the tool to an MCP Apps UI resource
+            via `_meta.ui`.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -145,10 +153,17 @@ def mcp_tool(
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
     }
+    if interactive_ui and app is None:
+        raise ValueError(
+            "interactive_ui=True requires app=AppConfig(...) so the tool is "
+            "linked to a UI resource via _meta.ui"
+        )
     if requires_client_filesystem:
         annotations[REQUIRES_CLIENT_FILESYSTEM] = True
-    if interactive_ui:
-        annotations[ANNOTATION_INTERACTIVE_UI] = True
+    if meta:
+        annotations[TOOL_META_KEY] = dict(meta)
+    if app is not None:
+        annotations[TOOL_APP_KEY] = app
     if with_state is not None:
         if not issubclass(with_state, ToolStateBase):
             raise TypeError("with_state must be a ToolStateBase subclass")
@@ -281,8 +296,10 @@ def mcp_provider(
     """Decorator to tag an MCP provider factory for deferred registration.
 
     Args:
-        interactive_ui: If True, provider tools require MCP Apps UI rendering
-            support (default: False)
+        interactive_ui: Accepted for backwards compatibility but has no
+            effect: UI tools are now detected via the standard `_meta.ui`
+            marker, which providers attach per tool through `app=`
+            (`AppConfig`) when constructing them.
         annotations: Extra annotations to apply to provider-sourced tools.
 
     Returns:
@@ -293,8 +310,6 @@ def mcp_provider(
     provider_annotations: dict[str, Any] = {
         ANNOTATION_MCP_MODULE: mcp_module_str,
     }
-    if interactive_ui:
-        provider_annotations[ANNOTATION_INTERACTIVE_UI] = True
     provider_annotations.update(annotations or {})
 
     def decorator(func: P) -> P:

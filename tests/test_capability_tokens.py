@@ -21,10 +21,7 @@ from fastmcp_extensions import (
     extension_tool_filter,
     interactive_ui_filter,
 )
-from fastmcp_extensions.tool_filters import (
-    ANNOTATION_INTERACTIVE_UI,
-    STANDARD_TOOL_FILTERS,
-)
+from fastmcp_extensions.tool_filters import STANDARD_TOOL_FILTERS
 
 
 @pytest.mark.parametrize(
@@ -225,7 +222,7 @@ def test_standard_tool_filters_gate_interactive_ui(
         description="ui tool",
         inputSchema={"type": "object"},
         annotations=ToolAnnotations(),
-        meta={ANNOTATION_INTERACTIVE_UI: True},
+        meta={"ui": {"resourceUri": "ui://test/x.html"}},
     )
     plain_tool = Tool(
         name="plain_tool",

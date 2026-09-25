@@ -94,7 +94,6 @@ from fastmcp_extensions.session_state import (
     encode_session_state,
 )
 from fastmcp_extensions.tool_filters import (
-    ANNOTATION_INTERACTIVE_UI,
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
     extension_tool_filter,
@@ -107,7 +106,6 @@ from fastmcp_extensions.user_facing_errors import (
 )
 
 __all__ = [
-    "ANNOTATION_INTERACTIVE_UI",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",

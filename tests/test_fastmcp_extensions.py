@@ -5,6 +5,7 @@ import warnings
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.apps import AppConfig
 from fastmcp.server.providers import Provider
 from fastmcp.tools import Tool
 from mcp.types import Tool as McpTool
@@ -21,7 +22,6 @@ from fastmcp_extensions import (
     register_mcp_tools,
 )
 from fastmcp_extensions.annotations import (
-    ANNOTATION_INTERACTIVE_UI,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
@@ -97,7 +97,7 @@ def test_mcp_provider_decorator() -> None:
     class TestProvider(Provider):
         pass
 
-    @mcp_provider(annotations={"interactive-ui": True})
+    @mcp_provider(annotations={"custom-flag": True})
     def my_test_provider() -> Provider:
         """A test provider."""
         return TestProvider()
@@ -106,13 +106,17 @@ def test_mcp_provider_decorator() -> None:
     func, annotations = _REGISTERED_PROVIDERS[0]
     assert func.__name__ == "my_test_provider"
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
-    assert annotations["interactive-ui"] is True
+    assert annotations["custom-flag"] is True
 
     _clear_registrations()
 
 
-def test_mcp_provider_interactive_ui_argument_respects_explicit_annotation() -> None:
-    """Test that provider UI annotations are type-safe and caller-overridable."""
+def test_mcp_provider_interactive_ui_argument_is_accepted_noop() -> None:
+    """`mcp_provider(interactive_ui=True)` is accepted but writes nothing.
+
+    Provider tools are gated via the standard `_meta.ui` marker each tool
+    carries, not a provider-level annotation.
+    """
     _clear_registrations()
 
     class TestProvider(Provider):
@@ -122,15 +126,7 @@ def test_mcp_provider_interactive_ui_argument_respects_explicit_annotation() -> 
     def ui_provider() -> Provider:
         return TestProvider()
 
-    @mcp_provider(
-        interactive_ui=True,
-        annotations={ANNOTATION_INTERACTIVE_UI: False},
-    )
-    def overridden_provider() -> Provider:
-        return TestProvider()
-
-    assert _REGISTERED_PROVIDERS[0][1][ANNOTATION_INTERACTIVE_UI] is True
-    assert _REGISTERED_PROVIDERS[1][1][ANNOTATION_INTERACTIVE_UI] is False
+    assert _REGISTERED_PROVIDERS[0][1] == {"mcp_module": "test_fastmcp_extensions"}
 
     _clear_registrations()
 
@@ -151,7 +147,10 @@ async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
     """Test that the typed tool argument reaches the standard UI filter."""
     _clear_registrations()
 
-    @mcp_tool(interactive_ui=True)
+    @mcp_tool(
+        interactive_ui=True,
+        app=AppConfig(resource_uri="ui://test/dashboard.html"),
+    )
     def show_dashboard() -> str:
         """Return dashboard data."""
         return "dashboard data"
@@ -160,8 +159,7 @@ async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
     register_mcp_tools(app)
     tool = await app.get_tool("show_dashboard")
     assert tool is not None
-    assert tool.annotations is not None
-    assert (tool.meta or {}).get(ANNOTATION_INTERACTIVE_UI) is True
+    assert (tool.meta or {})["ui"]["resourceUri"] == "ui://test/dashboard.html"
 
     def no_context() -> None:
         raise RuntimeError
@@ -210,7 +208,7 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
 
     @mcp_provider(
         annotations={
-            "interactive-ui": True,
+            "custom-flag": True,
             "provider-owned": False,
         }
     )
@@ -225,7 +223,7 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
     assert tool.annotations is not None
     assert tool.annotations.read_only_hint is True
     assert tool.meta == {
-        "interactive-ui": True,
+        "custom-flag": True,
         "mcp_module": "test_fastmcp_extensions",
         "provider-owned": True,
     }
@@ -332,7 +330,13 @@ async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
     """Standard hints land on `tool.annotations`; custom keys land on `tool.meta`."""
     _clear_registrations()
 
-    @mcp_tool(read_only=True, interactive_ui=True, requires_client_filesystem=True)
+    @mcp_tool(
+        read_only=True,
+        interactive_ui=True,
+        requires_client_filesystem=True,
+        app=AppConfig(resource_uri="ui://test/annotated.html"),
+        meta={"custom-flag": True},
+    )
     def annotated_tool() -> str:
         """Annotated tool."""
         return "ok"
@@ -345,14 +349,79 @@ async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
     assert tool.annotations is not None
     assert tool.annotations.read_only_hint is True
     assert tool.meta == {
-        "interactive-ui": True,
+        "ui": {"resourceUri": "ui://test/annotated.html"},
+        "custom-flag": True,
         "requiresClientFilesystem": True,
         "mcp_module": "test_fastmcp_extensions",
     }
     assert get_annotation(tool, "readOnlyHint") is True
-    assert get_annotation(tool, "interactive-ui") is True
     assert get_annotation(tool, "mcp_module") == "test_fastmcp_extensions"
     assert get_annotation(tool, "missing", default=False) is False
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_interactive_ui_requires_app() -> None:
+    """`interactive_ui=True` without `app=` is a configuration error."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="interactive_ui=True requires app="):
+
+        @mcp_tool(interactive_ui=True)
+        def ui_tool() -> str:
+            return "ok"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_meta_arg_lands_in_tool_meta() -> None:
+    """Explicit `meta=` merges with custom annotation keys in `tool.meta`."""
+    _clear_registrations()
+
+    @mcp_tool(meta={"foo": 1})
+    def meta_tool() -> str:
+        """Meta tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("meta_tool")
+    assert tool is not None
+    assert tool.meta == {"foo": 1, "mcp_module": "test_fastmcp_extensions"}
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_interactive_ui_filter_hides_app_tool_without_flag() -> None:
+    """A tool with `app=` is gated even when `interactive_ui` was not passed."""
+    _clear_registrations()
+
+    @mcp_tool(app=AppConfig(resource_uri="ui://test/plain.html"))
+    def app_tool() -> str:
+        """App tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("app_tool")
+    assert tool is not None
+    assert (tool.meta or {})["ui"]["resourceUri"] == "ui://test/plain.html"
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+    assert interactive_ui_filter(tool, app) is False
+    monkeypatch.undo()
 
     _clear_registrations()
 

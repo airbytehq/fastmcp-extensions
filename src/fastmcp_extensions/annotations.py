@@ -83,8 +83,30 @@ in `meta` instead of `annotations` on the wire.
 Default if not specified: `False` (no client filesystem required).
 """
 
-ANNOTATION_INTERACTIVE_UI = "interactive-ui"
-"""Annotation key for tools requiring MCP Apps UI rendering support."""
+UI_META_KEY = "ui"
+"""MCP Apps standard `_meta.ui` key linking a tool to its UI resource.
+
+Written by FastMCP from `AppConfig` when a tool is registered with `app=`;
+`interactive_ui_filter` gates tools carrying this key on the client's
+`io.modelcontextprotocol/ui` extension declaration.
+See https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx
+"""
+
+TOOL_META_KEY = "_fastmcp_extensions_meta"
+"""Internal registration-time key carrying user-supplied tool `meta`.
+
+Set by ``@mcp_tool(meta=...)`` and popped at registration time — the mapping
+itself is merged into `tool.meta` (the wire `meta` field); the key is never
+sent on the wire.
+"""
+
+TOOL_APP_KEY = "_fastmcp_extensions_app"
+"""Internal registration-time key carrying the tool's `AppConfig`.
+
+Set by ``@mcp_tool(app=...)`` and popped at registration time — the config is
+passed to `app.tool(app=...)`, which writes the standard `_meta.ui` marker;
+the key is never sent on the wire.
+"""
 
 WITH_STATE_ANNOTATION = "_fastmcp_extensions_with_state"
 """Internal registration-time key carrying the `ToolStateBase` subclass.
