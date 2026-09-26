@@ -108,9 +108,9 @@ def _request_endpoint(host: str) -> str:
 def _client_info() -> _ClientInfo:
     context = get_context()
     client_params = context.session.client_params
-    if client_params is None or client_params.clientInfo is None:
+    if client_params is None or client_params.client_info is None:
         return _ClientInfo(None, None)
-    client_info = client_params.clientInfo
+    client_info = client_params.client_info
     return _ClientInfo(client_info.name, client_info.version)
 
 

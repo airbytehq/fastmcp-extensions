@@ -38,7 +38,7 @@ def _context(
         session_id=session_id,
         session=SimpleNamespace(
             client_params=(
-                SimpleNamespace(clientInfo=client_info)
+                SimpleNamespace(client_info=client_info)
                 if client_info is not None
                 else None
             )
