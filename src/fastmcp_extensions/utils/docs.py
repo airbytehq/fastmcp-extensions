@@ -206,10 +206,6 @@ def _build_extra_module_map() -> dict[str, str]:
     """
     mapping: dict[str, str] = {}
     try:
-        for fn, ann in _REGISTERED_TOOLS:
-            tool_module = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
-            if name := ann.get("name") or getattr(fn, "__name__", None):
-                mapping[name] = tool_module
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
                 mapping[name] = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
@@ -221,6 +217,12 @@ def _build_extra_module_map() -> dict[str, str]:
                 # inspect output; index by that too so lookup by either key
                 # works.
                 mapping[uri.rsplit("/", 1)[-1]] = mcp_module
+        # Tools resolve last so a same-named tool wins over a prompt or
+        # resource entry in the shared `name -> mcp_module` map.
+        for fn, ann in _REGISTERED_TOOLS:
+            tool_module = ann.get(ANNOTATION_MCP_MODULE) or MISC_MODULE
+            if name := ann.get("name") or getattr(fn, "__name__", None):
+                mapping[name] = tool_module
     except Exception:
         return {}
     return mapping

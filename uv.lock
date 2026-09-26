@@ -4,8 +4,8 @@ requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform != 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version < '3.14' and sys_platform == 'win32'",
     "(python_full_version < '3.12' and sys_platform == 'emscripten') or (python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32')",
 ]
 
@@ -658,7 +658,7 @@ requires-dist = [
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.25.1" },
     { name = "fastmcp", specifier = ">=4.0.9,<5.0" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp", specifier = ">=2.0,<3.0" },
     { name = "msgspec", specifier = ">=0.19,<1.0" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "py-key-value-aio", specifier = ">=0.4.4,<0.5.0" },

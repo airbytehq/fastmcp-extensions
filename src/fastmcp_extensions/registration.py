@@ -28,6 +28,7 @@ from fastmcp_extensions.annotations import (
     TOOL_REQUIRES_KEY,
     UI_META_KEY,
     WITH_STATE_ANNOTATION,
+    _canonical_annotation_key,
     standard_annotation_field_names,
 )
 from fastmcp_extensions.decorators import (
@@ -83,7 +84,9 @@ def _split_annotations(
     """
     standard_keys = set(standard_annotation_field_names())
     standard = {
-        key: value for key, value in annotations.items() if key in standard_keys
+        _canonical_annotation_key(key): value
+        for key, value in annotations.items()
+        if key in standard_keys
     }
     extras = {
         key: value for key, value in annotations.items() if key not in standard_keys

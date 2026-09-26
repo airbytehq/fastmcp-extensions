@@ -396,7 +396,31 @@ async def test_mcp_tool_meta_arg_lands_in_tool_meta() -> None:
     _clear_registrations()
 
 
+@pytest.mark.asyncio
 @pytest.mark.unit
+async def test_mcp_tool_snake_case_annotation_key_is_canonicalized() -> None:
+    """`annotations={\"read_only_hint\": True}` wins over the hint kwarg default.
+
+    `ToolAnnotations` prefers the camelCase alias when both spellings are
+    present, so the snake_case key must be canonicalized before merging —
+    otherwise the default `readOnlyHint: False` would silently win.
+    """
+    _clear_registrations()
+
+    @mcp_tool(annotations={"read_only_hint": True})
+    def snake_case_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app)
+    tool = await app.get_tool("snake_case_tool")
+
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is True
+
+    _clear_registrations()
+
+
 def test_mcp_tool_unknown_annotation_key_raises() -> None:
     """Non-standard annotation keys are a configuration error, not wire data."""
     _clear_registrations()

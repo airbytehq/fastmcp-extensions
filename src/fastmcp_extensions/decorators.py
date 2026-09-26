@@ -29,6 +29,7 @@ from fastmcp_extensions.annotations import (
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     WITH_STATE_ANNOTATION,
+    _canonical_annotation_key,
     standard_annotation_field_names,
 )
 from fastmcp_extensions.session_state import (
@@ -180,7 +181,7 @@ def mcp_tool(
     """
     mcp_module_str = _get_caller_file_stem()
     if annotations:
-        _validate_annotation_keys(annotations, "mcp_tool")
+        _validate_annotation_keys(annotations, "mcp_tool")  # canonicalized below
 
     annotations_dict: dict[str, Any] = {
         ANNOTATION_MCP_MODULE: mcp_module_str,
@@ -189,7 +190,9 @@ def mcp_tool(
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
     }
-    annotations_dict.update(annotations or {})
+    annotations_dict.update(
+        {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
+    )
     annotations = annotations_dict
     if interactive_ui and app is None:
         raise ValueError(
@@ -360,7 +363,9 @@ def mcp_provider(
     }
     if annotations:
         _validate_annotation_keys(annotations, "mcp_provider")
-    provider_annotations.update(annotations or {})
+    provider_annotations.update(
+        {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
+    )
     if required_capabilities:
         provider_annotations[TOOL_REQUIRES_KEY] = frozenset(required_capabilities)
 

@@ -63,9 +63,9 @@ FastMCP default if not specified: True
 ANNOTATION_MCP_MODULE = "mcp_module"
 """Registration-time routing key for the module a capability was declared in.
 
-Set automatically by the ``@mcp_tool`` / ``@mcp_prompt`` / ``@mcp_resource`` /
-``@mcp_provider`` decorators from the caller's file stem, and used by
-``register_mcp_tools`` and the docs generator to route capabilities. Never
+Set automatically by the `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` /
+`@mcp_provider` decorators from the caller's file stem, and used by
+`register_mcp_tools` and the docs generator to route capabilities. Never
 sent on the wire: registered tools expose it via `get_tool_traits`.
 """
 
@@ -83,7 +83,7 @@ See https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/dra
 TOOL_META_KEY = "_fastmcp_extensions_meta"
 """Internal registration-time key carrying user-supplied tool `meta`.
 
-Set by ``@mcp_tool(meta=...)`` and popped at registration time — the mapping
+Set by `@mcp_tool(meta=...)` and popped at registration time — the mapping
 itself becomes `tool.meta` (the wire `meta` field); the key is never sent on
 the wire.
 """
@@ -91,7 +91,7 @@ the wire.
 TOOL_APP_KEY = "_fastmcp_extensions_app"
 """Internal registration-time key carrying the tool's `AppConfig`.
 
-Set by ``@mcp_tool(app=...)`` and popped at registration time — the config is
+Set by `@mcp_tool(app=...)` and popped at registration time — the config is
 passed to `app.tool(app=...)`, which writes the standard `_meta.ui` marker;
 the key is never sent on the wire.
 """
@@ -99,15 +99,15 @@ the key is never sent on the wire.
 WITH_STATE_ANNOTATION = "_fastmcp_extensions_with_state"
 """Internal registration-time key carrying the `ToolStateBase` subclass.
 
-Set by ``@mcp_tool(with_state=...)`` and popped at registration time — it is
+Set by `@mcp_tool(with_state=...)` and popped at registration time — it is
 never sent on the wire.
 """
 
 TOOL_REQUIRES_KEY = "_fastmcp_extensions_requires"
 """Internal registration-time key carrying the tool's `Capability` set.
 
-Set by ``@mcp_tool(required_capabilities=...)`` /
-``@mcp_provider(required_capabilities=...)`` (and the
+Set by `@mcp_tool(required_capabilities=...)` /
+`@mcp_provider(required_capabilities=...)` (and the
 `requires_client_filesystem` / `app=` sugar) and popped at registration
 time into `ToolTraits.required_capabilities` — it is never sent on the wire.
 """
@@ -125,3 +125,15 @@ def standard_annotation_field_names() -> dict[str, str]:
         for field_name, field in ToolAnnotations.model_fields.items()
         if field.alias is not None
     }
+
+
+def _canonical_annotation_key(key: str) -> str:
+    """Resolve a standard annotation key spelling to its camelCase wire alias.
+
+    `ToolAnnotations` fields prefer the alias when both the snake_case name
+    and the camelCase alias are present, so callers must not mix spellings.
+    Non-standard keys pass through unchanged.
+    """
+    field_name = standard_annotation_field_names().get(key, key)
+    field = ToolAnnotations.model_fields.get(field_name)
+    return field.alias if field is not None and field.alias is not None else key

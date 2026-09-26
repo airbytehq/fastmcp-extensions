@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from fastmcp import FastMCP
 
+import fastmcp_extensions.decorators as decorators
 from fastmcp_extensions import (
     mcp_prompt,
     mcp_resource,
@@ -23,6 +24,7 @@ from fastmcp_extensions.utils.docs import (
     DEFAULT_OUTPUT,
     MISC_MODULE,
     _bucket_by_module,
+    _build_extra_module_map,
     _fmt_default,
     _fmt_type,
     _get_module,
@@ -66,6 +68,27 @@ register_mcp_resources(_PARITY_APP)
 
 def _module_pages(output: Path) -> set[str]:
     return {page.stem for page in output.glob("*.md") if page.name != "index.md"}
+
+
+def test_build_extra_module_map_tool_wins_over_same_named_prompt() -> None:
+    """Tools resolve last so a same-named prompt cannot overwrite them."""
+
+    def _shared_name_tool() -> str:
+        return "ok"
+
+    decorators._REGISTERED_PROMPTS.append(
+        (lambda: None, {"name": "shared_name", "mcp_module": "prompts_mod"})
+    )
+    decorators._REGISTERED_TOOLS.append(
+        (_shared_name_tool, {"name": "shared_name", "mcp_module": "tools_mod"})
+    )
+    try:
+        mapping = _build_extra_module_map()
+    finally:
+        decorators._REGISTERED_PROMPTS.pop()
+        decorators._REGISTERED_TOOLS.pop()
+
+    assert mapping["shared_name"] == "tools_mod"
 
 
 @pytest.mark.parametrize(
