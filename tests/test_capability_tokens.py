@@ -140,6 +140,22 @@ def test_client_supports_extension_reads_envelope_capabilities(
     assert client_supports_extension("io.modelcontextprotocol/ui") is False
 
 
+def test_client_supports_extension_tolerates_missing_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sessionless contexts (e.g. `fastmcp inspect`) must not raise."""
+
+    class Context:
+        @property
+        def session(self) -> object:
+            raise RuntimeError("session is not available")
+
+    monkeypatch.setattr(capability_tokens, "get_context", lambda: Context())
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+
+    assert client_supports_extension("io.modelcontextprotocol/ui") is False
+
+
 async def _run_capability_middleware(
     messages: list[dict[str, object]],
     *,

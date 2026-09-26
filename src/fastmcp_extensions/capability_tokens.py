@@ -114,7 +114,14 @@ def client_supports_extension(
         session_supports_extension = False
     else:
         session_supports_extension = False
-        caps = context.session.client_capabilities
+        try:
+            session = context.session
+        except RuntimeError:
+            # Sessionless contexts (e.g. `fastmcp inspect`, docs generation)
+            # expose a Context with no underlying session.
+            caps = None
+        else:
+            caps = session.client_capabilities
         if caps is not None:
             extensions = caps.extensions
             if extensions is None:
