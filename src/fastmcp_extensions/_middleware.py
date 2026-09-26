@@ -53,7 +53,7 @@ class ToolFilterMiddleware(Middleware):
                 annotations = tool.annotations
                 if annotations is None:
                     return False
-                return getattr(annotations, "readOnlyHint", False)
+                return getattr(annotations, "read_only_hint", False)
             return True
 
 

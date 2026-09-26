@@ -71,7 +71,7 @@ async def test_on_list_tools_filters_tools() -> None:
     def readonly_filter(tool: Tool, app: FastMCP) -> bool:
         if tool.annotations is None:
             return False
-        return getattr(tool.annotations, "readOnlyHint", False)
+        return getattr(tool.annotations, "read_only_hint", False)
 
     middleware = ToolFilterMiddleware(app, tool_filter=readonly_filter)
 
@@ -268,7 +268,7 @@ async def test_on_list_tools_parametrized(
     def readonly_filter(tool: Tool, app: FastMCP) -> bool:
         if tool.annotations is None:
             return False
-        return getattr(tool.annotations, "readOnlyHint", False)
+        return getattr(tool.annotations, "read_only_hint", False)
 
     middleware = ToolFilterMiddleware(app, tool_filter=readonly_filter)
 

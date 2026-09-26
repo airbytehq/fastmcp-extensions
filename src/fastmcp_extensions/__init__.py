@@ -70,10 +70,6 @@ from fastmcp_extensions.logging_redaction import (
     install_authorization_redaction,
     redact_authorization,
 )
-from fastmcp_extensions.protocol_version import (
-    UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
-    ProtocolVersionNegotiationMiddleware,
-)
 from fastmcp_extensions.registration import (
     PromptDef,
     ResourceDef,
@@ -98,20 +94,20 @@ from fastmcp_extensions.session_state import (
     encode_session_state,
 )
 from fastmcp_extensions.tool_filters import (
-    ANNOTATION_INTERACTIVE_UI,
     ToolFilterFn,
     assert_http_trusted_execution_disabled,
+    capability_filter,
     extension_tool_filter,
     interactive_ui_filter,
     is_trusted_execution_enabled,
 )
+from fastmcp_extensions.tool_traits import Capability, ToolTraits, get_tool_traits
 from fastmcp_extensions.user_facing_errors import (
     UserFacingErrorFormatter,
     UserFacingErrorMiddleware,
 )
 
 __all__ = [
-    "ANNOTATION_INTERACTIVE_UI",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
@@ -119,8 +115,8 @@ __all__ = [
     "DEFAULT_STATE_TTL",
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
-    "UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE",
     "AuthorizationRedactionFilter",
+    "Capability",
     "CapabilityTokenMiddleware",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
@@ -137,7 +133,6 @@ __all__ = [
     "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
-    "ProtocolVersionNegotiationMiddleware",
     "RejectEventStreamGetMiddleware",
     "ResourceDef",
     "TelemetryConfig",
@@ -147,11 +142,13 @@ __all__ = [
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
     "ToolStateBase",
+    "ToolTraits",
     "UserFacingErrorFormatter",
     "UserFacingErrorMiddleware",
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",
+    "capability_filter",
     "client_declared_extensions_from_headers",
     "client_supports_extension",
     "decode_capability_token",
@@ -161,6 +158,7 @@ __all__ = [
     "extension_tool_filter",
     "fetch_client_credentials_token",
     "get_mcp_config",
+    "get_tool_traits",
     "install_authorization_redaction",
     "interactive_ui_filter",
     "is_trusted_execution_enabled",

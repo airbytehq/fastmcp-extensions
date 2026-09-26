@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from fastmcp import FastMCP
-from mcp.types import Tool, ToolAnnotations
+from mcp.types import ClientCapabilities, Tool, ToolAnnotations
 
 import fastmcp_extensions.capability_tokens as capability_tokens
 import fastmcp_extensions.tool_filters as tool_filters
@@ -22,8 +22,8 @@ from fastmcp_extensions import (
     interactive_ui_filter,
 )
 from fastmcp_extensions.tool_filters import (
-    ANNOTATION_INTERACTIVE_UI,
     STANDARD_TOOL_FILTERS,
+    capability_filter,
 )
 
 
@@ -86,11 +86,13 @@ def test_client_declared_extensions_union_token_and_fallback_header(
 def test_client_supports_extension_checks_session_and_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The convenience resolver checks FastMCP session capabilities and headers."""
+    """The convenience resolver checks session capabilities and headers."""
+
+    class Session:
+        client_capabilities = ClientCapabilities(extensions={"session": {}})
 
     class Context:
-        def client_supports_extension(self, extension_id: str) -> bool:
-            return extension_id == "session"
+        session = Session()
 
     monkeypatch.setattr(capability_tokens, "get_context", lambda: Context())
     monkeypatch.setattr(
@@ -102,6 +104,40 @@ def test_client_supports_extension_checks_session_and_headers(
     assert client_supports_extension("session") is True
     assert client_supports_extension("header") is True
     assert client_supports_extension("missing") is False
+
+
+def test_client_supports_extension_reads_envelope_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-07-28 sessionless requests expose capabilities via the envelope.
+
+    `session.client_params` is `None` here, so FastMCP's
+    `Context.client_supports_extension` cannot see the declaration; the
+    resolver reads `session.client_capabilities` directly.
+    """
+
+    class Session:
+        client_capabilities = ClientCapabilities(
+            extensions={"io.modelcontextprotocol/ui": {}}
+        )
+
+    class Context:
+        session = Session()
+
+    monkeypatch.setattr(capability_tokens, "get_context", lambda: Context())
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+
+    assert client_supports_extension("io.modelcontextprotocol/ui") is True
+
+    class EmptySession:
+        client_capabilities = None
+
+    class EmptyContext:
+        session = EmptySession()
+
+    monkeypatch.setattr(capability_tokens, "get_context", lambda: EmptyContext())
+
+    assert client_supports_extension("io.modelcontextprotocol/ui") is False
 
 
 async def _run_capability_middleware(
@@ -202,14 +238,15 @@ def test_capability_middleware_forwards_disconnect() -> None:
 
 
 def test_extension_tool_filter_factory(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The factory gates annotated tools and leaves others visible."""
+    """The factory gates meta-marked tools and leaves others visible."""
     tool = Tool(
         name="tool",
         description="tool",
         inputSchema={"type": "object"},
         annotations=ToolAnnotations(readOnlyHint=True),
+        meta={"my-ext": {"marker": True}},
     )
-    filter_tool = extension_tool_filter("ui", "readOnlyHint")
+    filter_tool = extension_tool_filter("ui", "my-ext")
     monkeypatch.setattr(tool_filters, "client_supports_extension", lambda _: False)
     app = FastMCP("test")
     assert filter_tool(tool, app) is False
@@ -224,7 +261,8 @@ def test_standard_tool_filters_gate_interactive_ui(
         name="ui_tool",
         description="ui tool",
         inputSchema={"type": "object"},
-        annotations=ToolAnnotations.model_validate({ANNOTATION_INTERACTIVE_UI: True}),
+        annotations=ToolAnnotations(),
+        meta={"ui": {"resourceUri": "ui://test/x.html"}},
     )
     plain_tool = Tool(
         name="plain_tool",
@@ -236,7 +274,7 @@ def test_standard_tool_filters_gate_interactive_ui(
     def no_context() -> None:
         raise RuntimeError
 
-    assert interactive_ui_filter in STANDARD_TOOL_FILTERS
+    assert capability_filter in STANDARD_TOOL_FILTERS
     monkeypatch.setattr(capability_tokens, "get_context", no_context)
     monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
 

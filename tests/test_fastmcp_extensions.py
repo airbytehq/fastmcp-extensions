@@ -1,10 +1,14 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the fastmcp_extensions module."""
 
+import warnings
+
 import pytest
 from fastmcp import FastMCP
+from fastmcp.apps import AppConfig
 from fastmcp.server.providers import Provider
 from fastmcp.tools import Tool
+from mcp.types import Tool as McpTool
 from mcp.types import ToolAnnotations
 
 import fastmcp_extensions
@@ -18,7 +22,6 @@ from fastmcp_extensions import (
     register_mcp_tools,
 )
 from fastmcp_extensions.annotations import (
-    ANNOTATION_INTERACTIVE_UI,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
@@ -31,6 +34,8 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,
     _clear_registrations,
 )
+from fastmcp_extensions.tool_filters import capability_filter, get_annotation
+from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
 
 @pytest.mark.parametrize(
@@ -93,7 +98,7 @@ def test_mcp_provider_decorator() -> None:
     class TestProvider(Provider):
         pass
 
-    @mcp_provider(annotations={"interactive-ui": True})
+    @mcp_provider(annotations={"readOnlyHint": True})
     def my_test_provider() -> Provider:
         """A test provider."""
         return TestProvider()
@@ -102,13 +107,17 @@ def test_mcp_provider_decorator() -> None:
     func, annotations = _REGISTERED_PROVIDERS[0]
     assert func.__name__ == "my_test_provider"
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
-    assert annotations["interactive-ui"] is True
+    assert annotations["readOnlyHint"] is True
 
     _clear_registrations()
 
 
-def test_mcp_provider_interactive_ui_argument_respects_explicit_annotation() -> None:
-    """Test that provider UI annotations are type-safe and caller-overridable."""
+def test_mcp_provider_interactive_ui_argument_is_accepted_noop() -> None:
+    """`mcp_provider(interactive_ui=True)` is accepted but writes nothing.
+
+    Provider tools are gated via the standard `_meta.ui` marker each tool
+    carries, not a provider-level annotation.
+    """
     _clear_registrations()
 
     class TestProvider(Provider):
@@ -118,15 +127,7 @@ def test_mcp_provider_interactive_ui_argument_respects_explicit_annotation() -> 
     def ui_provider() -> Provider:
         return TestProvider()
 
-    @mcp_provider(
-        interactive_ui=True,
-        annotations={ANNOTATION_INTERACTIVE_UI: False},
-    )
-    def overridden_provider() -> Provider:
-        return TestProvider()
-
-    assert _REGISTERED_PROVIDERS[0][1][ANNOTATION_INTERACTIVE_UI] is True
-    assert _REGISTERED_PROVIDERS[1][1][ANNOTATION_INTERACTIVE_UI] is False
+    assert _REGISTERED_PROVIDERS[0][1] == {"mcp_module": "test_fastmcp_extensions"}
 
     _clear_registrations()
 
@@ -147,7 +148,10 @@ async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
     """Test that the typed tool argument reaches the standard UI filter."""
     _clear_registrations()
 
-    @mcp_tool(interactive_ui=True)
+    @mcp_tool(
+        interactive_ui=True,
+        app=AppConfig(resource_uri="ui://test/dashboard.html"),
+    )
     def show_dashboard() -> str:
         """Return dashboard data."""
         return "dashboard data"
@@ -156,8 +160,7 @@ async def test_mcp_tool_interactive_ui_argument_uses_standard_filter(
     register_mcp_tools(app)
     tool = await app.get_tool("show_dashboard")
     assert tool is not None
-    assert tool.annotations is not None
-    assert tool.annotations.model_extra[ANNOTATION_INTERACTIVE_UI] is True
+    assert (tool.meta or {})["ui"]["resourceUri"] == "ui://test/dashboard.html"
 
     def no_context() -> None:
         raise RuntimeError
@@ -198,18 +201,13 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
                     annotations=ToolAnnotations.model_validate(
                         {
                             "readOnlyHint": True,
-                            "provider-owned": True,
                         }
                     ),
+                    meta={"provider-owned": True},
                 )
             ]
 
-    @mcp_provider(
-        annotations={
-            "interactive-ui": True,
-            "provider-owned": False,
-        }
-    )
+    @mcp_provider(annotations={"readOnlyHint": True})
     def my_test_provider() -> Provider:
         return TestProvider()
 
@@ -219,12 +217,11 @@ async def test_register_mcp_tools_registers_providers_with_missing_annotations()
     tool = await app.get_tool("provider_tool")
     assert tool is not None
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
-    assert tool.annotations.model_extra == {
-        "interactive-ui": True,
-        "mcp_module": "test_fastmcp_extensions",
-        "provider-owned": True,
-    }
+    assert tool.annotations.read_only_hint is True
+    # The provider tool's own meta is preserved; nothing custom is added.
+    assert tool.meta == {"provider-owned": True}
+    traits = get_tool_traits(app, "provider_tool")
+    assert traits.mcp_module == "test_fastmcp_extensions"
 
     _clear_registrations()
 
@@ -274,3 +271,293 @@ def test_mcp_resource_decorator() -> None:
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
 
     _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_register_mcp_tools_exclude_args_hides_param_and_injects_default() -> (
+    None
+):
+    """Excluded params leave the tool schema but still receive their default."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def list_things(prefix: str, workspace_id: str = "ws-default") -> str:
+        """List things."""
+        return f"{prefix}:{workspace_id}"
+
+    app = FastMCP("test")
+    register_mcp_tools(
+        app, mcp_module="test_fastmcp_extensions", exclude_args=["workspace_id"]
+    )
+
+    tool = await app.get_tool("list_things")
+    assert tool is not None
+    assert "workspace_id" not in tool.parameters["properties"]
+    result = await tool.run({"prefix": "p"})
+    assert result.structured_content == {"result": "p:ws-default"}
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_register_mcp_tools_exclude_args_requires_default() -> None:
+    """Excluding a parameter without a default raises a clear ValueError."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def needs_arg(workspace_id: str) -> str:
+        """Needs an argument."""
+        return workspace_id
+
+    app = FastMCP("test")
+    with pytest.raises(ValueError, match="workspace_id"):
+        register_mcp_tools(
+            app, mcp_module="test_fastmcp_extensions", exclude_args=["workspace_id"]
+        )
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
+    """Standard hints land on `tool.annotations`; custom keys land on `tool.meta`."""
+    _clear_registrations()
+
+    @mcp_tool(
+        read_only=True,
+        interactive_ui=True,
+        requires_client_filesystem=True,
+        app=AppConfig(resource_uri="ui://test/annotated.html"),
+        meta={"custom-flag": True},
+    )
+    def annotated_tool() -> str:
+        """Annotated tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("annotated_tool")
+    assert tool is not None
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is True
+    assert tool.meta == {
+        "ui": {"resourceUri": "ui://test/annotated.html"},
+        "custom-flag": True,
+    }
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert "mcp_module" not in dumped
+    assert "requiresClientFilesystem" not in dumped
+    traits = get_tool_traits(app, "annotated_tool")
+    assert traits.mcp_module == "test_fastmcp_extensions"
+    assert traits.required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM, Capability.UI}
+    )
+    assert get_annotation(tool, "readOnlyHint") is True
+    assert get_annotation(tool, "missing", default=False) is False
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_interactive_ui_requires_app() -> None:
+    """`interactive_ui=True` without `app=` is a configuration error."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="interactive_ui=True requires app="):
+
+        @mcp_tool(interactive_ui=True)
+        def ui_tool() -> str:
+            return "ok"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_meta_arg_lands_in_tool_meta() -> None:
+    """Explicit `meta=` merges with custom annotation keys in `tool.meta`."""
+    _clear_registrations()
+
+    @mcp_tool(meta={"foo": 1})
+    def meta_tool() -> str:
+        """Meta tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("meta_tool")
+    assert tool is not None
+    assert tool.meta == {"foo": 1}
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_snake_case_annotation_key_is_canonicalized() -> None:
+    """`annotations={\"read_only_hint\": True}` wins over the hint kwarg default.
+
+    `ToolAnnotations` prefers the camelCase alias when both spellings are
+    present, so the snake_case key must be canonicalized before merging —
+    otherwise the default `readOnlyHint: False` would silently win.
+    """
+    _clear_registrations()
+
+    @mcp_tool(annotations={"read_only_hint": True})
+    def snake_case_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app)
+    tool = await app.get_tool("snake_case_tool")
+
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is True
+
+    _clear_registrations()
+
+
+def test_mcp_tool_unknown_annotation_key_raises() -> None:
+    """Non-standard annotation keys are a configuration error, not wire data."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="unsupported annotation key"):
+
+        @mcp_tool(annotations={"bogus-key": True})
+        def bad_tool() -> str:
+            return "ok"
+
+    class TestProvider(Provider):
+        pass
+
+    with pytest.raises(ValueError, match="unsupported annotation key"):
+
+        @mcp_provider(annotations={"bogus-key": True})
+        def bad_provider() -> Provider:
+            return TestProvider()
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_required_capabilities_on_tool_and_provider() -> None:
+    """`required_capabilities=` lands in traits for tools and provider tools."""
+    _clear_registrations()
+
+    @mcp_tool(required_capabilities=[Capability.CLIENT_FILESYSTEM])
+    def fs_tool() -> str:
+        """FS tool."""
+        return "ok"
+
+    class TestProvider(Provider):
+        async def _list_tools(self) -> list[Tool]:
+            def provider_tool() -> str:
+                return "test"
+
+            return [Tool.from_function(provider_tool, name="provider_tool")]
+
+    @mcp_provider(required_capabilities=[Capability.CLIENT_FILESYSTEM])
+    def fs_provider() -> Provider:
+        return TestProvider()
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    assert get_tool_traits(app, "fs_tool").required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM}
+    )
+    await app.list_tools()  # populate provider traits
+    assert get_tool_traits(app, "provider_tool").required_capabilities == frozenset(
+        {Capability.CLIENT_FILESYSTEM}
+    )
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_capability_filter_gates_ui_and_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`capability_filter` hides tools whose required capabilities are absent."""
+    _clear_registrations()
+
+    @mcp_tool(app=AppConfig(resource_uri="ui://test/x.html"))
+    def ui_tool() -> str:
+        """UI tool."""
+        return "ok"
+
+    app = fastmcp_extensions.mcp_server("test", include_standard_tool_filters=True)
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+    tool = await app.get_tool("ui_tool")
+    assert tool is not None
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+    assert capability_filter(tool, app) is False
+
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: {"x-mcp-extensions": "io.modelcontextprotocol/ui"},
+    )
+    assert capability_filter(tool, app) is True
+
+    # Capability values are internal — never on the wire.
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    for capability in Capability:
+        assert capability.value not in str(dumped)
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_interactive_ui_filter_hides_app_tool_without_flag() -> None:
+    """A tool with `app=` is gated even when `interactive_ui` was not passed."""
+    _clear_registrations()
+
+    @mcp_tool(app=AppConfig(resource_uri="ui://test/plain.html"))
+    def app_tool() -> str:
+        """App tool."""
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("app_tool")
+    assert tool is not None
+    assert (tool.meta or {})["ui"]["resourceUri"] == "ui://test/plain.html"
+
+    def no_context() -> None:
+        raise RuntimeError
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(capability_tokens, "get_context", no_context)
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+    assert interactive_ui_filter(tool, app) is False
+    monkeypatch.undo()
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_get_annotation_camelcase_hint_emits_no_deprecation_warning() -> None:
+    """`readOnlyHint` lookups resolve without the camelCase deprecation shim."""
+    tool = McpTool(
+        name="tool",
+        description="tool",
+        inputSchema={"type": "object"},
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert get_annotation(tool, "readOnlyHint") is True

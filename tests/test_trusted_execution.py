@@ -5,6 +5,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp import FastMCP
 from mcp.types import Tool, ToolAnnotations
 
 from fastmcp_extensions import (
@@ -30,20 +31,28 @@ from fastmcp_extensions.tool_filters import (
     module_filter,
     trusted_execution_filter,
 )
+from fastmcp_extensions.tool_traits import (
+    Capability,
+    ToolTraits,
+    set_tool_traits,
+)
 
 _HTTP_REQUEST_PATH = "fastmcp_extensions.tool_filters.get_http_request"
 
 
-def _make_tool(*, requires_client_filesystem: bool) -> Tool:
-    """Build a `Tool`, optionally annotated `requiresClientFilesystem=True`."""
-    annotations_kwargs: dict[str, object] = {}
+def _make_tool(app: FastMCP, *, requires_client_filesystem: bool) -> Tool:
+    """Build a `Tool`, optionally requiring `Capability.CLIENT_FILESYSTEM`."""
     if requires_client_filesystem:
-        annotations_kwargs["requiresClientFilesystem"] = True
+        set_tool_traits(
+            app,
+            "local_tool",
+            ToolTraits(required_capabilities=frozenset({Capability.CLIENT_FILESYSTEM})),
+        )
     return Tool(
         name="local_tool",
         description="A tool that may require client filesystem access",
         inputSchema={"type": "object", "properties": {}},
-        annotations=ToolAnnotations(**annotations_kwargs),
+        annotations=ToolAnnotations(),
     )
 
 
@@ -216,7 +225,7 @@ def test_trusted_execution_filter_stdio(
 ) -> None:
     """On stdio the gate hides filesystem tools unless trusted execution is on."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
-    tool = _make_tool(requires_client_filesystem=requires_fs)
+    tool = _make_tool(app, requires_client_filesystem=requires_fs)
     with patch.dict(
         os.environ, {"MCP_TRUSTED_EXECUTION": trusted_value}
     ), _stdio_transport():
@@ -227,7 +236,7 @@ def test_trusted_execution_filter_stdio(
 def test_trusted_execution_filter_forced_off_under_http() -> None:
     """Even with trusted execution enabled, HTTP requests never expose FS tools."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
-    tool = _make_tool(requires_client_filesystem=True)
+    tool = _make_tool(app, requires_client_filesystem=True)
     with patch.dict(os.environ, {"MCP_TRUSTED_EXECUTION": "1"}), _http_transport():
         assert trusted_execution_filter(tool, app) is False
 
@@ -264,7 +273,7 @@ def test_assert_http_trusted_execution_disabled_passes_when_off() -> None:
 def test_module_filter_incompatible_config_hard_fails() -> None:
     """Setting both include and exclude modules hard-fails with remediation text."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
-    tool = _make_tool(requires_client_filesystem=False)
+    tool = _make_tool(app, requires_client_filesystem=False)
     with patch.dict(
         os.environ,
         {"MCP_EXCLUDE_MODULES": "mod_a", "MCP_INCLUDE_MODULES": "mod_b"},

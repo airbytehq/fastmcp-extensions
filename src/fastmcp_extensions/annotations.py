@@ -10,6 +10,12 @@ https://gofastmcp.com/concepts/tools#mcp-annotations
 
 from __future__ import annotations
 
+from mcp.types import ToolAnnotations
+
+# =============================================================================
+# Standard MCP spec annotations (ToolAnnotations fields)
+# =============================================================================
+
 READ_ONLY_HINT = "readOnlyHint"
 """Indicates if the tool only reads data without making any changes.
 
@@ -50,20 +56,84 @@ When False, the tool only operates on local state or resources.
 FastMCP default if not specified: True
 """
 
-REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
-"""Indicates that the tool requires access to the client's local filesystem.
+# =============================================================================
+# Custom metadata keys (internal only — never sent on the wire)
+# =============================================================================
 
-When `True`, the tool depends on the MCP client having a local filesystem
-available (e.g., reading/writing files, scanning directories, accessing a
-local git checkout). In hosted environments where the client has no local
-filesystem, tools with this annotation should be hidden.
+ANNOTATION_MCP_MODULE = "mcp_module"
+"""Registration-time routing key for the module a capability was declared in.
 
-This is a custom annotation (not part of the MCP spec). The MCP spec's
-`ToolAnnotations` model uses `extra="allow"`, so custom annotations are
-supported.
-
-Default if not specified: `False` (no client filesystem required).
+Set automatically by the `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` /
+`@mcp_provider` decorators from the caller's file stem, and used by
+`register_mcp_tools` and the docs generator to route capabilities. Never
+sent on the wire: registered tools expose it via `get_tool_traits`.
 """
 
-ANNOTATION_INTERACTIVE_UI = "interactive-ui"
-"""Annotation key for tools requiring MCP Apps UI rendering support."""
+# Standard wire metadata keys (not ToolAnnotations fields)
+
+UI_META_KEY = "ui"
+"""MCP Apps standard `_meta.ui` key linking a tool to its UI resource.
+
+Written by FastMCP from `AppConfig` when a tool is registered with `app=`;
+`interactive_ui_filter` gates tools carrying this key on the client's
+`io.modelcontextprotocol/ui` extension declaration.
+See https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx
+"""
+
+TOOL_META_KEY = "_fastmcp_extensions_meta"
+"""Internal registration-time key carrying user-supplied tool `meta`.
+
+Set by `@mcp_tool(meta=...)` and popped at registration time — the mapping
+itself becomes `tool.meta` (the wire `meta` field); the key is never sent on
+the wire.
+"""
+
+TOOL_APP_KEY = "_fastmcp_extensions_app"
+"""Internal registration-time key carrying the tool's `AppConfig`.
+
+Set by `@mcp_tool(app=...)` and popped at registration time — the config is
+passed to `app.tool(app=...)`, which writes the standard `_meta.ui` marker;
+the key is never sent on the wire.
+"""
+
+WITH_STATE_ANNOTATION = "_fastmcp_extensions_with_state"
+"""Internal registration-time key carrying the `ToolStateBase` subclass.
+
+Set by `@mcp_tool(with_state=...)` and popped at registration time — it is
+never sent on the wire.
+"""
+
+TOOL_REQUIRES_KEY = "_fastmcp_extensions_requires"
+"""Internal registration-time key carrying the tool's `Capability` set.
+
+Set by `@mcp_tool(required_capabilities=...)` /
+`@mcp_provider(required_capabilities=...)` (and the
+`requires_client_filesystem` / `app=` sugar) and popped at registration
+time into `ToolTraits.required_capabilities` — it is never sent on the wire.
+"""
+
+
+def standard_annotation_field_names() -> dict[str, str]:
+    """Map every accepted standard annotation key to its `ToolAnnotations` field.
+
+    Keys include both the snake_case field names and their camelCase wire
+    aliases, so callers can resolve either spelling without triggering the
+    deprecated camelCase attribute shims.
+    """
+    return {field_name: field_name for field_name in ToolAnnotations.model_fields} | {
+        field.alias: field_name
+        for field_name, field in ToolAnnotations.model_fields.items()
+        if field.alias is not None
+    }
+
+
+def _canonical_annotation_key(key: str) -> str:
+    """Resolve a standard annotation key spelling to its camelCase wire alias.
+
+    `ToolAnnotations` fields prefer the alias when both the snake_case name
+    and the camelCase alias are present, so callers must not mix spellings.
+    Non-standard keys pass through unchanged.
+    """
+    field_name = standard_annotation_field_names().get(key, key)
+    field = ToolAnnotations.model_fields.get(field_name)
+    return field.alias if field is not None and field.alias is not None else key

@@ -50,9 +50,15 @@ from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import Tool
 
-from fastmcp_extensions.annotations import ANNOTATION_INTERACTIVE_UI
+from fastmcp_extensions.annotations import (
+    DESTRUCTIVE_HINT,
+    READ_ONLY_HINT,
+    UI_META_KEY,
+    standard_annotation_field_names,
+)
 from fastmcp_extensions.capability_tokens import client_supports_extension
 from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
 ToolFilterFn = Callable[[Tool, FastMCP], bool]
 """Type alias for tool filter functions.
@@ -71,7 +77,7 @@ Example:
             annotations = tool.annotations
             if annotations is None:
                 return False
-            return getattr(annotations, "readOnlyHint", False)
+            return getattr(annotations, "read_only_hint", False)
         return True
     ```
 """
@@ -169,17 +175,11 @@ HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 # Constants - Annotation Keys
 # =============================================================================
 
-ANNOTATION_READ_ONLY_HINT = "readOnlyHint"
+ANNOTATION_READ_ONLY_HINT = READ_ONLY_HINT
 """Annotation key for read-only hint (MCP spec)."""
 
-ANNOTATION_DESTRUCTIVE_HINT = "destructiveHint"
+ANNOTATION_DESTRUCTIVE_HINT = DESTRUCTIVE_HINT
 """Annotation key for destructive hint (MCP spec)."""
-
-ANNOTATION_MCP_MODULE = "mcp_module"
-"""Annotation key for MCP module name (set by @mcp_tool decorator)."""
-
-ANNOTATION_REQUIRES_CLIENT_FILESYSTEM = "requiresClientFilesystem"
-"""Annotation key for client filesystem requirement."""
 
 # =============================================================================
 # Standard Config Args
@@ -305,6 +305,10 @@ STANDARD_CONFIG_ARGS: list[MCPServerConfigArg] = [
 # =============================================================================
 
 
+_ANNOTATION_FIELD_BY_KEY: dict[str, str] = standard_annotation_field_names()
+"""Map of accepted annotation keys (field names and camelCase aliases) to field names."""
+
+
 def get_annotation(
     tool_or_asset: Tool,
     annotation_name: str,
@@ -312,8 +316,11 @@ def get_annotation(
 ) -> bool | str | None:
     """Get an annotation value from a tool or asset.
 
-    This helper hides the messy getattr implementation needed to access
-    annotations stored in pydantic's model_extra.
+    Standard `ToolAnnotations` fields are read off `tool.annotations` (the
+    caller may pass either the snake_case field name or the camelCase wire
+    alias, e.g. `readOnlyHint`, which is resolved via the field metadata so
+    no deprecation shim is triggered). Custom registration-time keys such as
+    `mcp_module` are never on the wire — read them via `get_tool_traits`.
 
     Args:
         tool_or_asset: The Tool (or other MCP asset) to get the annotation from.
@@ -324,9 +331,10 @@ def get_annotation(
         The annotation value, or the default if not present.
     """
     annotations = tool_or_asset.annotations
-    if annotations is None:
-        return default
-    return getattr(annotations, annotation_name, default)
+    field_name = _ANNOTATION_FIELD_BY_KEY.get(annotation_name)
+    if annotations is not None and field_name is not None:
+        return getattr(annotations, field_name, default)
+    return default
 
 
 def _parse_csv_config(value: str) -> list[str]:
@@ -343,11 +351,11 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterFn:
+def extension_tool_filter(extension_id: str, meta_key: str) -> ToolFilterFn:
     """Build a filter for tools gated by a client extension.
 
-    Tools without a truthy `annotation_key` annotation remain visible. Annotated
-    tools are visible only when the client declared `extension_id`.
+    Tools without a truthy `meta_key` entry in `tool.meta` remain visible.
+    Marked tools are visible only when the client declared `extension_id`.
 
     This is a rendering-capability gate, not a privilege boundary. Extension
     declarations are unauthenticated client statements — over HTTP they arrive in
@@ -358,23 +366,60 @@ def extension_tool_filter(extension_id: str, annotation_key: str) -> ToolFilterF
     """
 
     def filter_tool(tool: Tool, _app: FastMCP) -> bool:
-        if not get_annotation(tool, annotation_key, default=False):
+        if not (tool.meta or {}).get(meta_key):
             return True
         return client_supports_extension(extension_id)
 
     return filter_tool
 
 
-interactive_ui_filter = extension_tool_filter(
-    UI_EXTENSION_ID,
-    ANNOTATION_INTERACTIVE_UI,
-)
-"""Standard filter for tools requiring MCP Apps UI rendering support.
+def available_capabilities(app: FastMCP) -> set[Capability]:
+    """The union of client-declared and deployment capabilities for this request.
 
-This is a rendering-capability gate, not a privilege boundary. Adding this
-filter to `STANDARD_TOOL_FILTERS` changes visibility for servers that opt into
-standard filters and define tools with the `interactive-ui` annotation.
-"""
+    `Capability.UI` is available when the client declared the
+    `io.modelcontextprotocol/ui` extension. `Capability.CLIENT_FILESYSTEM`
+    is available when trusted execution is enabled *and* the request is not
+    served over HTTP (the gate is permanently incompatible with the HTTP
+    transport). This is the single seam where a future allow/deny policy
+    would subtract capabilities.
+    """
+    available: set[Capability] = set()
+    if client_supports_extension(UI_EXTENSION_ID):
+        available.add(Capability.UI)
+    if is_trusted_execution_enabled(app) and not _is_http_transport_request():
+        available.add(Capability.CLIENT_FILESYSTEM)
+    return available
+
+
+def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[Capability]:
+    """Effective required capabilities: registered traits plus the `_meta.ui` marker."""
+    required = set(get_tool_traits(app, tool.name).required_capabilities)
+    if (tool.meta or {}).get(UI_META_KEY):
+        required.add(Capability.UI)
+    return required
+
+
+def capability_filter(tool: Tool, app: FastMCP) -> bool:
+    """General filter: hide tools whose required capabilities are unavailable.
+
+    A tool is visible iff every `Capability` in its traits is satisfied by
+    `available_capabilities(app)` for the current request.
+    """
+    return _tool_required_capabilities(tool, app) <= available_capabilities(app)
+
+
+def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:
+    """Hide MCP Apps UI tools from clients that cannot render them.
+
+    Thin wrapper over the capability model: tools requiring `Capability.UI`
+    (registered via `app=`/`interactive_ui=`, or carrying the standard
+    `_meta.ui` marker) are hidden when the client did not declare
+    `io.modelcontextprotocol/ui`. `capability_filter` is the general form.
+    This is a rendering-capability gate, not a privilege boundary.
+    """
+    if Capability.UI not in _tool_required_capabilities(tool, _app):
+        return True
+    return client_supports_extension(UI_EXTENSION_ID)
 
 
 # =============================================================================
@@ -448,8 +493,7 @@ def module_filter(tool: Tool, app: FastMCP) -> bool:
             "the server."
         )
 
-    # Get the tool's mcp_module from annotations
-    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
+    tool_module = get_tool_traits(app, tool.name).mcp_module
 
     if exclude_modules:
         # Hide tools from excluded modules
@@ -494,8 +538,9 @@ def no_client_filesystem_filter(tool: Tool, app: FastMCP) -> bool:
     """
     config_value = get_mcp_config(app, CONFIG_NO_CLIENT_FILESYSTEM).lower()
     if config_value in ("1", "true"):
-        return not bool(
-            get_annotation(tool, ANNOTATION_REQUIRES_CLIENT_FILESYSTEM, False)
+        return (
+            Capability.CLIENT_FILESYSTEM
+            not in get_tool_traits(app, tool.name).required_capabilities
         )
     return True
 
@@ -553,7 +598,10 @@ def trusted_execution_filter(tool: Tool, app: FastMCP) -> bool:
     """
     if is_trusted_execution_enabled(app) and not _is_http_transport_request():
         return True
-    return not bool(get_annotation(tool, ANNOTATION_REQUIRES_CLIENT_FILESYSTEM, False))
+    return (
+        Capability.CLIENT_FILESYSTEM
+        not in get_tool_traits(app, tool.name).required_capabilities
+    )
 
 
 def assert_http_trusted_execution_disabled(app: FastMCP) -> None:
@@ -584,12 +632,11 @@ def assert_http_trusted_execution_disabled(app: FastMCP) -> None:
 
 
 STANDARD_TOOL_FILTERS: list[ToolFilterFn] = [
-    interactive_ui_filter,
+    capability_filter,
     readonly_mode_filter,
     no_destructive_tools_filter,
     module_filter,
     tool_exclusion_filter,
     no_client_filesystem_filter,
-    trusted_execution_filter,
 ]
 """List of all standard tool filter functions."""

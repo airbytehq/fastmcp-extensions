@@ -25,6 +25,11 @@ from fastmcp_extensions.tool_filters import (
     _parse_csv_config,
     no_client_filesystem_filter,
 )
+from fastmcp_extensions.tool_traits import (
+    Capability,
+    ToolTraits,
+    set_tool_traits,
+)
 
 
 @pytest.mark.unit
@@ -598,15 +603,18 @@ def test_no_client_filesystem_filter(
     """Test `no_client_filesystem_filter` hides annotated tools when config is enabled."""
     app = mcp_server("test-server", include_standard_tool_filters=True)
 
-    annotations_kwargs: dict[str, object] = {}
     if has_annotation:
-        annotations_kwargs["requiresClientFilesystem"] = True
+        set_tool_traits(
+            app,
+            "local_tool",
+            ToolTraits(required_capabilities=frozenset({Capability.CLIENT_FILESYSTEM})),
+        )
 
     tool = Tool(
         name="local_tool",
         description="A tool requiring client filesystem",
         inputSchema={"type": "object", "properties": {}},
-        annotations=ToolAnnotations(**annotations_kwargs),
+        annotations=ToolAnnotations(),
     )
 
     env_patch = {"MCP_NO_CLIENT_FILESYSTEM": config_value} if config_value else {}

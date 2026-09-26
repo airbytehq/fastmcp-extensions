@@ -25,9 +25,6 @@ from fastmcp_extensions.capability_tokens import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
 )
-from fastmcp_extensions.protocol_version import (
-    ProtocolVersionNegotiationMiddleware,
-)
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -48,7 +45,6 @@ def run_mcp_http_server(
     stateless_http: bool | None = None,
     wrapper: Callable[[ASGIApp], ASGIApp] | None = None,
     enable_stateless_capability_middleware: bool = True,
-    enable_protocol_version_negotiation: bool = True,
     host: str | None = None,
     port: int | None = None,
     uvicorn_config: Mapping[str, Any] | None = None,
@@ -59,11 +55,7 @@ def run_mcp_http_server(
     `RejectEventStreamGetMiddleware` by default, so client extension
     declarations survive per-request session recreation without any per-server
     wiring. Set `enable_stateless_capability_middleware` to `False` to opt out.
-    HTTP transports also get `ProtocolVersionNegotiationMiddleware`, which
-    answers requests carrying an unsupported `MCP-Protocol-Version` header
-    with a correlated `-32022` JSON-RPC error instead of the legacy
-    transport's uncorrelated `"server-error"` rejection; set
-    `enable_protocol_version_negotiation` to `False` to opt out. `wrapper`,
+    `wrapper`,
     when provided, is the innermost of those layers and remains the
     outermost layer everywhere else. Values in `uvicorn_config` override the
     parity defaults and the resolved log level. Host and port are controlled by
@@ -92,8 +84,6 @@ def run_mcp_http_server(
     if apply_stateless_layers:
         app = CapabilityTokenMiddleware(app)
     resolved_path = path if path is not None else fastmcp.settings.streamable_http_path
-    if is_http_transport and enable_protocol_version_negotiation:
-        app = ProtocolVersionNegotiationMiddleware(app, path=resolved_path)
     if apply_stateless_layers:
         app = RejectEventStreamGetMiddleware(app, path=resolved_path)
 
