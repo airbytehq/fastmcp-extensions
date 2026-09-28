@@ -14,6 +14,7 @@ with FastMCP 2.0, including:
 """
 
 from fastmcp_extensions._telemetry import (
+    DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
@@ -111,6 +112,7 @@ __all__ = [
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
+    "DEFAULT_SEGMENT_USER_ID",
     "DEFAULT_STATE_SECRET_ENV_VAR",
     "DEFAULT_STATE_TTL",
     "DEFAULT_UVICORN_CONFIG",

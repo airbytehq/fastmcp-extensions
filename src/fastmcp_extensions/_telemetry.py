@@ -29,6 +29,9 @@ from segment import analytics as _segment_analytics
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SEGMENT_USER_ID = "mcp-server"
+"""The Segment `user_id` used when no identity is configured or resolved."""
+
 
 # ---------------------------------------------------------------------------
 # Telemetry record
@@ -71,13 +74,17 @@ class TelemetryConfig:
     `segment_anonymous_id` takes precedence over `segment_user_id` when it
     resolves to a value, allowing a server's events to join that identity's
     other events in the same Segment source.
+
+    Either identity may be a callable, which is resolved for every event in the
+    context of the call being tracked. A callable `segment_user_id` that returns
+    no value or raises falls back to `DEFAULT_SEGMENT_USER_ID`.
     """
 
     enabled: bool = True
     package_name: str | None = None
     sentry_dsn: str | None = None
     segment_write_key: str | None = None
-    segment_user_id: str = "mcp-server"
+    segment_user_id: str | Callable[[], str | None] = DEFAULT_SEGMENT_USER_ID
     segment_anonymous_id: str | Callable[[], str | None] | None = None
     extra_properties: (
         Mapping[str, object] | Callable[[], Mapping[str, object]] | None
@@ -106,7 +113,7 @@ class TelemetrySinks:
         package_name: str | None = None,
         sentry_dsn: str | None = None,
         segment_write_key: str | None = None,
-        segment_user_id: str = "mcp-server",
+        segment_user_id: str | Callable[[], str | None] = DEFAULT_SEGMENT_USER_ID,
         segment_anonymous_id: str | Callable[[], str | None] | None = None,
     ) -> None:
         """Initialise sinks.
@@ -116,7 +123,9 @@ class TelemetrySinks:
                 every record.
             sentry_dsn: Sentry DSN string. Pass `None` to disable.
             segment_write_key: Segment write key. Pass `None` to disable.
-            segment_user_id: The `user_id` stamped on Segment events.
+            segment_user_id: The `user_id` stamped on Segment events, or a
+                callable resolving it per event. A callable that returns no
+                value or raises falls back to `DEFAULT_SEGMENT_USER_ID`.
             segment_anonymous_id: An optional anonymous ID that takes
                 precedence over `segment_user_id`.
         """
@@ -163,7 +172,7 @@ class TelemetrySinks:
             )
         else:
             _segment_analytics.track(
-                self._segment_user_id,
+                _resolve_segment_user_id(self._segment_user_id),
                 record.invocation_type,
                 record.to_dict(),
             )
@@ -245,6 +254,21 @@ def _resolve_segment_anonymous_id(
             exc_info=True,
         )
         return None
+
+
+def _resolve_segment_user_id(spec: str | Callable[[], str | None]) -> str:
+    """Resolve a Segment user ID without allowing telemetry to fail calls."""
+    if isinstance(spec, str):
+        return spec
+    try:
+        return spec() or DEFAULT_SEGMENT_USER_ID
+    except Exception:
+        logger.debug(
+            "Telemetry must never break a tool call while resolving "
+            "the Segment user ID",
+            exc_info=True,
+        )
+        return DEFAULT_SEGMENT_USER_ID
 
 
 def telemetry_opted_out() -> bool:
