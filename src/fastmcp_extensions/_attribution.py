@@ -24,6 +24,8 @@ from fastmcp.server.dependencies import (
     get_http_request,
 )
 
+from fastmcp_extensions.capability_tokens import session_token_from_headers
+
 _T = TypeVar("_T")
 
 
@@ -108,10 +110,13 @@ def _request_endpoint(host: str) -> str:
 def _client_info() -> _ClientInfo:
     context = get_context()
     client_params = context.session.client_params
-    if client_params is None or client_params.client_info is None:
+    if client_params is not None and client_params.client_info is not None:
+        client_info = client_params.client_info
+        return _ClientInfo(client_info.name, client_info.version)
+    session_token = session_token_from_headers()
+    if session_token is None:
         return _ClientInfo(None, None)
-    client_info = client_params.client_info
-    return _ClientInfo(client_info.name, client_info.version)
+    return _ClientInfo(session_token.client_name, session_token.client_version)
 
 
 def _is_owned_endpoint(host: str, domains: Sequence[str]) -> bool:

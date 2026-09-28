@@ -571,6 +571,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 - `CapabilityTokenMiddleware` / `RejectEventStreamGetMiddleware` - Carry extension declarations through stateless HTTP and reject SSE-style `GET` requests at the MCP path.
 - `encode_capability_token` / `decode_capability_token` - Encode and fail-closed decode self-describing capability tokens.
+- `SessionToken` / `encode_session_token` / `decode_session_token` / `session_token_from_headers` - Encode and decode v2 session tokens carrying declared extensions, `clientInfo` name and version, and protocol version. `CapabilityTokenMiddleware` mints one on every `initialize` response, so stateless tool-call telemetry reports `mcp_client_name` and `mcp_client_version` for clients that echo `Mcp-Session-Id`. Tokens are unsigned client self-declarations, never authorization.
 - `client_supports_extension` / `client_declared_extensions_from_headers` - Resolve client extension declarations from FastMCP session capabilities, the session token, and the fallback header.
 - `DEFAULT_EXTENSIONS_HEADER` - Default fallback header name, `X-MCP-Extensions`.
 

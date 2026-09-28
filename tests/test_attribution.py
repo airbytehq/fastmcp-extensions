@@ -13,7 +13,12 @@ import pytest
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools import ToolResult
 
-from fastmcp_extensions import TelemetryConfig
+from fastmcp_extensions import (
+    TelemetryConfig,
+    _attribution,
+    capability_tokens,
+    encode_session_token,
+)
 from fastmcp_extensions._attribution import (
     _AnonymizedAttribution,
     _hash_value,
@@ -160,6 +165,26 @@ def test_stdio_attribution_includes_session_and_client_without_http(
     assert "caller_hash" not in properties
     assert "mcp_endpoint_hash" not in properties
     assert "mcp_endpoint" not in properties
+
+
+def test_stateless_attribution_reads_client_info_from_session_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stateless requests without client params fall back to the session token."""
+    token = encode_session_token(client_name="Cursor", client_version="3.0")
+    monkeypatch.setattr(_attribution, "get_context", lambda: _context())
+    monkeypatch.setattr(_attribution, "get_http_request", _no_http_request)
+    monkeypatch.setattr(_attribution, "get_access_token", _no_access_token)
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: {"mcp-session-id": token},
+    )
+
+    properties = _AnonymizedAttribution(anonymization_salt="test-salt")()
+
+    assert properties["mcp_client_name"] == "Cursor"
+    assert properties["mcp_client_version"] == "3.0"
 
 
 @pytest.mark.parametrize(
