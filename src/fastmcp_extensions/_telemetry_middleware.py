@@ -37,6 +37,7 @@ from fastmcp.server.middleware import (
     MiddlewareContext,
 )
 from fastmcp.tools import ToolResult
+from fastmcp.utilities.versions import VersionSpec
 
 from fastmcp_extensions._attribution import _AnonymizedAttribution
 from fastmcp_extensions._telemetry import (
@@ -60,9 +61,11 @@ ToolCallTelemetryRecord = TelemetryRecord
 def tool_telemetry_properties(app: FastMCP, tool_name: str) -> dict[str, str | None]:
     """Return the `tool_group` and `mutation_class` recorded for a tool.
 
-    Reads the in-process traits registry populated by `register_mcp_tools`
-    and `mcp_provider`. Tools registered any other way report a `None` group
-    and an `unknown` mutation class.
+    Reads the in-process traits registry. `register_mcp_tools` records both
+    values and `mcp_provider` records only the group, since a provider tool's
+    hints can differ per version. Other tools report a `None` group and an
+    `unknown` mutation class; the telemetry middleware classifies those from
+    the tool each call resolves to.
     """
     traits = get_tool_traits(app, tool_name)
     return {
@@ -71,10 +74,31 @@ def tool_telemetry_properties(app: FastMCP, tool_name: str) -> dict[str, str | N
     }
 
 
+def _requested_version(meta: Mapping[str, object] | None) -> VersionSpec | None:
+    """Return the tool version a `tools/call` requested through `_meta.fastmcp`."""
+    fastmcp_meta = (meta or {}).get("fastmcp")
+    if not isinstance(fastmcp_meta, Mapping):
+        return None
+    version = fastmcp_meta.get("version")
+    if isinstance(version, str):
+        return VersionSpec(eq=version)
+    if isinstance(version, Mapping):
+        bounds = (version.get("gte"), version.get("lt"), version.get("eq"))
+        if all(bound is None or isinstance(bound, str) for bound in bounds):
+            gte, lt, eq = bounds
+            return VersionSpec(gte=gte, lt=lt, eq=eq)
+    return None
+
+
 async def _resolve_tool_properties(
     context: MiddlewareContext[mt.CallToolRequestParams],
 ) -> dict[str, str | None]:
-    """Resolve tool properties, reading hints off the tool when untracked."""
+    """Resolve tool properties for one invocation.
+
+    Tools without a registration-time class are classified from the tool this
+    call resolves to, so concurrent calls to different versions of a tool
+    never share a result.
+    """
     properties: dict[str, str | None] = {
         "tool_group": None,
         "mutation_class": MutationClass.UNKNOWN.value,
@@ -86,7 +110,9 @@ async def _resolve_tool_properties(
         tool_name = context.message.name
         properties = tool_telemetry_properties(app, tool_name)
         if get_tool_traits(app, tool_name).mutation_class is None:
-            tool = await app.get_tool(tool_name)
+            tool = await app.get_tool(
+                tool_name, version=_requested_version(context.message.meta)
+            )
             if tool is not None:
                 properties["mutation_class"] = MutationClass.from_annotations(
                     tool.annotations
@@ -193,6 +219,7 @@ class ToolCallTelemetryMiddleware(Middleware):
         """Wrap tool execution with telemetry collection."""
         tool_name: str = context.message.name
         timestamp = datetime.now(tz=timezone.utc)
+        tool_properties = await _resolve_tool_properties(context)
         start = time.monotonic()
 
         success = True
@@ -220,7 +247,7 @@ class ToolCallTelemetryMiddleware(Middleware):
                 error_type=error_type,
                 package_version=self._sinks.package_version,
                 extra={
-                    **await _resolve_tool_properties(context),
+                    **tool_properties,
                     **resolve_extra_properties(self._attribution),
                     **resolve_extra_properties(self._extra_properties),
                 },

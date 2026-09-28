@@ -205,17 +205,17 @@ class _ProviderToolAnnotations(Transform):
         required_capabilities = self._traits.required_capabilities
         if (tool.meta or {}).get(UI_META_KEY):
             required_capabilities = required_capabilities | {Capability.UI}
-        annotations = tool_annotations_type(**merged_annotations)
         set_tool_traits(
             self._app,
             tool.name,
             ToolTraits(
                 mcp_module=self._traits.mcp_module,
                 required_capabilities=required_capabilities,
-                mutation_class=MutationClass.from_annotations(annotations),
             ),
         )
-        return tool.model_copy(update={"annotations": annotations})
+        return tool.model_copy(
+            update={"annotations": tool_annotations_type(**merged_annotations)}
+        )
 
 
 def _register_state_inspection_tool(

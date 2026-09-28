@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from functools import partial
 from unittest.mock import MagicMock
 
+import anyio
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
@@ -214,3 +216,76 @@ def test_tool_telemetry_properties_helper() -> None:
         "tool_group": None,
         "mutation_class": "unknown",
     }
+
+
+@pytest.mark.asyncio
+async def test_concurrent_calls_to_provider_tool_versions_are_classified_per_call() -> (
+    None
+):
+    async def read_version() -> str:
+        await anyio.sleep(0.05)
+        return "ok"
+
+    async def destructive_version() -> str:
+        await anyio.sleep(0.05)
+        return "ok"
+
+    class VersionedProvider(Provider):
+        async def _list_tools(self) -> list[Tool]:
+            return [
+                Tool.from_function(
+                    read_version,
+                    name="versioned_tool",
+                    version="1",
+                    annotations=ToolAnnotations(readOnlyHint=True),
+                ),
+                Tool.from_function(
+                    destructive_version,
+                    name="versioned_tool",
+                    version="2",
+                    annotations=ToolAnnotations(
+                        readOnlyHint=False, destructiveHint=True
+                    ),
+                ),
+            ]
+
+    @mcp_provider()
+    def versioned_provider() -> Provider:
+        return VersionedProvider()
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module=MODULE)
+    middleware = ToolCallTelemetryMiddleware()
+    emit = MagicMock()
+    middleware._sinks.emit = emit
+    app.add_middleware(middleware)
+
+    async with Client(app) as client, anyio.create_task_group() as tg:
+        tg.start_soon(partial(client.call_tool, "versioned_tool", {}, version="1"))
+        tg.start_soon(partial(client.call_tool, "versioned_tool", {}, version="2"))
+
+    classes = sorted(
+        call.args[0].to_dict()["mutation_class"] for call in emit.call_args_list
+    )
+    assert classes == ["destructive", "read"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_tool_call_still_emits_telemetry() -> None:
+    app = FastMCP("test")
+
+    @app.tool
+    async def slow_tool() -> str:
+        await anyio.sleep(10)
+        return "ok"
+
+    middleware = ToolCallTelemetryMiddleware()
+    emit = MagicMock()
+    middleware._sinks.emit = emit
+    app.add_middleware(middleware)
+
+    with anyio.move_on_after(0.05):
+        await app.call_tool("slow_tool", {})
+
+    emit.assert_called_once()
+    assert emit.call_args.args[0].to_dict()["name"] == "slow_tool"
