@@ -375,7 +375,11 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
     disabled_emit = MagicMock()
     disabled_middleware._sinks.emit = disabled_emit
     await disabled_middleware.on_call_tool(_tool_context(), call_next)
-    assert disabled_emit.call_args.args[0].extra == {"is_hosted_mcp": True}
+    assert disabled_emit.call_args.args[0].extra == {
+        "tool_group": None,
+        "mutation_class": "unknown",
+        "is_hosted_mcp": True,
+    }
 
 
 def test_attribution_payload_contains_no_raw_identifiers(

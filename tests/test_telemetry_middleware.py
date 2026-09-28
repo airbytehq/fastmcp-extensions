@@ -203,7 +203,10 @@ async def test_extra_properties_failure_does_not_break_tool_call(
 
     assert result.content[0].text == "ok"
     assert emit.call_count == 1
-    assert emit.call_args.args[0].extra == {}
+    assert emit.call_args.args[0].extra == {
+        "tool_group": None,
+        "mutation_class": "unknown",
+    }
     assert "Failed to resolve telemetry extra properties" in caplog.text
 
 

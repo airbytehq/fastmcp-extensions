@@ -19,6 +19,7 @@ from weakref import WeakKeyDictionary
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from mcp.types import ToolAnnotations
 
 
 class Capability(str, Enum):
@@ -39,12 +40,41 @@ class Capability(str, Enum):
     CLIENT_FILESYSTEM = "io.airbyte/client-filesystem"
 
 
+class MutationClass(str, Enum):
+    """How a tool affects state, derived from its standard MCP hints."""
+
+    READ = "read"
+    MUTATE = "mutate"
+    DESTRUCTIVE = "destructive"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_annotations(cls, annotations: ToolAnnotations | None) -> MutationClass:
+        """Classify a tool from `readOnlyHint` / `destructiveHint`.
+
+        `destructiveHint` only applies to tools that are not read-only, so
+        `readOnlyHint=True` wins. Missing hints yield `UNKNOWN` rather than the
+        spec's destructive default, so unannotated tools are not over-counted.
+        """
+        if annotations is None:
+            return cls.UNKNOWN
+        if annotations.read_only_hint is True:
+            return cls.READ
+        if annotations.read_only_hint is False:
+            if annotations.destructive_hint is True:
+                return cls.DESTRUCTIVE
+            if annotations.destructive_hint is False:
+                return cls.MUTATE
+        return cls.UNKNOWN
+
+
 @dataclass(frozen=True)
 class ToolTraits:
     """Registration-time traits kept off the wire for a tool."""
 
     mcp_module: str | None = None
     required_capabilities: frozenset[Capability] = field(default_factory=frozenset)
+    mutation_class: MutationClass | None = None
 
 
 _TRAITS: WeakKeyDictionary[FastMCP, dict[str, ToolTraits]] = WeakKeyDictionary()
