@@ -2,6 +2,8 @@
 """Tests for stateless MCP capability propagation."""
 
 import asyncio
+import base64
+import json
 import uuid
 from typing import Any
 
@@ -14,12 +16,16 @@ import fastmcp_extensions.tool_filters as tool_filters
 from fastmcp_extensions import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
+    SessionToken,
     client_declared_extensions_from_headers,
     client_supports_extension,
     decode_capability_token,
+    decode_session_token,
     encode_capability_token,
+    encode_session_token,
     extension_tool_filter,
     interactive_ui_filter,
+    session_token_from_headers,
 )
 from fastmcp_extensions.tool_filters import (
     STANDARD_TOOL_FILTERS,
@@ -64,6 +70,114 @@ def test_capability_token_round_trip(
 def test_decode_capability_token_fails_closed(token: str) -> None:
     """Malformed capability tokens never expose extensions or raise."""
     assert decode_capability_token(token) == set()
+
+
+def _raw_token(payload: bytes) -> str:
+    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return f"{uuid.uuid4().hex}.{encoded}"
+
+
+def test_session_token_round_trip() -> None:
+    """V2 tokens carry extensions, client info, and protocol version."""
+    token = encode_session_token(
+        extensions={"ui", "has whitespace"},
+        client_name="Claude Desktop",
+        client_version="1.2.3",
+        protocol_version="2025-06-18",
+    )
+
+    assert decode_session_token(token) == SessionToken(
+        extensions=frozenset({"ui"}),
+        client_name="Claude Desktop",
+        client_version="1.2.3",
+        protocol_version="2025-06-18",
+    )
+    assert decode_capability_token(token) == {"ui"}
+    assert token.isascii() and token.isprintable() and " " not in token
+
+
+def test_session_token_is_minted_without_any_declarations() -> None:
+    """An empty v2 token still decodes, unlike an empty v1 token."""
+    token = encode_session_token()
+
+    assert token
+    assert decode_session_token(token) == SessionToken()
+    assert decode_capability_token(token) == set()
+
+
+def test_session_token_cleans_client_fields() -> None:
+    """Client fields drop non-printable characters and are length-capped."""
+    token = encode_session_token(
+        client_name=" Evil\r\nClient\x00 ",
+        client_version="9" * 500,
+        protocol_version="   ",
+    )
+
+    decoded = decode_session_token(token)
+
+    assert decoded is not None
+    assert decoded.client_name == "EvilClient"
+    assert decoded.client_version == "9" * 128
+    assert decoded.protocol_version is None
+
+
+def test_decode_session_token_cleans_untrusted_payload_fields() -> None:
+    """Hand-crafted v2 payloads are cleaned the same way as minted ones."""
+    payload = {
+        "v": 2,
+        "ext": ["ui", 7, "has whitespace", ""],
+        "client_name": {"nested": True},
+        "client_version": "x" * 500,
+        "protocol_version": 20250618,
+    }
+    token = _raw_token(json.dumps(payload).encode())
+
+    assert decode_session_token(token) == SessionToken(
+        extensions=frozenset({"ui"}),
+        client_version="x" * 128,
+    )
+
+
+def test_decode_session_token_reads_v1_tokens() -> None:
+    """Legacy v1 tokens decode to extensions with no client metadata."""
+    token = encode_capability_token({"ui", "roots"})
+
+    assert decode_session_token(token) == SessionToken(
+        extensions=frozenset({"ui", "roots"})
+    )
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("garbage", id="garbage"),
+        pytest.param("", id="empty"),
+        pytest.param(f"{uuid.uuid4().hex}.not-base64!", id="non-base64-payload"),
+        pytest.param(_raw_token(b"{not json"), id="invalid-json"),
+        pytest.param(_raw_token(b'{"v":3,"ext":["ui"]}'), id="unknown-version"),
+        pytest.param(_raw_token(b"   "), id="whitespace-v1-payload"),
+    ],
+)
+def test_decode_session_token_fails_closed(token: str) -> None:
+    """Invalid tokens decode to `None` and expose no extensions."""
+    assert decode_session_token(token) is None
+    assert decode_capability_token(token) == set()
+
+
+def test_session_token_from_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The current request's `Mcp-Session-Id` header is decoded."""
+    token = encode_session_token(client_name="Cursor", client_version="3.0")
+    monkeypatch.setattr(
+        capability_tokens,
+        "get_http_headers",
+        lambda **_: {"mcp-session-id": token},
+    )
+    assert session_token_from_headers() == SessionToken(
+        client_name="Cursor", client_version="3.0"
+    )
+
+    monkeypatch.setattr(capability_tokens, "get_http_headers", lambda **_: {})
+    assert session_token_from_headers() is None
 
 
 def test_client_declared_extensions_union_token_and_fallback_header(
@@ -206,9 +320,62 @@ def test_capability_middleware_mints_token_for_initialize() -> None:
     assert decode_capability_token(headers[b"mcp-session-id"].decode()) == {"ui"}
 
 
-def test_capability_middleware_does_not_mint_without_extensions() -> None:
-    """Requests without usable extensions receive no session token."""
-    body = b'{"method":"initialize","params":{"capabilities":{"extensions":{}}}}'
+def test_capability_middleware_mints_token_with_client_info() -> None:
+    """Every initialize gets a token carrying client info, even without extensions."""
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"extensions": {}},
+                "clientInfo": {"name": "Claude Code", "version": "2.1.0"},
+            },
+        }
+    ).encode()
+    _, responses = asyncio.run(
+        _run_capability_middleware(
+            [{"type": "http.request", "body": body, "more_body": False}]
+        )
+    )
+
+    headers = dict(responses[0].get("headers", []))
+    assert decode_session_token(headers[b"mcp-session-id"].decode()) == SessionToken(
+        client_name="Claude Code",
+        client_version="2.1.0",
+        protocol_version="2025-06-18",
+    )
+
+
+def test_capability_middleware_mints_token_for_bare_initialize() -> None:
+    """An initialize with no params still receives an empty session token."""
+    _, responses = asyncio.run(
+        _run_capability_middleware(
+            [
+                {
+                    "type": "http.request",
+                    "body": b'{"method":"initialize"}',
+                    "more_body": False,
+                }
+            ]
+        )
+    )
+
+    headers = dict(responses[0].get("headers", []))
+    assert decode_session_token(headers[b"mcp-session-id"].decode()) == SessionToken()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b'{"method":"tools/call","params":{}}', id="tools-call"),
+        pytest.param(b"not json", id="non-json"),
+        pytest.param(b'[{"method":"initialize"}]', id="batch"),
+    ],
+)
+def test_capability_middleware_does_not_mint_for_other_requests(body: bytes) -> None:
+    """Non-initialize requests keep their response headers untouched."""
     _, responses = asyncio.run(
         _run_capability_middleware(
             [{"type": "http.request", "body": body, "more_body": False}]
