@@ -4,6 +4,8 @@
 Intercepts every `tools/call` invocation and records structured telemetry:
 
 - `tool_name`, `timestamp`, `duration_ms`, `success`/`failure`, `error_type`
+- `tool_group` (the tool's `mcp_module`) and `mutation_class`
+  (`read` / `mutate` / `destructive` / `unknown`)
 - `package_version` (when a `package_name` is provided)
 - Optional attribution properties supplied through `extra_properties`
 
@@ -22,6 +24,7 @@ it skips the app when an instance is already installed, so an app built with
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
@@ -34,6 +37,7 @@ from fastmcp.server.middleware import (
     MiddlewareContext,
 )
 from fastmcp.tools import ToolResult
+from fastmcp.utilities.versions import VersionSpec
 
 from fastmcp_extensions._attribution import _AnonymizedAttribution
 from fastmcp_extensions._telemetry import (
@@ -42,13 +46,81 @@ from fastmcp_extensions._telemetry import (
     TelemetrySinks,
     resolve_extra_properties,
 )
+from fastmcp_extensions.tool_traits import MutationClass, get_tool_traits
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from mcp import types as mt
 
+logger = logging.getLogger(__name__)
+
 # Re-export for backward compatibility
 ToolCallTelemetryRecord = TelemetryRecord
+
+
+def tool_telemetry_properties(app: FastMCP, tool_name: str) -> dict[str, str | None]:
+    """Return the `tool_group` and `mutation_class` recorded for a tool.
+
+    Reads the in-process traits registry. `register_mcp_tools` records both
+    values and `mcp_provider` records only the group, since a provider tool's
+    hints can differ per version. Other tools report a `None` group and an
+    `unknown` mutation class; the telemetry middleware classifies those from
+    the tool each call resolves to.
+    """
+    traits = get_tool_traits(app, tool_name)
+    return {
+        "tool_group": traits.mcp_module,
+        "mutation_class": (traits.mutation_class or MutationClass.UNKNOWN).value,
+    }
+
+
+def _requested_version(meta: Mapping[str, object] | None) -> VersionSpec | None:
+    """Return the tool version a `tools/call` requested through `_meta.fastmcp`."""
+    fastmcp_meta = (meta or {}).get("fastmcp")
+    if not isinstance(fastmcp_meta, Mapping):
+        return None
+    version = fastmcp_meta.get("version")
+    if isinstance(version, str):
+        return VersionSpec(eq=version)
+    if isinstance(version, Mapping):
+        bounds = (version.get("gte"), version.get("lt"), version.get("eq"))
+        if all(bound is None or isinstance(bound, str) for bound in bounds):
+            gte, lt, eq = bounds
+            return VersionSpec(gte=gte, lt=lt, eq=eq)
+    return None
+
+
+async def _resolve_tool_properties(
+    context: MiddlewareContext[mt.CallToolRequestParams],
+) -> dict[str, str | None]:
+    """Resolve tool properties for one invocation.
+
+    Tools without a registration-time class are classified from the tool this
+    call resolves to, so concurrent calls to different versions of a tool
+    never share a result.
+    """
+    properties: dict[str, str | None] = {
+        "tool_group": None,
+        "mutation_class": MutationClass.UNKNOWN.value,
+    }
+    try:
+        if context.fastmcp_context is None:
+            return properties
+        app = context.fastmcp_context.fastmcp
+        tool_name = context.message.name
+        properties = tool_telemetry_properties(app, tool_name)
+        if get_tool_traits(app, tool_name).mutation_class is None:
+            tool = await app.get_tool(
+                tool_name, version=_requested_version(context.message.meta)
+            )
+            if tool is not None:
+                properties["mutation_class"] = MutationClass.from_annotations(
+                    tool.annotations
+                ).value
+    except Exception:
+        # Telemetry must never break a tool call.
+        logger.debug("Failed to resolve tool telemetry properties", exc_info=True)
+    return properties
 
 
 class ToolCallTelemetryMiddleware(Middleware):
@@ -61,6 +133,10 @@ class ToolCallTelemetryMiddleware(Middleware):
     - `duration_ms` - wall-clock execution time in milliseconds
     - `success` - whether the call completed without raising
     - `error_type` - the exception class name on failure (`None` on success)
+    - `tool_group` - the tool's `mcp_module` (`None` when not registered
+      through fastmcp-extensions)
+    - `mutation_class` - `read`, `mutate`, `destructive`, or `unknown`,
+      from the tool's `readOnlyHint` / `destructiveHint`
     - `package_version` - the installed version of `package_name`
     - `extra` - optional attribution properties
 
@@ -143,6 +219,7 @@ class ToolCallTelemetryMiddleware(Middleware):
         """Wrap tool execution with telemetry collection."""
         tool_name: str = context.message.name
         timestamp = datetime.now(tz=timezone.utc)
+        tool_properties = await _resolve_tool_properties(context)
         start = time.monotonic()
 
         success = True
@@ -170,6 +247,7 @@ class ToolCallTelemetryMiddleware(Middleware):
                 error_type=error_type,
                 package_version=self._sinks.package_version,
                 extra={
+                    **tool_properties,
                     **resolve_extra_properties(self._attribution),
                     **resolve_extra_properties(self._extra_properties),
                 },

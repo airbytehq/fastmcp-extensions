@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import inspect
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, get_args
 
@@ -47,6 +47,7 @@ from fastmcp_extensions.session_state import (
 )
 from fastmcp_extensions.tool_traits import (
     Capability,
+    MutationClass,
     ToolTraits,
     set_tool_traits,
 )
@@ -348,7 +349,10 @@ def register_mcp_tools(
         set_tool_traits(
             app,
             getattr(callable_fn, "__name__", str(callable_fn)),
-            traits,
+            replace(
+                traits,
+                mutation_class=MutationClass.from_annotations(standard_annotations),
+            ),
         )
 
     _register_mcp_callables(

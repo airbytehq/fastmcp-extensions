@@ -22,6 +22,7 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
     register_tool_call_telemetry,
+    tool_telemetry_properties,
 )
 from fastmcp_extensions.auth import (
     ClientCredentials,
@@ -105,7 +106,12 @@ from fastmcp_extensions.tool_filters import (
     interactive_ui_filter,
     is_trusted_execution_enabled,
 )
-from fastmcp_extensions.tool_traits import Capability, ToolTraits, get_tool_traits
+from fastmcp_extensions.tool_traits import (
+    Capability,
+    MutationClass,
+    ToolTraits,
+    get_tool_traits,
+)
 from fastmcp_extensions.user_facing_errors import (
     UserFacingErrorFormatter,
     UserFacingErrorMiddleware,
@@ -134,6 +140,7 @@ __all__ = [
     "LandingPageContent",
     "MCPServerConfig",
     "MCPServerConfigArg",
+    "MutationClass",
     "NormalizedKeysWrapper",
     "OIDCAuthConfig",
     "PromptDef",
@@ -183,5 +190,6 @@ __all__ = [
     "render_default_landing_html",
     "run_mcp_http_server",
     "session_token_from_headers",
+    "tool_telemetry_properties",
     "wrap_client_credentials",
 ]
