@@ -33,6 +33,7 @@ _UUID4_VERSION = 4
 _MAX_INITIALIZE_BODY_BYTES = 64 * 1024
 _SESSION_TOKEN_VERSION = 2
 _MAX_CLIENT_FIELD_CHARS = 128
+_METADATA_PREFIX = "~meta:"
 DEFAULT_EXTENSIONS_HEADER = "X-MCP-Extensions"
 
 
@@ -72,13 +73,12 @@ def encode_session_token(
 ) -> str:
     """Encode a v2 session token carrying extensions and client metadata.
 
+    The payload is the v1 space-separated extension list plus one
+    `~meta:<base64url JSON>` item, so v1 decoders still read the extensions.
     The token is always non-empty. Client metadata is trimmed, stripped of
     non-printable characters, and capped at 128 characters per field.
     """
-    payload: dict[str, object] = {
-        "v": _SESSION_TOKEN_VERSION,
-        "ext": _normalize_extension_ids(extensions),
-    }
+    metadata: dict[str, object] = {"v": _SESSION_TOKEN_VERSION}
     for key, value in (
         ("client_name", client_name),
         ("client_version", client_version),
@@ -86,8 +86,13 @@ def encode_session_token(
     ):
         cleaned = _clean_client_field(value)
         if cleaned is not None:
-            payload[key] = cleaned
-    return _wrap_payload(json.dumps(payload, separators=(",", ":")))
+            metadata[key] = cleaned
+    metadata_item = _METADATA_PREFIX + _b64encode(
+        json.dumps(metadata, separators=(",", ":"))
+    )
+    return _wrap_payload(
+        " ".join([*_normalize_extension_ids(extensions), metadata_item])
+    )
 
 
 def decode_session_token(token: str) -> SessionToken | None:
@@ -96,13 +101,18 @@ def decode_session_token(token: str) -> SessionToken | None:
     if payload is None:
         return None
 
-    if payload.startswith("{"):
-        return _decode_v2_payload(payload)
-
-    extension_ids = payload.split()
-    if not extension_ids:
+    items = payload.split()
+    metadata_items = [item for item in items if item.startswith(_METADATA_PREFIX)]
+    extension_ids = frozenset(
+        item for item in items if not item.startswith(_METADATA_PREFIX)
+    )
+    if not metadata_items:
+        return SessionToken(extensions=extension_ids) if extension_ids else None
+    if len(metadata_items) > 1:
         return None
-    return SessionToken(extensions=frozenset(extension_ids))
+    return _decode_metadata(
+        metadata_items[0].removeprefix(_METADATA_PREFIX), extension_ids
+    )
 
 
 def decode_capability_token(token: str) -> set[str]:
@@ -188,7 +198,9 @@ def _normalize_extension_ids(extension_ids: AbstractSet[str]) -> list[str]:
     return sorted(
         extension_id
         for extension_id in extension_ids
-        if extension_id and not any(char.isspace() for char in extension_id)
+        if extension_id
+        and not extension_id.startswith(_METADATA_PREFIX)
+        and not any(char.isspace() for char in extension_id)
     )
 
 
@@ -199,11 +211,22 @@ def _clean_client_field(value: object) -> str | None:
     return cleaned[:_MAX_CLIENT_FIELD_CHARS] or None
 
 
+def _b64encode(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _b64decode(value: str) -> str | None:
+    if not value or not _BASE64URL_PATTERN.fullmatch(value):
+        return None
+    try:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(value + padding).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+
+
 def _wrap_payload(payload: str) -> str:
-    encoded_payload = (
-        base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
-    )
-    return f"{uuid.uuid4().hex}{_TOKEN_SEPARATOR}{encoded_payload}"
+    return f"{uuid.uuid4().hex}{_TOKEN_SEPARATOR}{_b64encode(payload)}"
 
 
 def _unwrap_payload(token: str) -> str | None:
@@ -211,38 +234,26 @@ def _unwrap_payload(token: str) -> str | None:
         return None
 
     nonce, encoded_payload = token.split(_TOKEN_SEPARATOR, maxsplit=1)
-    if not _is_uuid4_hex(nonce) or not encoded_payload:
+    if not _is_uuid4_hex(nonce):
         return None
-    if not _BASE64URL_PATTERN.fullmatch(encoded_payload):
-        return None
+    return _b64decode(encoded_payload)
 
+
+def _decode_metadata(
+    encoded_metadata: str, extension_ids: frozenset[str]
+) -> SessionToken | None:
+    metadata = _b64decode(encoded_metadata)
+    if metadata is None:
+        return None
     try:
-        padding = "=" * (-len(encoded_payload) % 4)
-        return base64.urlsafe_b64decode(encoded_payload + padding).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return None
-
-
-def _decode_v2_payload(payload: str) -> SessionToken | None:
-    try:
-        parsed = json.loads(payload)
+        parsed = json.loads(metadata)
     except json.JSONDecodeError:
         return None
     parsed_mapping = _mapping(parsed)
     if parsed_mapping is None or parsed_mapping.get("v") != _SESSION_TOKEN_VERSION:
         return None
-    raw_extensions = parsed_mapping.get("ext")
-    extensions = (
-        frozenset(
-            _normalize_extension_ids(
-                {value for value in raw_extensions if isinstance(value, str)}
-            )
-        )
-        if isinstance(raw_extensions, list)
-        else frozenset()
-    )
     return SessionToken(
-        extensions=extensions,
+        extensions=extension_ids,
         client_name=_clean_client_field(parsed_mapping.get("client_name")),
         client_version=_clean_client_field(parsed_mapping.get("client_version")),
         protocol_version=_clean_client_field(parsed_mapping.get("protocol_version")),

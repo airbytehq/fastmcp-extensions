@@ -72,9 +72,16 @@ def test_decode_capability_token_fails_closed(token: str) -> None:
     assert decode_capability_token(token) == set()
 
 
+def _b64(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
 def _raw_token(payload: bytes) -> str:
-    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    return f"{uuid.uuid4().hex}.{encoded}"
+    return f"{uuid.uuid4().hex}.{_b64(payload)}"
+
+
+def _v2_raw_token(extensions: str, metadata: bytes) -> str:
+    return _raw_token(f"{extensions} ~meta:{_b64(metadata)}".encode())
 
 
 def test_session_token_round_trip() -> None:
@@ -123,19 +130,39 @@ def test_session_token_cleans_client_fields() -> None:
 
 def test_decode_session_token_cleans_untrusted_payload_fields() -> None:
     """Hand-crafted v2 payloads are cleaned the same way as minted ones."""
-    payload = {
+    metadata = {
         "v": 2,
-        "ext": ["ui", 7, "has whitespace", ""],
         "client_name": {"nested": True},
         "client_version": "x" * 500,
         "protocol_version": 20250618,
     }
-    token = _raw_token(json.dumps(payload).encode())
+    token = _v2_raw_token("ui", json.dumps(metadata).encode())
 
     assert decode_session_token(token) == SessionToken(
         extensions=frozenset({"ui"}),
         client_version="x" * 128,
     )
+
+
+def test_v2_token_extensions_readable_by_v1_decoders() -> None:
+    """Pre-v2 replicas split the payload on whitespace and still find extensions."""
+    token = encode_session_token(
+        extensions={"ui", "roots"}, client_name="Claude Desktop", client_version="1"
+    )
+    payload = token.split(".", maxsplit=1)[1]
+    v1_view = set(
+        base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode().split()
+    )
+
+    assert {"ui", "roots"} <= v1_view
+    assert len(v1_view) == 3
+
+
+def test_encode_session_token_drops_metadata_like_extension_ids() -> None:
+    """Extension IDs cannot be mistaken for the metadata item."""
+    token = encode_session_token(extensions={"ui", "~meta:spoof"})
+
+    assert decode_session_token(token) == SessionToken(extensions=frozenset({"ui"}))
 
 
 def test_decode_session_token_reads_v1_tokens() -> None:
@@ -153,8 +180,14 @@ def test_decode_session_token_reads_v1_tokens() -> None:
         pytest.param("garbage", id="garbage"),
         pytest.param("", id="empty"),
         pytest.param(f"{uuid.uuid4().hex}.not-base64!", id="non-base64-payload"),
-        pytest.param(_raw_token(b"{not json"), id="invalid-json"),
-        pytest.param(_raw_token(b'{"v":3,"ext":["ui"]}'), id="unknown-version"),
+        pytest.param(_v2_raw_token("ui", b"{not json"), id="invalid-json"),
+        pytest.param(_v2_raw_token("ui", b'{"v":3}'), id="unknown-version"),
+        pytest.param(_v2_raw_token("ui", b"[2]"), id="non-object-metadata"),
+        pytest.param(_raw_token(b"ui ~meta:!!"), id="non-base64-metadata"),
+        pytest.param(
+            _raw_token(f"ui ~meta:{_b64(b'{}')} ~meta:{_b64(b'{}')}".encode()),
+            id="duplicate-metadata",
+        ),
         pytest.param(_raw_token(b"   "), id="whitespace-v1-payload"),
     ],
 )
