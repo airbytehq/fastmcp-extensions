@@ -41,6 +41,7 @@ from fastmcp.utilities.versions import VersionSpec
 
 from fastmcp_extensions._attribution import _AnonymizedAttribution
 from fastmcp_extensions._telemetry import (
+    DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
@@ -167,7 +168,7 @@ class ToolCallTelemetryMiddleware(Middleware):
         package_name: str | None = None,
         sentry_dsn: str | None = None,
         segment_write_key: str | None = None,
-        segment_user_id: str = "mcp-server",
+        segment_user_id: str | Callable[[], str | None] = DEFAULT_SEGMENT_USER_ID,
         segment_anonymous_id: str | Callable[[], str | None] | None = None,
         extra_properties: (
             Mapping[str, object] | Callable[[], Mapping[str, object]] | None

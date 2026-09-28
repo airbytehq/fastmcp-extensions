@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextvars import ContextVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -271,3 +273,40 @@ async def test_segment_event_emitted() -> None:
         args = mock_analytics.track.call_args
         assert args[0][0] == "mcp-server"
         assert args[0][1] == "mcp_tool_call"
+
+
+@pytest.mark.asyncio
+async def test_callable_segment_user_id_is_resolved_per_concurrent_call() -> None:
+    current_user: ContextVar[str | None] = ContextVar("current_user", default=None)
+    mock_analytics = MagicMock()
+    with patch(
+        "fastmcp_extensions._telemetry._segment_analytics",
+        mock_analytics,
+    ):
+        mw = ToolCallTelemetryMiddleware(
+            segment_write_key="fake-key",
+            segment_user_id=current_user.get,
+        )
+
+        async def call_as(user: str | None, delay: float) -> None:
+            async def call_next(c: MiddlewareContext) -> ToolResult:
+                current_user.set(user)
+                await asyncio.sleep(delay)
+                return _make_tool_result()
+
+            await mw.on_call_tool(_make_context(f"tool_{user}"), call_next)
+
+        await asyncio.gather(
+            call_as("user-a", 0.02),
+            call_as("user-b", 0.0),
+            call_as(None, 0.01),
+        )
+
+    assert {
+        call.args[2]["name"]: call.args[0]
+        for call in mock_analytics.track.call_args_list
+    } == {
+        "tool_user-a": "user-a",
+        "tool_user-b": "user-b",
+        "tool_None": "mcp-server",
+    }

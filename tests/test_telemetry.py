@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
 from fastmcp_extensions._telemetry import (
+    DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
@@ -286,6 +287,71 @@ def test_sinks_emit_segment_event_falls_back_when_anonymous_id_fails() -> None:
         sinks.emit(record)
 
     track.assert_called_once_with("mcp-server", "test", record.to_dict())
+
+
+def _segment_user_ids(
+    segment_user_id: str | Callable[[], str | None],
+    *,
+    events: int = 1,
+    segment_anonymous_id: str | Callable[[], str | None] | None = None,
+) -> list[object]:
+    """Emit `events` records and return the `user_id` sent with each."""
+    with patch("fastmcp_extensions._telemetry._init_segment"), patch(
+        "fastmcp_extensions._telemetry._segment_analytics.track"
+    ) as track:
+        sinks = TelemetrySinks(
+            segment_write_key="fake-key",
+            segment_user_id=segment_user_id,
+            segment_anonymous_id=segment_anonymous_id,
+        )
+        record = TelemetryRecord(
+            invocation_type="test",
+            name="fn",
+            timestamp="t",
+            duration_ms=5.0,
+            success=True,
+            error_type=None,
+            package_version="v",
+        )
+        for _ in range(events):
+            sinks.emit(record)
+    return [call.args[0] if call.args else call.kwargs for call in track.call_args_list]
+
+
+def test_sinks_emit_segment_event_with_static_user_id() -> None:
+    assert _segment_user_ids("static-user") == ["static-user"]
+
+
+def test_sinks_resolve_callable_user_id_per_event() -> None:
+    user_ids = iter(["user-a", "user-b"])
+    assert _segment_user_ids(lambda: next(user_ids), events=2) == ["user-a", "user-b"]
+
+
+@pytest.mark.parametrize("resolved", [None, ""])
+def test_sinks_fall_back_when_callable_user_id_is_unresolved(
+    resolved: str | None,
+) -> None:
+    assert _segment_user_ids(lambda: resolved) == [DEFAULT_SEGMENT_USER_ID]
+
+
+def test_sinks_fall_back_when_callable_user_id_fails() -> None:
+    def raise_error() -> str:
+        raise OSError("boom")
+
+    assert _segment_user_ids(raise_error) == [DEFAULT_SEGMENT_USER_ID]
+
+
+def test_sinks_anonymous_id_takes_precedence_over_callable_user_id() -> None:
+    resolver_calls: list[None] = []
+
+    def resolve_user() -> str:
+        resolver_calls.append(None)
+        return "user-a"
+
+    assert _segment_user_ids(resolve_user, segment_anonymous_id="analytics-id") == [
+        {"anonymous_id": "analytics-id", "event": "test", "properties": ANY}
+    ]
+    assert resolver_calls == []
 
 
 def test_sinks_capture_exception_calls_sentry(
