@@ -10,6 +10,7 @@ import re
 import uuid
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fastmcp.server.dependencies import get_context, get_http_headers
@@ -30,48 +31,107 @@ _HTTP_RESPONSE_HEADERS = "headers"
 _HTTP_DISCONNECT = "http.disconnect"
 _UUID4_VERSION = 4
 _MAX_INITIALIZE_BODY_BYTES = 64 * 1024
+_SESSION_TOKEN_VERSION = 2
+_MAX_CLIENT_FIELD_CHARS = 128
+_METADATA_PREFIX = "~meta:"
 DEFAULT_EXTENSIONS_HEADER = "X-MCP-Extensions"
 
 
+@dataclass(frozen=True, slots=True)
+class SessionToken:
+    """Decoded contents of a self-describing stateless session token.
+
+    Every field is a client self-declaration carried in an unsigned token. Use
+    it for rendering decisions and analytics, never for authorization.
+    """
+
+    extensions: frozenset[str] = frozenset()
+    client_name: str | None = None
+    client_version: str | None = None
+    protocol_version: str | None = None
+
+
 def encode_capability_token(extension_ids: AbstractSet[str]) -> str:
-    """Encode extension IDs as a visible-ASCII capability token.
+    """Encode extension IDs as a legacy (v1) visible-ASCII capability token.
 
     The token contains a random UUID4 component and a base64url-encoded,
     space-separated payload. An empty extension set returns an empty string.
+    Prefer `encode_session_token`, which also carries client metadata.
     """
-    normalized_ids = sorted(
-        extension_id
-        for extension_id in extension_ids
-        if extension_id and not any(char.isspace() for char in extension_id)
-    )
+    normalized_ids = _normalize_extension_ids(extension_ids)
     if not normalized_ids:
         return ""
-    payload = " ".join(normalized_ids).encode("utf-8")
-    encoded_payload = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    return f"{uuid.uuid4().hex}{_TOKEN_SEPARATOR}{encoded_payload}"
+    return _wrap_payload(" ".join(normalized_ids))
+
+
+def encode_session_token(
+    *,
+    extensions: AbstractSet[str] = frozenset(),
+    client_name: str | None = None,
+    client_version: str | None = None,
+    protocol_version: str | None = None,
+) -> str:
+    """Encode a v2 session token carrying extensions and client metadata.
+
+    The payload is the v1 space-separated extension list plus one
+    `~meta:<base64url JSON>` item, so v1 decoders still read the extensions.
+    The token is always non-empty. Client metadata is trimmed, stripped of
+    non-printable characters, and capped at 128 characters per field.
+    """
+    metadata: dict[str, object] = {"v": _SESSION_TOKEN_VERSION}
+    for key, value in (
+        ("client_name", client_name),
+        ("client_version", client_version),
+        ("protocol_version", protocol_version),
+    ):
+        cleaned = _clean_client_field(value)
+        if cleaned is not None:
+            metadata[key] = cleaned
+    metadata_item = _METADATA_PREFIX + _b64encode(
+        json.dumps(metadata, separators=(",", ":"))
+    )
+    return _wrap_payload(
+        " ".join([*_normalize_extension_ids(extensions), metadata_item])
+    )
+
+
+def decode_session_token(token: str) -> SessionToken | None:
+    """Decode a v1 or v2 session token, returning `None` for invalid tokens."""
+    payload = _unwrap_payload(token)
+    if payload is None:
+        return None
+
+    items = payload.split()
+    metadata_items = [item for item in items if item.startswith(_METADATA_PREFIX)]
+    extension_ids = frozenset(
+        item for item in items if not item.startswith(_METADATA_PREFIX)
+    )
+    if not metadata_items:
+        return SessionToken(extensions=extension_ids) if extension_ids else None
+    if len(metadata_items) > 1:
+        return None
+    return _decode_metadata(
+        metadata_items[0].removeprefix(_METADATA_PREFIX), extension_ids
+    )
 
 
 def decode_capability_token(token: str) -> set[str]:
-    """Decode extension IDs from a capability token, failing closed on errors."""
-    if not token or _TOKEN_SEPARATOR not in token:
+    """Decode extension IDs from a v1 or v2 token, failing closed on errors."""
+    decoded = decode_session_token(token)
+    if decoded is None:
         return set()
+    return set(decoded.extensions)
 
-    nonce, encoded_payload = token.split(_TOKEN_SEPARATOR, maxsplit=1)
-    if not _is_uuid4_hex(nonce) or not encoded_payload:
-        return set()
-    if not _BASE64URL_PATTERN.fullmatch(encoded_payload):
-        return set()
 
-    try:
-        padding = "=" * (-len(encoded_payload) % 4)
-        payload = base64.urlsafe_b64decode(encoded_payload + padding).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return set()
+def session_token_from_headers() -> SessionToken | None:
+    """Return the decoded `Mcp-Session-Id` token of the current HTTP request.
 
-    extension_ids = payload.split()
-    if not extension_ids:
-        return set()
-    return set(extension_ids)
+    Returns `None` outside HTTP requests and when the header is absent or
+    invalid. The token is unsigned and caller-controlled.
+    """
+    session_header = _SESSION_HEADER.decode("ascii")
+    headers = get_http_headers(include={session_header})
+    return decode_session_token(headers.get(session_header, ""))
 
 
 def client_declared_extensions_from_headers(
@@ -134,6 +194,72 @@ def client_supports_extension(
     )
 
 
+def _normalize_extension_ids(extension_ids: AbstractSet[str]) -> list[str]:
+    return sorted(
+        extension_id
+        for extension_id in extension_ids
+        if extension_id
+        and not extension_id.startswith(_METADATA_PREFIX)
+        and not any(char.isspace() for char in extension_id)
+    )
+
+
+def _clean_client_field(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = "".join(char for char in value if char.isprintable()).strip()
+    return cleaned[:_MAX_CLIENT_FIELD_CHARS] or None
+
+
+def _b64encode(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _b64decode(value: str) -> str | None:
+    if not value or not _BASE64URL_PATTERN.fullmatch(value):
+        return None
+    try:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(value + padding).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _wrap_payload(payload: str) -> str:
+    return f"{uuid.uuid4().hex}{_TOKEN_SEPARATOR}{_b64encode(payload)}"
+
+
+def _unwrap_payload(token: str) -> str | None:
+    if not token or _TOKEN_SEPARATOR not in token:
+        return None
+
+    nonce, encoded_payload = token.split(_TOKEN_SEPARATOR, maxsplit=1)
+    if not _is_uuid4_hex(nonce):
+        return None
+    return _b64decode(encoded_payload)
+
+
+def _decode_metadata(
+    encoded_metadata: str, extension_ids: frozenset[str]
+) -> SessionToken | None:
+    metadata = _b64decode(encoded_metadata)
+    if metadata is None:
+        return None
+    try:
+        parsed = json.loads(metadata)
+    except json.JSONDecodeError:
+        return None
+    parsed_mapping = _mapping(parsed)
+    if parsed_mapping is None or parsed_mapping.get("v") != _SESSION_TOKEN_VERSION:
+        return None
+    return SessionToken(
+        extensions=extension_ids,
+        client_name=_clean_client_field(parsed_mapping.get("client_name")),
+        client_version=_clean_client_field(parsed_mapping.get("client_version")),
+        protocol_version=_clean_client_field(parsed_mapping.get("protocol_version")),
+    )
+
+
 def _is_uuid4_hex(value: str) -> bool:
     try:
         parsed = uuid.UUID(hex=value)
@@ -148,31 +274,42 @@ def _mapping(value: object) -> Mapping[str, object] | None:
     return None
 
 
-def _initialize_extension_ids(body: bytes) -> set[str]:
+def _initialize_session_token(body: bytes) -> str:
+    """Return a session token for an `initialize` body, or `""` for other bodies."""
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return set()
+        return ""
 
     payload_mapping = _mapping(payload)
     if payload_mapping is None or payload_mapping.get("method") != "initialize":
-        return set()
-    params = _mapping(payload_mapping.get("params"))
-    capabilities = _mapping(params.get("capabilities")) if params is not None else None
+        return ""
+    params = _mapping(payload_mapping.get("params")) or {}
+    capabilities = _mapping(params.get("capabilities"))
     extensions = (
         _mapping(capabilities.get("extensions")) if capabilities is not None else None
     )
-    if extensions is None:
-        return set()
-    return {
-        extension_id
-        for extension_id in extensions
-        if isinstance(extension_id, str) and extension_id
-    }
+    client_info = _mapping(params.get("clientInfo")) or {}
+    protocol_version = params.get("protocolVersion")
+    return encode_session_token(
+        extensions={
+            extension_id
+            for extension_id in extensions or {}
+            if isinstance(extension_id, str) and extension_id
+        },
+        client_name=_clean_client_field(client_info.get("name")),
+        client_version=_clean_client_field(client_info.get("version")),
+        protocol_version=_clean_client_field(protocol_version),
+    )
 
 
 class CapabilityTokenMiddleware:
-    """Carry initialize extension declarations through stateless HTTP requests."""
+    """Carry initialize declarations through stateless HTTP requests.
+
+    Every `initialize` response gets a v2 session token in `Mcp-Session-Id`
+    carrying the declared extensions, `clientInfo` name and version, and the
+    requested protocol version. Other requests pass through untouched.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -207,10 +344,7 @@ class CapabilityTokenMiddleware:
             if not message.get(_HTTP_REQUEST_MORE_BODY, False):
                 break
         body = b"".join(body_parts)
-        extension_ids = (
-            set() if oversized or disconnected else _initialize_extension_ids(body)
-        )
-        token = encode_capability_token(extension_ids)
+        token = "" if oversized or disconnected else _initialize_session_token(body)
         replay_index = 0
 
         async def replay_receive() -> Message:
