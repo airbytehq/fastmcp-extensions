@@ -34,6 +34,7 @@ _MAX_INITIALIZE_BODY_BYTES = 64 * 1024
 _SESSION_TOKEN_VERSION = 2
 _MAX_CLIENT_FIELD_CHARS = 128
 _METADATA_PREFIX = "~meta:"
+_MINTED_SESSION_TOKEN_STATE_KEY = "fastmcp_extensions.minted_session_token"
 DEFAULT_EXTENSIONS_HEADER = "X-MCP-Extensions"
 
 
@@ -132,6 +133,20 @@ def session_token_from_headers() -> SessionToken | None:
     session_header = _SESSION_HEADER.decode("ascii")
     headers = get_http_headers(include={session_header})
     return decode_session_token(headers.get(session_header, ""))
+
+
+def minted_session_token(scope: Mapping[str, object]) -> str | None:
+    """Return the session token `CapabilityTokenMiddleware` mints for this request.
+
+    Set in the ASGI scope state before the wrapped app runs, so in-app code can
+    correlate an `initialize` with the `Mcp-Session-Id` the client will echo.
+    Returns `None` for requests that are not an `initialize`.
+    """
+    state = scope.get("state")
+    if not isinstance(state, Mapping):
+        return None
+    token = state.get(_MINTED_SESSION_TOKEN_STATE_KEY)
+    return token if isinstance(token, str) and token else None
 
 
 def client_declared_extensions_from_headers(
@@ -345,6 +360,8 @@ class CapabilityTokenMiddleware:
                 break
         body = b"".join(body_parts)
         token = "" if oversized or disconnected else _initialize_session_token(body)
+        if token:
+            scope.setdefault("state", {})[_MINTED_SESSION_TOKEN_STATE_KEY] = token
         replay_index = 0
 
         async def replay_receive() -> Message:
