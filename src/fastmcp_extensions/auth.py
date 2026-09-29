@@ -28,6 +28,14 @@ rotate** — so two copies of an agent can never invalidate each other's tokens.
 headless verifiers are configured, they are combined with `MultiAuth` so a
 single deployment serves both audiences.
 
+`jwt` also accepts a *sequence* of `JWTAuthConfig`s, producing one verifier
+per entry — the multi-realm pattern for trusting several issuers at once. A
+common pairing is an application-token realm (client-credentials tokens, no
+`azp` expectations) plus a user-token realm pinned with
+`allowed_client_ids`, so only JWTs from the allowlisted interactive clients
+(e.g. `azp: "my-webapp"`) are accepted — see
+`ClientAllowlistJWTVerifier`.
+
 ## Minting tokens (client side / hybrid server side)
 
 `fetch_client_credentials_token` performs the client credentials grant against
@@ -62,12 +70,17 @@ app = mcp_server(name="my-server", auth=auth)
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx
-from fastmcp.server.auth import AuthProvider, MultiAuth, TokenVerifier
+from fastmcp.server.auth import (
+    AccessToken,
+    AuthProvider,
+    MultiAuth,
+    TokenVerifier,
+)
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.auth.providers.introspection import IntrospectionTokenVerifier
 from fastmcp.server.auth.providers.jwt import JWTVerifier, StaticTokenVerifier
@@ -211,11 +224,24 @@ class JWTAuthConfig:
     algorithm: str | None = None
     required_scopes: list[str] | None = None
     base_url: str | None = None
+    allowed_client_ids: frozenset[str] | None = None
+    """Optional `azp` allowlist: tokens must carry an allowlisted `azp` claim.
+
+    Use for user/session tokens from an interactive client rather than
+    client-credentials app tokens — OIDC user tokens carry the issuing
+    client in `azp` while `aud` varies per client. When set, the verifier is
+    a `ClientAllowlistJWTVerifier`.
+    """
 
     def __post_init__(self) -> None:
         if not self.jwks_uri and not self.public_key:
             raise ValueError(
                 "JWTAuthConfig requires either 'jwks_uri' or 'public_key'."
+            )
+        if self.allowed_client_ids is not None and not self.allowed_client_ids:
+            raise ValueError(
+                "JWTAuthConfig 'allowed_client_ids' must not be empty "
+                "(an empty allowlist rejects every token)."
             )
 
 
@@ -238,7 +264,63 @@ class IntrospectionAuthConfig:
     cache_ttl_seconds: int | None = None
 
 
+class ClientAllowlistJWTVerifier(JWTVerifier):
+    """`JWTVerifier` that additionally requires the token's `azp` to be allowlisted.
+
+    OIDC user/session tokens (e.g. Keycloak) carry the issuing client in
+    `azp` while their `aud` varies per client, so issuer + signature alone
+    cannot pin *which* clients' user tokens are trusted — the `azp`
+    allowlist is how deployments express that pin.
+    """
+
+    def __init__(
+        self,
+        *,
+        allowed_client_ids: frozenset[str],
+        jwks_uri: str | None = None,
+        public_key: str | bytes | None = None,
+        issuer: str | list[str] | None = None,
+        audience: str | list[str] | None = None,
+        algorithm: str | None = None,
+        base_url: str | None = None,
+        required_scopes: list[str] | None = None,
+    ) -> None:
+        """Same parameters as `JWTVerifier`, plus the `azp` allowlist."""
+        super().__init__(
+            jwks_uri=jwks_uri,
+            public_key=public_key,
+            issuer=issuer,
+            audience=audience,
+            algorithm=algorithm,
+            base_url=base_url,
+            required_scopes=required_scopes,
+        )
+        self.allowed_client_ids = allowed_client_ids
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify signature/claims, then require an allowlisted `azp`."""
+        access = await super().verify_token(token)
+        if access is None:
+            return None
+        azp = access.claims.get("azp")
+        if not isinstance(azp, str) or azp not in self.allowed_client_ids:
+            logger.info("Bearer token rejected: azp %r not in allowlist", azp)
+            return None
+        return access
+
+
 def _build_jwt_verifier(config: JWTAuthConfig) -> JWTVerifier:
+    if config.allowed_client_ids is not None:
+        return ClientAllowlistJWTVerifier(
+            allowed_client_ids=config.allowed_client_ids,
+            public_key=config.public_key,
+            jwks_uri=config.jwks_uri,
+            issuer=config.issuer,
+            audience=config.audience,
+            algorithm=config.algorithm,
+            required_scopes=config.required_scopes,
+            base_url=config.base_url,
+        )
     return JWTVerifier(
         public_key=config.public_key,
         jwks_uri=config.jwks_uri,
@@ -324,7 +406,7 @@ def _assemble_auth(
 def build_mcp_auth(
     *,
     oidc: OIDCAuthConfig | None = None,
-    jwt: JWTAuthConfig | None = None,
+    jwt: JWTAuthConfig | Sequence[JWTAuthConfig] | None = None,
     introspection: IntrospectionAuthConfig | None = None,
     static_tokens: Mapping[str, dict[str, Any]] | None = None,
     base_url: str | None = None,
@@ -335,7 +417,9 @@ def build_mcp_auth(
     Any combination may be supplied:
 
     - `oidc`: interactive Authorization Code + PKCE (`OIDCProxy`) for humans.
-    - `jwt`: headless JWT bearer verification (`JWTVerifier`).
+    - `jwt`: headless JWT bearer verification (`JWTVerifier`); pass a
+      sequence to trust several issuers/realms, e.g. an application-token
+      realm plus a user-token realm pinned via `allowed_client_ids`.
     - `introspection`: headless opaque-token verification (RFC 7662).
     - `static_tokens`: fixed tokens for local dev / CI (`StaticTokenVerifier`).
 
@@ -348,7 +432,8 @@ def build_mcp_auth(
 
     verifiers: list[TokenVerifier] = []
     if jwt is not None:
-        verifiers.append(_build_jwt_verifier(jwt))
+        jwt_configs = jwt if isinstance(jwt, Sequence) else [jwt]
+        verifiers.extend(_build_jwt_verifier(config) for config in jwt_configs)
     if introspection is not None:
         verifiers.append(_build_introspection_verifier(introspection))
     if static_tokens:
