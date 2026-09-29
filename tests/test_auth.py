@@ -9,6 +9,7 @@ these config objects, so these tests exercise the typed API directly.
 
 import functools
 import inspect
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -506,11 +507,33 @@ def test_build_mcp_auth_jwt_configs_build_expected_verifiers(
 
 
 @pytest.mark.unit
-def test_jwt_config_rejects_empty_allowed_client_ids() -> None:
-    # An empty allowlist would reject every token, so the config refuses it
-    # rather than failing silently at request time.
-    with pytest.raises(ValueError, match="allowed_client_ids"):
-        JWTAuthConfig(public_key=_PUBLIC_KEY, allowed_client_ids=frozenset())
+@pytest.mark.parametrize(
+    ("build", "match"),
+    [
+        pytest.param(
+            lambda: JWTAuthConfig(
+                public_key=_PUBLIC_KEY, allowed_client_ids=frozenset()
+            ),
+            "allowed_client_ids",
+            id="config-empty-allowlist",
+        ),
+        pytest.param(
+            lambda: ClientAllowlistJWTVerifier(
+                allowed_client_ids=frozenset(), public_key=_PUBLIC_KEY
+            ),
+            "allowed_client_ids",
+            id="verifier-empty-allowlist",
+        ),
+        pytest.param(
+            lambda: build_mcp_auth(jwt=[]), "must not be empty", id="empty-jwt-sequence"
+        ),
+    ],
+)
+def test_empty_jwt_inputs_are_rejected(build: Callable[[], object], match: str) -> None:
+    # An empty allowlist rejects every token and an empty `jwt` sequence would
+    # silently disable auth (`None`), so both fail loudly at construction time.
+    with pytest.raises(ValueError, match=match):
+        build()
 
 
 @pytest.mark.unit

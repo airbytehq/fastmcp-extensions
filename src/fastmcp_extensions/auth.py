@@ -286,6 +286,11 @@ class ClientAllowlistJWTVerifier(JWTVerifier):
         required_scopes: list[str] | None = None,
     ) -> None:
         """Same parameters as `JWTVerifier`, plus the `azp` allowlist."""
+        if not allowed_client_ids:
+            raise ValueError(
+                "ClientAllowlistJWTVerifier requires a non-empty 'allowed_client_ids' "
+                "(an empty allowlist rejects every token)."
+            )
         super().__init__(
             jwks_uri=jwks_uri,
             public_key=public_key,
@@ -433,6 +438,11 @@ def build_mcp_auth(
     verifiers: list[TokenVerifier] = []
     if jwt is not None:
         jwt_configs = jwt if isinstance(jwt, Sequence) else [jwt]
+        if not jwt_configs:
+            raise ValueError(
+                "build_mcp_auth 'jwt' sequence must not be empty; pass None to "
+                "disable JWT verification."
+            )
         verifiers.extend(_build_jwt_verifier(config) for config in jwt_configs)
     if introspection is not None:
         verifiers.append(_build_introspection_verifier(introspection))
