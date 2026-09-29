@@ -9,6 +9,7 @@ these config objects, so these tests exercise the typed API directly.
 
 import functools
 import inspect
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -21,16 +22,19 @@ from fastmcp.server.auth.providers.jwt import (
 )
 
 from fastmcp_extensions.auth import (
+    ClientAllowlistJWTVerifier,
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
     OIDCAuthConfig,
     _assemble_auth,
+    _build_jwt_verifier,
     build_mcp_auth,
     fetch_client_credentials_token,
 )
 
 _PUBLIC_KEY = RSAKeyPair.generate().public_key
+_KEY_PAIR = RSAKeyPair.generate()
 
 
 def _static_verifier(name: str = "tok") -> StaticTokenVerifier:
@@ -460,3 +464,102 @@ def test_fetch_client_credentials_token_http_error_raises() -> None:
             ),
             http_client=client,
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("jwt", "expected_types"),
+    [
+        pytest.param(
+            JWTAuthConfig(
+                public_key=_PUBLIC_KEY,
+                issuer="iss",
+                allowed_client_ids=frozenset({"web"}),
+            ),
+            [ClientAllowlistJWTVerifier],
+            id="single-allowlist",
+        ),
+        pytest.param(
+            [
+                JWTAuthConfig(public_key=_PUBLIC_KEY, issuer="app-realm"),
+                JWTAuthConfig(
+                    public_key=_PUBLIC_KEY,
+                    issuer="iss",
+                    allowed_client_ids=frozenset({"web"}),
+                ),
+            ],
+            [JWTVerifier, ClientAllowlistJWTVerifier],
+            id="sequence-app-plus-user-realm",
+        ),
+    ],
+)
+def test_build_mcp_auth_jwt_configs_build_expected_verifiers(
+    jwt: JWTAuthConfig | list[JWTAuthConfig], expected_types: list[type]
+) -> None:
+    auth = build_mcp_auth(jwt=jwt)
+    verifiers = auth.verifiers if isinstance(auth, MultiAuth) else [auth]
+    assert [type(v) for v in verifiers] == expected_types
+    assert all(
+        v.allowed_client_ids == frozenset({"web"})
+        for v in verifiers
+        if isinstance(v, ClientAllowlistJWTVerifier)
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("build", "match"),
+    [
+        pytest.param(
+            lambda: JWTAuthConfig(
+                public_key=_PUBLIC_KEY, allowed_client_ids=frozenset()
+            ),
+            "allowed_client_ids",
+            id="config-empty-allowlist",
+        ),
+        pytest.param(
+            lambda: ClientAllowlistJWTVerifier(
+                allowed_client_ids=frozenset(), public_key=_PUBLIC_KEY
+            ),
+            "allowed_client_ids",
+            id="verifier-empty-allowlist",
+        ),
+        pytest.param(
+            lambda: build_mcp_auth(jwt=[]), "must not be empty", id="empty-jwt-sequence"
+        ),
+    ],
+)
+def test_empty_jwt_inputs_are_rejected(build: Callable[[], object], match: str) -> None:
+    # An empty allowlist rejects every token and an empty `jwt` sequence would
+    # silently disable auth (`None`), so both fail loudly at construction time.
+    with pytest.raises(ValueError, match=match):
+        build()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("allowed_client_ids", "claims", "accepted"),
+    [
+        pytest.param(frozenset({"web"}), {"azp": "web"}, True, id="allowlisted-azp"),
+        pytest.param(frozenset({"web"}), {"azp": "other"}, False, id="other-azp"),
+        pytest.param(frozenset({"web"}), {}, False, id="missing-azp"),
+        # Without `allowed_client_ids` the verifier is a plain `JWTVerifier`,
+        # so the `azp` pin stays opt-in and app tokens (no `azp`) still pass.
+        pytest.param(None, {}, True, id="no-allowlist-plain-verifier"),
+    ],
+)
+async def test_jwt_verifier_azp_allowlist(
+    allowed_client_ids: frozenset[str] | None,
+    claims: dict[str, object],
+    accepted: bool,
+) -> None:
+    verifier = _build_jwt_verifier(
+        JWTAuthConfig(
+            public_key=_KEY_PAIR.public_key,
+            issuer="iss",
+            allowed_client_ids=allowed_client_ids,
+        )
+    )
+    token = _KEY_PAIR.create_token(issuer="iss", additional_claims=claims)
+    assert (await verifier.verify_token(token) is not None) is accepted

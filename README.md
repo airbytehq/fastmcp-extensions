@@ -257,7 +257,37 @@ are configured via FastMCP's `MultiAuth`:
 
 `static_tokens=`, `base_url=`, and `required_scopes=` round out the parameters.
 It returns a single verifier when one is configured, or a `MultiAuth` when
-several are. For a durable, shared interactive-OIDC store (so refresh tokens
+several are.
+
+#### Trusting several realms / user tokens
+
+`jwt=` also accepts a sequence of `JWTAuthConfig`s — one verifier per entry,
+combined via `MultiAuth` — so a server can trust several issuers or realms at
+once. A typical pairing is an application-token realm (client-credentials
+tokens) plus a user-token realm pinned with `allowed_client_ids`:
+
+```python
+jwt = [
+    # Application tokens minted via the client credentials grant:
+    JWTAuthConfig(
+        jwks_uri="https://app-realm.example/jwks", issuer="https://app-realm.example/"
+    ),
+    # Interactive user/session tokens, pinned by `azp` (aud varies per client):
+    JWTAuthConfig(
+        jwks_uri="https://user-realm.example/jwks",
+        issuer="https://user-realm.example/",
+        allowed_client_ids=frozenset({"my-webapp-client"}),
+    ),
+]
+```
+
+The second config builds a `ClientAllowlistJWTVerifier`: signature and issuer
+are checked as usual, and the token is then rejected unless its `azp` claim
+names an allowlisted client. Use this for user/session tokens from
+interactive clients — client-credentials tokens don't carry `azp`, so leave
+`allowed_client_ids` unset for them.
+
+For a durable, shared interactive-OIDC store (so refresh tokens
 survive restarts and span replicas), the server constructs its own backend and
 injects it via `OIDCAuthConfig(client_storage=...)` — keeping all
 backend-specific config (project, database, encryption) in the deployment, not

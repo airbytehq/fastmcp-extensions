@@ -26,6 +26,7 @@ from fastmcp_extensions._telemetry_middleware import (
     tool_telemetry_properties,
 )
 from fastmcp_extensions.auth import (
+    ClientAllowlistJWTVerifier,
     ClientCredentials,
     IntrospectionAuthConfig,
     JWTAuthConfig,
@@ -131,6 +132,7 @@ __all__ = [
     "AuthorizationRedactionFilter",
     "Capability",
     "CapabilityTokenMiddleware",
+    "ClientAllowlistJWTVerifier",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
     "DecodedSessionState",
