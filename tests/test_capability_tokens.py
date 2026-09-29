@@ -25,6 +25,7 @@ from fastmcp_extensions import (
     encode_session_token,
     extension_tool_filter,
     interactive_ui_filter,
+    minted_session_token,
     session_token_from_headers,
 )
 from fastmcp_extensions.tool_filters import (
@@ -303,6 +304,10 @@ def test_client_supports_extension_tolerates_missing_session(
     assert client_supports_extension("io.modelcontextprotocol/ui") is False
 
 
+app_scopes: list[Any] = []
+"""Scopes the fake app saw during the last `_run_capability_middleware` call."""
+
+
 async def _run_capability_middleware(
     messages: list[dict[str, object]],
     *,
@@ -311,6 +316,7 @@ async def _run_capability_middleware(
     received: list[dict[str, object]] = []
     responses: list[dict[str, object]] = []
     message_index = 0
+    app_scopes.clear()
 
     async def receive() -> Any:
         nonlocal message_index
@@ -322,7 +328,7 @@ async def _run_capability_middleware(
         responses.append(message)
 
     async def app(scope: Any, receive: Any, send: Any) -> None:
-        del scope
+        app_scopes.append(scope)
         while True:
             message = await receive()
             received.append(message)
@@ -381,6 +387,33 @@ def test_capability_middleware_mints_token_with_client_info() -> None:
     )
 
 
+def test_capability_middleware_exposes_minted_token_to_app() -> None:
+    """The wrapped app can read the token it is about to receive in the response."""
+    body = b'{"method":"initialize","params":{"clientInfo":{"name":"Cursor"}}}'
+    _, responses = asyncio.run(
+        _run_capability_middleware(
+            [{"type": "http.request", "body": body, "more_body": False}]
+        )
+    )
+
+    headers = dict(responses[0].get("headers", []))
+    (scope,) = app_scopes
+    assert minted_session_token(scope) == headers[b"mcp-session-id"].decode()
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        pytest.param({}, id="no-state"),
+        pytest.param({"state": None}, id="non-mapping-state"),
+        pytest.param({"state": {}}, id="not-minted"),
+    ],
+)
+def test_minted_session_token_absent(scope: dict[str, object]) -> None:
+    """Requests that mint nothing report no token."""
+    assert minted_session_token(scope) is None
+
+
 def test_capability_middleware_mints_token_for_bare_initialize() -> None:
     """An initialize with no params still receives an empty session token."""
     _, responses = asyncio.run(
@@ -416,6 +449,7 @@ def test_capability_middleware_does_not_mint_for_other_requests(body: bytes) -> 
     )
 
     assert b"mcp-session-id" not in dict(responses[0].get("headers", []))
+    assert minted_session_token(app_scopes[0]) is None
 
 
 def test_capability_middleware_forwards_oversized_body() -> None:
