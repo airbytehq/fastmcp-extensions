@@ -27,6 +27,7 @@ from fastmcp_extensions.auth import (
     JWTAuthConfig,
     OIDCAuthConfig,
     _assemble_auth,
+    _build_jwt_verifier,
     build_mcp_auth,
     fetch_client_credentials_token,
 )
@@ -37,21 +38,6 @@ _KEY_PAIR = RSAKeyPair.generate()
 
 def _static_verifier(name: str = "tok") -> StaticTokenVerifier:
     return StaticTokenVerifier({name: {"client_id": "test", "scopes": []}})
-
-
-def _allowlist_verifier() -> ClientAllowlistJWTVerifier:
-    return ClientAllowlistJWTVerifier(
-        allowed_client_ids=frozenset({"web"}),
-        public_key=_KEY_PAIR.public_key,
-        issuer="iss",
-    )
-
-
-def _user_token(**claims: object) -> str:
-    return _KEY_PAIR.create_token(
-        issuer="iss",
-        additional_claims=dict(claims),
-    )
 
 
 @pytest.mark.unit
@@ -480,16 +466,43 @@ def test_fetch_client_credentials_token_http_error_raises() -> None:
 
 
 @pytest.mark.unit
-def test_jwt_config_allowed_client_ids_builds_allowlist_verifier() -> None:
-    auth = build_mcp_auth(
-        jwt=JWTAuthConfig(
-            public_key=_KEY_PAIR.public_key,
-            issuer="iss",
-            allowed_client_ids=frozenset({"web"}),
-        )
+@pytest.mark.parametrize(
+    ("jwt", "expected_types"),
+    [
+        pytest.param(
+            JWTAuthConfig(
+                public_key=_PUBLIC_KEY,
+                issuer="iss",
+                allowed_client_ids=frozenset({"web"}),
+            ),
+            [ClientAllowlistJWTVerifier],
+            id="single-allowlist",
+        ),
+        pytest.param(
+            [
+                JWTAuthConfig(public_key=_PUBLIC_KEY, issuer="app-realm"),
+                JWTAuthConfig(
+                    public_key=_PUBLIC_KEY,
+                    issuer="iss",
+                    allowed_client_ids=frozenset({"web"}),
+                ),
+            ],
+            [JWTVerifier, ClientAllowlistJWTVerifier],
+            id="sequence-app-plus-user-realm",
+        ),
+    ],
+)
+def test_build_mcp_auth_jwt_configs_build_expected_verifiers(
+    jwt: JWTAuthConfig | list[JWTAuthConfig], expected_types: list[type]
+) -> None:
+    auth = build_mcp_auth(jwt=jwt)
+    verifiers = auth.verifiers if isinstance(auth, MultiAuth) else [auth]
+    assert [type(v) for v in verifiers] == expected_types
+    assert all(
+        v.allowed_client_ids == frozenset({"web"})
+        for v in verifiers
+        if isinstance(v, ClientAllowlistJWTVerifier)
     )
-    assert isinstance(auth, ClientAllowlistJWTVerifier)
-    assert auth.allowed_client_ids == frozenset({"web"})
 
 
 @pytest.mark.unit
@@ -502,48 +515,28 @@ def test_jwt_config_rejects_empty_allowed_client_ids() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_allowlist_verifier_accepts_allowlisted_azp() -> None:
-    access = await _allowlist_verifier().verify_token(_user_token(azp="web"))
-    assert access is not None
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_allowlist_verifier_rejects_other_azp() -> None:
-    access = await _allowlist_verifier().verify_token(_user_token(azp="other"))
-    assert access is None
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_allowlist_verifier_rejects_missing_azp() -> None:
-    access = await _allowlist_verifier().verify_token(_user_token())
-    assert access is None
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_plain_jwt_verifier_accepts_missing_azp() -> None:
-    # Without `allowed_client_ids` the verifier is a plain `JWTVerifier`, so
-    # the `azp` pin stays opt-in and app tokens (no `azp`) still pass.
-    verifier = JWTVerifier(public_key=_KEY_PAIR.public_key, issuer="iss")
-    access = await verifier.verify_token(_user_token())
-    assert access is not None
-
-
-@pytest.mark.unit
-def test_build_mcp_auth_jwt_sequence_returns_multiauth() -> None:
-    auth = build_mcp_auth(
-        jwt=[
-            JWTAuthConfig(public_key=_PUBLIC_KEY, issuer="app-realm"),
-            JWTAuthConfig(
-                public_key=_KEY_PAIR.public_key,
-                issuer="iss",
-                allowed_client_ids=frozenset({"web"}),
-            ),
-        ]
+@pytest.mark.parametrize(
+    ("allowed_client_ids", "claims", "accepted"),
+    [
+        pytest.param(frozenset({"web"}), {"azp": "web"}, True, id="allowlisted-azp"),
+        pytest.param(frozenset({"web"}), {"azp": "other"}, False, id="other-azp"),
+        pytest.param(frozenset({"web"}), {}, False, id="missing-azp"),
+        # Without `allowed_client_ids` the verifier is a plain `JWTVerifier`,
+        # so the `azp` pin stays opt-in and app tokens (no `azp`) still pass.
+        pytest.param(None, {}, True, id="no-allowlist-plain-verifier"),
+    ],
+)
+async def test_jwt_verifier_azp_allowlist(
+    allowed_client_ids: frozenset[str] | None,
+    claims: dict[str, object],
+    accepted: bool,
+) -> None:
+    verifier = _build_jwt_verifier(
+        JWTAuthConfig(
+            public_key=_KEY_PAIR.public_key,
+            issuer="iss",
+            allowed_client_ids=allowed_client_ids,
+        )
     )
-    assert isinstance(auth, MultiAuth)
-    assert len(auth.verifiers) == 2
-    assert type(auth.verifiers[0]) is JWTVerifier
-    assert isinstance(auth.verifiers[1], ClientAllowlistJWTVerifier)
+    token = _KEY_PAIR.create_token(issuer="iss", additional_claims=claims)
+    assert (await verifier.verify_token(token) is not None) is accepted
