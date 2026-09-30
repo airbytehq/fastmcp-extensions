@@ -132,8 +132,9 @@ class ToolCallTelemetryMiddleware(Middleware):
     - `tool_name` - the MCP tool that was invoked
     - `timestamp` - ISO-8601 UTC timestamp of the call start
     - `duration_ms` - wall-clock execution time in milliseconds
-    - `success` - whether the call completed without raising
-    - `error_type` - the exception class name on failure (`None` on success)
+    - `success` - whether the call completed without raising or returning an error
+    - `error_type` - the exception class name, `ToolError` for a returned error,
+      or `None` on success
     - `tool_group` - the tool's `mcp_module` (`None` when not registered
       through fastmcp-extensions)
     - `mutation_class` - `read`, `mutate`, `destructive`, or `unknown`,
@@ -228,6 +229,9 @@ class ToolCallTelemetryMiddleware(Middleware):
 
         try:
             result = await call_next(context)
+            if result.is_error:
+                success = False
+                error_type = "ToolError"
         except Exception as exc:
             success = False
             # FastMCP 3.4+ wraps tool exceptions in `ToolError`; report the cause
