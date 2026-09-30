@@ -255,7 +255,10 @@ async def test_sentry_breadcrumb_emitted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_segment_event_emitted() -> None:
+@pytest.mark.parametrize("is_error", [False, True])
+async def test_segment_event_emitted(
+    is_error: bool, caplog: pytest.LogCaptureFixture
+) -> None:
     mock_analytics = MagicMock()
     with patch(
         "fastmcp_extensions._telemetry._segment_analytics",
@@ -264,15 +267,29 @@ async def test_segment_event_emitted() -> None:
         mw = ToolCallTelemetryMiddleware(segment_write_key="fake-key")
 
         ctx = _make_context("segment_tool")
+        ctx.message.arguments = {"query": "private argument"}
+        expected_result = ToolResult(content="private result", is_error=is_error)
 
         async def call_next(c: MiddlewareContext) -> ToolResult:
-            return _make_tool_result()
+            return expected_result
 
-        await mw.on_call_tool(ctx, call_next)
+        with caplog.at_level(logging.INFO):
+            result = await mw.on_call_tool(ctx, call_next)
+
+        assert result is expected_result
         mock_analytics.track.assert_called_once()
         args = mock_analytics.track.call_args
         assert args[0][0] == "mcp-server"
         assert args[0][1] == "mcp_tool_call"
+        properties = args.args[2]
+        assert properties["success"] is (not is_error)
+        assert properties["error_type"] == ("ToolError" if is_error else None)
+        log_record = next(
+            record for record in caplog.records if hasattr(record, "telemetry")
+        )
+        assert log_record.telemetry == properties
+        assert "private argument" not in repr(properties)
+        assert "private result" not in repr(properties)
 
 
 @pytest.mark.asyncio
