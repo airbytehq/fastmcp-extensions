@@ -55,8 +55,12 @@ from fastmcp_extensions.client_credentials_middleware import (
     wrap_client_credentials,
 )
 from fastmcp_extensions.consent import (
-    DEFAULT_CONSENT_FIELD_TITLE,
     DEFAULT_CONSENT_REQUEST_KEY,
+    ConsentCheckbox,
+    ConsentChoice,
+    ConsentForm,
+    format_consent_message,
+    format_not_approved_message,
     request_consent,
     request_consent_async,
 )
@@ -128,7 +132,6 @@ from fastmcp_extensions.user_facing_errors import (
 )
 
 __all__ = [
-    "DEFAULT_CONSENT_FIELD_TITLE",
     "DEFAULT_CONSENT_REQUEST_KEY",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
@@ -144,6 +147,9 @@ __all__ = [
     "ClientAllowlistJWTVerifier",
     "ClientCredentials",
     "ClientCredentialsExchangeMiddleware",
+    "ConsentCheckbox",
+    "ConsentChoice",
+    "ConsentForm",
     "DecodedSessionState",
     "EncodedSessionStateConfig",
     "EncodedSessionStateError",
@@ -185,6 +191,8 @@ __all__ = [
     "encode_session_token",
     "extension_tool_filter",
     "fetch_client_credentials_token",
+    "format_consent_message",
+    "format_not_approved_message",
     "get_mcp_config",
     "get_tool_traits",
     "install_authorization_redaction",
