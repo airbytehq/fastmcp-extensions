@@ -111,6 +111,7 @@ from fastmcp_extensions.tool_filters import (
 )
 from fastmcp_extensions.tool_traits import (
     Capability,
+    CapabilityResolver,
     MutationClass,
     ToolTraits,
     get_tool_traits,
@@ -131,6 +132,7 @@ __all__ = [
     "REDACTION_PLACEHOLDER",
     "AuthorizationRedactionFilter",
     "Capability",
+    "CapabilityResolver",
     "CapabilityTokenMiddleware",
     "ClientAllowlistJWTVerifier",
     "ClientCredentials",

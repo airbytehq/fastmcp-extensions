@@ -43,6 +43,7 @@ app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from fastmcp import FastMCP
@@ -57,7 +58,11 @@ from fastmcp_extensions.annotations import (
     standard_annotation_field_names,
 )
 from fastmcp_extensions.capability_tokens import client_supports_extension
-from fastmcp_extensions.server_config import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions.server_config import (
+    MCPServerConfig,
+    MCPServerConfigArg,
+    get_mcp_config,
+)
 from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
 ToolFilterFn = Callable[[Tool, FastMCP], bool]
@@ -81,6 +86,8 @@ Example:
         return True
     ```
 """
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Constants - Config Names
@@ -373,25 +380,39 @@ def extension_tool_filter(extension_id: str, meta_key: str) -> ToolFilterFn:
     return filter_tool
 
 
-def available_capabilities(app: FastMCP) -> set[Capability]:
-    """The union of client-declared and deployment capabilities for this request.
+def available_capabilities(app: FastMCP) -> set[str]:
+    """The built-in and deployment-defined capabilities available to this request.
 
     `Capability.UI` is available when the client declared the
     `io.modelcontextprotocol/ui` extension. `Capability.CLIENT_FILESYSTEM`
     is available when trusted execution is enabled *and* the request is not
     served over HTTP (the gate is permanently incompatible with the HTTP
-    transport). This is the single seam where a future allow/deny policy
-    would subtract capabilities.
+    transport). Custom capabilities are available only when their configured
+    resolver returns truthy; resolver exceptions are logged by type and treated
+    as unavailable. A capability with no resolver is unavailable unless it is
+    built in.
     """
-    available: set[Capability] = set()
+    available: set[str] = set()
     if client_supports_extension(UI_EXTENSION_ID):
         available.add(Capability.UI)
     if is_trusted_execution_enabled(app) and not _is_http_transport_request():
         available.add(Capability.CLIENT_FILESYSTEM)
+
+    config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+    for capability_id, resolver in config.capability_resolvers.items():
+        try:
+            if resolver(app):
+                available.add(capability_id)
+        except Exception as error:
+            logger.warning(
+                "Capability resolver for %s raised %s; treating it as unavailable",
+                capability_id,
+                type(error).__name__,
+            )
     return available
 
 
-def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[Capability]:
+def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[str]:
     """Effective required capabilities: registered traits plus the `_meta.ui` marker."""
     required = set(get_tool_traits(app, tool.name).required_capabilities)
     if (tool.meta or {}).get(UI_META_KEY):
@@ -400,12 +421,17 @@ def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[Capability]:
 
 
 def capability_filter(tool: Tool, app: FastMCP) -> bool:
-    """General filter: hide tools whose required capabilities are unavailable.
+    """Hide tools whose required capabilities are unavailable.
 
-    A tool is visible iff every `Capability` in its traits is satisfied by
-    `available_capabilities(app)` for the current request.
+    Required built-in capabilities are resolved by the library. Custom
+    capabilities require a configured resolver; missing resolvers or resolver
+    exceptions fail closed and leave the capability unavailable. Tools without
+    requirements are visible without invoking any capability resolvers.
     """
-    return _tool_required_capabilities(tool, app) <= available_capabilities(app)
+    required = _tool_required_capabilities(tool, app)
+    if not required:
+        return True
+    return required <= available_capabilities(app)
 
 
 def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:

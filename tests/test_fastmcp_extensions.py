@@ -57,6 +57,7 @@ def test_annotation_constants(constant: str, expected_value: str) -> None:
 def test_all_exports() -> None:
     """Test that __all__ contains expected exports."""
     expected_exports = [
+        "CapabilityResolver",
         "mcp_tool",
         "mcp_provider",
         "mcp_prompt",

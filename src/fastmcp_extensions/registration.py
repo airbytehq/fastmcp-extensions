@@ -156,7 +156,9 @@ class _ProviderToolAnnotations(Transform):
     def __init__(self, app: FastMCP, annotations: dict[str, Any]) -> None:
         self._app = app
         annotations = dict(annotations)
-        provider_requires = frozenset(annotations.pop(TOOL_REQUIRES_KEY, None) or ())
+        provider_requires: frozenset[str] = frozenset(
+            annotations.pop(TOOL_REQUIRES_KEY, None) or ()
+        )
         self._traits = ToolTraits(
             mcp_module=annotations.pop(ANNOTATION_MCP_MODULE, None),
             required_capabilities=provider_requires,
@@ -319,11 +321,12 @@ def register_mcp_tools(
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
+        required_capabilities: frozenset[str] = frozenset(
+            registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
+        )
         traits = ToolTraits(
             mcp_module=registration_annotations.pop(ANNOTATION_MCP_MODULE, None),
-            required_capabilities=frozenset(
-                registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
-            ),
+            required_capabilities=required_capabilities,
         )
         if state_type is not None:
             state_types.add(state_type)

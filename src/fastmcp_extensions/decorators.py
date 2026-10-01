@@ -134,7 +134,7 @@ def mcp_tool(
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
     annotations: Mapping[str, object] | None = None,
-    required_capabilities: Iterable[Capability] | None = None,
+    required_capabilities: Iterable[Capability | str] | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -163,11 +163,11 @@ def mcp_tool(
         annotations: Optional standard annotation overrides; only
             `ToolAnnotations` field names/aliases are accepted (unknown keys
             raise `ValueError` — use `meta=` for custom wire metadata).
-        required_capabilities: Optional iterable of `Capability` values the
-            client must satisfy for the tool to be visible. The
+        required_capabilities: Optional iterable of built-in `Capability`
+            values or deployment-defined capability IDs the client must
+            satisfy for the tool to be visible. The
             `requires_client_filesystem` and `app=`/`interactive_ui` sugar
-            add `Capability.CLIENT_FILESYSTEM` / `Capability.UI`
-            respectively.
+            add `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -338,7 +338,7 @@ def mcp_provider(
     *,
     interactive_ui: bool = False,
     annotations: Mapping[str, object] | None = None,
-    required_capabilities: Iterable[Capability] | None = None,
+    required_capabilities: Iterable[Capability | str] | None = None,
 ) -> Callable[[P], P]:
     """Decorator to tag an MCP provider factory for deferred registration.
 
@@ -348,10 +348,10 @@ def mcp_provider(
             marker, which providers attach per tool through `app=`
             (`AppConfig`) when constructing them.
         annotations: Extra annotations to apply to provider-sourced tools.
-        required_capabilities: Optional iterable of `Capability` values the
-            client must satisfy for every provider-sourced tool. Provider
-            tools carrying the `_meta.ui` marker additionally require
-            `Capability.UI`.
+        required_capabilities: Optional iterable of built-in `Capability`
+            values or deployment-defined capability IDs the client must
+            satisfy for every provider-sourced tool. Provider tools carrying
+            the `_meta.ui` marker additionally require `Capability.UI`.
 
     Returns:
         Decorator function that tags the provider factory for registration
