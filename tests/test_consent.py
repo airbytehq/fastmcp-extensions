@@ -24,7 +24,7 @@ from fastmcp_extensions import (
 )
 
 MESSAGE = "Permanently delete 'delete-me'?"
-ACTIONS = ["Permanently delete source 'delete-me'"]
+ACTION = "Permanently delete source 'delete-me'"
 NOTES = "This cannot be undone."
 
 CHECKBOX = ConsentCheckbox(label="Yes, permanently delete it")
@@ -62,19 +62,19 @@ def _build_approval_app(*, use_async: bool) -> FastMCP:
 
         @app.tool
         async def delete_thing(ctx: Context) -> str | InputRequiredResult:
-            approval = await request_approval_async(ctx, ACTIONS, NOTES)
+            approval = await request_approval_async(ctx, ACTION, NOTES)
             if isinstance(approval, InputRequiredResult):
                 return approval
-            return "deleted" if approval else format_not_approved_message(ACTIONS)
+            return "deleted" if approval else format_not_approved_message(ACTION)
 
     else:
 
         @app.tool
         def delete_thing(ctx: Context) -> str | InputRequiredResult:
-            approval = request_approval(ctx, ACTIONS, NOTES)
+            approval = request_approval(ctx, ACTION, NOTES)
             if isinstance(approval, InputRequiredResult):
                 return approval
-            return "deleted" if approval else format_not_approved_message(ACTIONS)
+            return "deleted" if approval else format_not_approved_message(ACTION)
 
     return app
 
@@ -173,12 +173,12 @@ async def test_approval_prompt_respects_user_answer(
         "type": "boolean",
         "title": "Yes, I approve.",
         "description": (
-            "Yes, I approve the following actions: "
+            "Yes, I approve this action: "
             "Permanently delete source 'delete-me'. This cannot be undone."
         ),
         "default": False,
     }
-    assert result == ("deleted" if approved else format_not_approved_message(ACTIONS))
+    assert result == ("deleted" if approved else format_not_approved_message(ACTION))
 
 
 @pytest.mark.asyncio
@@ -254,31 +254,26 @@ async def test_prompts_fail_open_without_request_context() -> None:
 
     assert request_consent(ctx, MESSAGE) is True
     assert await request_consent_async(ctx, MESSAGE) is True
-    assert request_approval(ctx, ACTIONS) is True
-    assert await request_approval_async(ctx, ACTIONS) is True
+    assert request_approval(ctx, ACTION) is True
+    assert await request_approval_async(ctx, ACTION) is True
 
 
 def test_format_approval_label() -> None:
-    label = format_approval_label(
-        ["Delete source 'a'.", "Delete connection 'b'"], "This cannot be undone."
-    )
-
-    assert label == (
-        "Yes, I approve the following actions: "
-        "Delete source 'a'; Delete connection 'b'. This cannot be undone."
+    assert format_approval_label("Delete source 'a'.", "This cannot be undone.") == (
+        "Yes, I approve this action: Delete source 'a'. This cannot be undone."
     )
 
 
 def test_format_approval_label_without_notes() -> None:
-    assert format_approval_label(["Delete source 'a'"]) == (
-        "Yes, I approve the following actions: Delete source 'a'."
+    assert format_approval_label("Delete source 'a'") == (
+        "Yes, I approve this action: Delete source 'a'."
     )
 
 
-@pytest.mark.parametrize("actions", [[], "Delete source 'a'"], ids=["empty", "str"])
-def test_format_approval_label_rejects_invalid_actions(actions: Any) -> None:
-    with pytest.raises(ValueError, match="actions_to_take"):
-        format_approval_label(actions)
+@pytest.mark.parametrize("action", ["", "  .  "], ids=["empty", "blank"])
+def test_format_approval_label_rejects_empty_action(action: str) -> None:
+    with pytest.raises(ValueError, match="action_to_take"):
+        format_approval_label(action)
 
 
 def test_consent_checkbox_description_defaults_to_label() -> None:
@@ -289,8 +284,8 @@ def test_consent_checkbox_description_defaults_to_label() -> None:
 
 
 def test_format_not_approved_message() -> None:
-    assert format_not_approved_message(["Delete source 'a'"]) == (
-        "The user did not approve these actions, so nothing was done:\n"
-        "- Delete source 'a'\n\n"
-        "Do not retry them. Ask the user how they would like to proceed instead."
+    assert format_not_approved_message("Delete source 'a'") == (
+        "The user did not approve this action, so it was not performed: "
+        "Delete source 'a'.\n\n"
+        "Do not retry it. Ask the user how they would like to proceed instead."
     )

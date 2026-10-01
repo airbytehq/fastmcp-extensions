@@ -5,7 +5,7 @@ Approval prompts
 ----------------
 
 `request_approval` (sync tools) and `request_approval_async` (async tools) ask the user to
-approve a list of actions before a tool performs them. The prompt layout is fixed:
+approve one action before a tool performs it. The prompt layout is fixed:
 
 ```python
 from mcp.types import InputRequiredResult
@@ -15,27 +15,27 @@ from fastmcp_extensions import format_not_approved_message, request_approval
 
 @app.tool(annotations={"destructiveHint": True})
 def delete_thing(ctx: Context, name: str) -> str | InputRequiredResult:
-    actions_to_take = [f"Permanently delete '{name}'"]
-    approval = request_approval(ctx, actions_to_take, "This cannot be undone.")
+    action_to_take = f"Permanently delete '{name}'"
+    approval = request_approval(ctx, action_to_take, "This cannot be undone.")
     if isinstance(approval, InputRequiredResult):
         return approval
     if not approval:
-        return format_not_approved_message(actions_to_take)
+        return format_not_approved_message(action_to_take)
     ...
 ```
 
 Goose Desktop, for example, renders this as:
 
 ```text
-Your agent is attempting to perform the actions below. Check the box and submit to
+Your agent is attempting to perform the action below. Check the box and submit to
 approve, or submit without checking it to decline.
 -----------------------------------------------------------------------------------
-[ ] Yes, I approve the following actions: Permanently delete 'delete-me-1'. This
-    cannot be undone.
+[ ] Yes, I approve this action: Permanently delete 'delete-me-1'. This cannot be
+    undone.
 [Submit]
 ```
 
-The actions and notes are carried in the checkbox description, which clients such as
+The action and notes are carried in the checkbox description, which clients such as
 Goose render as the checkbox label inside the form; the message is shown as a separate
 header. The checkbox title is "Yes, I approve." for clients that render a title plus
 help text.
@@ -67,7 +67,7 @@ back-channel (stdio or stateful HTTP); otherwise the tool proceeds.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import anyio.from_thread
@@ -169,74 +169,73 @@ ConsentForm = ConsentCheckbox | ConsentChoice
 
 
 APPROVAL_MESSAGE = (
-    "Your agent is attempting to perform the actions below. Check the box and submit "
+    "Your agent is attempting to perform the action below. Check the box and submit "
     "to approve, or submit without checking it to decline."
 )
 """Prompt message (form header) used by `request_approval`."""
 
 
 def format_approval_label(
-    actions_to_take: Sequence[str],
-    additional_notes: str | None = None,
+    action_to_take: str, additional_notes: str | None = None
 ) -> str:
-    """Return the approval checkbox text listing the actions and notes.
+    """Return the approval checkbox text describing the action and notes.
 
     Uses a single line, because clients such as Goose collapse line breaks.
     """
-    if isinstance(actions_to_take, str) or not actions_to_take:
-        raise ValueError("actions_to_take must be a non-empty list of strings.")
-    actions = "; ".join(action.rstrip(". ") for action in actions_to_take)
-    label = f"Yes, I approve the following actions: {actions}."
+    action = action_to_take.strip().rstrip(".")
+    if not action:
+        raise ValueError("action_to_take must be a non-empty string.")
+    label = f"Yes, I approve this action: {action}."
     if additional_notes:
         label = f"{label} {additional_notes}"
     return label
 
 
-def format_not_approved_message(actions_to_take: Sequence[str]) -> str:
-    """Return a tool result telling the agent the user did not approve the actions."""
-    actions = "\n".join(f"- {action}" for action in actions_to_take)
+def format_not_approved_message(action_to_take: str) -> str:
+    """Return a tool result telling the agent the user did not approve the action."""
+    action = action_to_take.strip().rstrip(".")
     return (
-        f"The user did not approve these actions, so nothing was done:\n{actions}\n\n"
-        "Do not retry them. Ask the user how they would like to proceed instead."
+        f"The user did not approve this action, so it was not performed: {action}.\n\n"
+        "Do not retry it. Ask the user how they would like to proceed instead."
     )
 
 
 def request_approval(
     ctx: Context,
-    actions_to_take: Sequence[str],
+    action_to_take: str,
     additional_notes: str | None = None,
     *,
     request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
 ) -> bool | InputRequiredResult:
-    """Ask the user to approve actions from a sync tool, proceeding when the client cannot ask.
+    """Ask the user to approve an action from a sync tool, proceeding when the client cannot ask.
 
     Shows `APPROVAL_MESSAGE` with a single checkbox titled "Yes, I approve." whose
-    description lists `actions_to_take` and `additional_notes` (see
+    description states `action_to_take` and `additional_notes` (see
     `format_approval_label`). Return values match `request_consent`.
     """
     return request_consent(
         ctx,
         APPROVAL_MESSAGE,
-        form=_approval_checkbox(actions_to_take, additional_notes),
+        form=_approval_checkbox(action_to_take, additional_notes),
         request_key=request_key,
     )
 
 
 async def request_approval_async(
     ctx: Context,
-    actions_to_take: Sequence[str],
+    action_to_take: str,
     additional_notes: str | None = None,
     *,
     request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
 ) -> bool | InputRequiredResult:
-    """Ask the user to approve actions from an async tool, proceeding when the client cannot ask.
+    """Ask the user to approve an action from an async tool, proceeding when the client cannot ask.
 
     Same contract as `request_approval`.
     """
     return await request_consent_async(
         ctx,
         APPROVAL_MESSAGE,
-        form=_approval_checkbox(actions_to_take, additional_notes),
+        form=_approval_checkbox(action_to_take, additional_notes),
         request_key=request_key,
     )
 
@@ -294,12 +293,12 @@ async def request_consent_async(
 
 
 def _approval_checkbox(
-    actions_to_take: Sequence[str], additional_notes: str | None
+    action_to_take: str, additional_notes: str | None
 ) -> ConsentCheckbox:
     """Return the checkbox used by `request_approval`."""
     return ConsentCheckbox(
         label="Yes, I approve.",
-        description=format_approval_label(actions_to_take, additional_notes),
+        description=format_approval_label(action_to_take, additional_notes),
     )
 
 
