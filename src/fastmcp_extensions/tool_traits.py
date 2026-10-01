@@ -12,14 +12,19 @@ Entries are held weakly by app so they die with the server.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 from weakref import WeakKeyDictionary
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from mcp.types import ToolAnnotations
+
+
+CapabilityResolver: TypeAlias = Callable[["FastMCP"], bool]
+"""Resolve whether a deployment-defined capability is available."""
 
 
 class Capability(str, Enum):
@@ -73,7 +78,7 @@ class ToolTraits:
     """Registration-time traits kept off the wire for a tool."""
 
     mcp_module: str | None = None
-    required_capabilities: frozenset[Capability] = field(default_factory=frozenset)
+    required_capabilities: frozenset[str] = field(default_factory=frozenset)
     mutation_class: MutationClass | None = None
 
 

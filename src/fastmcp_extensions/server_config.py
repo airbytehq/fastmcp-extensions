@@ -21,6 +21,8 @@ from typing import Any
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 
+from fastmcp_extensions.tool_traits import Capability, CapabilityResolver
+
 
 @dataclass
 class MCPServerConfigArg:
@@ -67,12 +69,21 @@ class MCPServerConfig:
     advertised_properties: dict[str, Any] = field(default_factory=dict)
     server_info_provider: Callable[[], dict[str, Any]] | None = None
     config_args: list[MCPServerConfigArg] = field(default_factory=list)
+    capability_resolvers: dict[str, CapabilityResolver] = field(default_factory=dict)
     _config_args_by_name: dict[str, MCPServerConfigArg] = field(
         default_factory=dict, init=False, repr=False
     )
 
     def __post_init__(self) -> None:
-        """Build lookup dict for config args by name."""
+        """Validate resolvers and build lookup dict for config args by name."""
+        built_in_capabilities = {capability.value for capability in Capability}
+        for capability_id in self.capability_resolvers:
+            if not isinstance(capability_id, str) or not capability_id.strip():
+                raise ValueError("Capability resolver keys must be non-empty strings")
+            if capability_id in built_in_capabilities:
+                raise ValueError(
+                    f"Capability resolver cannot override built-in capability {capability_id!r}"
+                )
         self._config_args_by_name = {arg.name: arg for arg in self.config_args}
 
     def get_config(self, name: str) -> str:

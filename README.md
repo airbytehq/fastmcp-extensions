@@ -11,7 +11,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 3. 🕵️ **Credential hygiene when you wire it in** - An installable redaction filter scrubs bearer tokens and other credential values from controlled log records, while one-way key normalization makes arbitrary client IDs and other store keys legal for durable backends.
 4. 🎚️ **Tool filtering from MCP annotations** - Read-only mode, no-destructive mode, and module/tool exclusion use MCP tool annotations (`readOnlyHint`, `destructiveHint`, …) and request/server configuration. Filters compose with logical AND, so layering can only narrow the surface, never widen it. See [Tool Filtering](#tool-filtering).
 5. 🧩 **MCP Apps UI support without per-server wiring** - Link a tool to a UI resource with `app=AppConfig(...)`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI (detected via the standard `_meta.ui` marker). `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
-6. 🛡️ **Modality gating, safe in local _and_ hosted deploys** - The standard `capability_filter` hides tools whose `required_capabilities` (e.g. `Capability.CLIENT_FILESYSTEM`, set via `requires_client_filesystem=True`) are unavailable in the current request, and the filesystem gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
+6. 🛡️ **Capability gating, safe in local _and_ hosted deploys** - The standard `capability_filter` hides tools whose built-in or deployment-defined `required_capabilities` are unavailable. Custom capability resolvers fail closed and cannot override built-in capabilities; the filesystem gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
 7. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
 8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
 9. 🖥️ **One codebase, two front-ends** - `cli_app()` is the CLI counterpart of `mcp_server()`: shared tool functions and the same telemetry sinks can power both surfaces. Write a tool once; call it from the command line and expose it over MCP.
@@ -526,6 +526,58 @@ trusted execution is enabled for a local stdio server. The gate is always forced
 off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
 an HTTP entrypoint to fail fast if its configuration is enabled.
 
+### Custom capabilities
+
+Use `capability_resolvers` for deployment-defined capabilities. A resolver
+receives only the server `app`; read deployment configuration through
+`get_mcp_config`. These config args are environment-only because they omit
+`http_header_key`, so callers cannot widen the tool surface by supplying a
+request header:
+
+```python
+from fastmcp import FastMCP
+from fastmcp_extensions import MCPServerConfigArg, get_mcp_config, mcp_server, mcp_tool
+
+DOCS_SEARCH = "io.example/docs-search"
+DOCS_API_KEY = MCPServerConfigArg(
+    name="docs_api_key",
+    env_var="DOCS_API_KEY",
+    default="",
+    sensitive=True,
+)
+DOCS_API_URL = MCPServerConfigArg(
+    name="docs_api_url",
+    env_var="DOCS_API_URL",
+    default="",
+)
+
+
+def docs_search_available(app: FastMCP) -> bool:
+    return bool(
+        get_mcp_config(app, "docs_api_key").strip()
+        and get_mcp_config(app, "docs_api_url").strip()
+    )
+
+
+app = mcp_server(
+    name="docs-server",
+    server_config_args=[DOCS_API_KEY, DOCS_API_URL],
+    capability_resolvers={DOCS_SEARCH: docs_search_available},
+)
+
+
+@mcp_tool(required_capabilities=[DOCS_SEARCH])
+def search_docs(query: str) -> str:
+    """Search the docs."""
+    return query
+```
+
+Header/env precedence is declared independently on each `MCPServerConfigArg`:
+when both are provided, `get_mcp_config` checks that arg's HTTP header before
+its environment variable. Omitting `http_header_key` makes that arg
+environment-only. Missing resolvers and resolver exceptions leave a custom
+capability unavailable; exceptions are logged by type without their message.
+
 ## User-Facing Errors
 
 Convert expected exceptions into concise MCP client errors without tracebacks by
@@ -569,7 +621,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Server Factory
 
-- `mcp_server` - Create a FastMCP instance with a built-in server info resource, optional asset discovery, credential resolution, and tool filtering.
+- `mcp_server` - Create a FastMCP instance with a built-in server info resource, optional asset discovery, credential resolution, capability resolvers, and tool filtering.
 - `MCPServerConfigArg` - Configuration for credential resolution and other server settings.
 - `get_mcp_config` - Get a credential from HTTP headers or environment variables.
 
@@ -580,7 +632,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Tool Filtering
 
 - Standard filters - Read-only, no-destructive, module/tool exclusion, and trusted-execution filters based on MCP annotations and server configuration; enable them with `include_standard_tool_filters=True`.
-- `capability_filter` - Hide tools whose `required_capabilities` aren't satisfied by `available_capabilities(app)` for the request; `interactive_ui_filter` / `trusted_execution_filter` are thin wrappers kept for compatibility.
+- `capability_filter` - Hide tools whose built-in or custom `required_capabilities` aren't available; custom IDs require a resolver and resolver errors fail closed. `interactive_ui_filter` / `trusted_execution_filter` are thin wrappers kept for compatibility.
 - `extension_tool_filter` - Build a rendering-capability filter for any extension ID and annotation key.
 - `assert_http_trusted_execution_disabled` - Fail fast when trusted execution is enabled for an HTTP entrypoint.
 

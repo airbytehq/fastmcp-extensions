@@ -109,7 +109,7 @@ import inspect
 import json
 import pkgutil
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import lru_cache
 from typing import Any
@@ -128,6 +128,7 @@ from fastmcp_extensions.server_config import (
 )
 from fastmcp_extensions.session_state import EncodedSessionStateConfig
 from fastmcp_extensions.tool_filters import ToolFilterFn
+from fastmcp_extensions.tool_traits import CapabilityResolver
 from fastmcp_extensions.user_facing_errors import (
     UserFacingErrorFormatter,
     UserFacingErrorMiddleware,
@@ -291,6 +292,7 @@ def mcp_server(
     server_info_provider: Callable[[], dict[str, Any]] | None = None,
     auto_discover_assets: bool | Callable[[], list[str]] = False,
     server_config_args: list[MCPServerConfigArg] | None = None,
+    capability_resolvers: Mapping[str, CapabilityResolver] | None = None,
     tool_filters: list[ToolFilterFn] | None = None,
     include_standard_tool_filters: bool = False,
     encoded_session_state: EncodedSessionStateConfig | None = None,
@@ -322,6 +324,9 @@ def mcp_server(
         auto_discover_assets: If True, auto-detect MCP modules from sibling modules.
             Can also be a callable that returns a list of MCP module names.
         server_config_args: List of MCPServerConfigArg for credential resolution.
+        capability_resolvers: Deployment-defined capability IDs and their
+            fail-closed availability resolvers. Built-in capabilities cannot
+            be overridden.
         tool_filters: List of tool filter functions for per-request tool filtering.
             Each filter function takes (Tool, FastMCP) and returns True to show
             the tool, False to hide it. Filters can use get_mcp_config() to access
@@ -396,6 +401,7 @@ def mcp_server(
         advertised_properties=advertised_properties or {},
         server_info_provider=server_info_provider,
         config_args=all_config_args,
+        capability_resolvers=dict(capability_resolvers or {}),
     )
 
     _create_server_info_resource(app, config)
