@@ -482,6 +482,43 @@ async def test_required_capabilities_on_tool_and_provider() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.unit
+async def test_scalar_required_capabilities_on_tool_and_provider() -> None:
+    """A scalar capability ID is treated as one ID for tools and providers."""
+    _clear_registrations()
+    capability_id = "io.example/x"
+
+    @mcp_tool(required_capabilities=capability_id)
+    def custom_tool() -> str:
+        """A custom-capability tool."""
+        return "ok"
+
+    class TestProvider(Provider):
+        async def _list_tools(self) -> list[Tool]:
+            def provider_tool() -> str:
+                return "test"
+
+            return [Tool.from_function(provider_tool, name="provider_tool")]
+
+    @mcp_provider(required_capabilities=capability_id)
+    def custom_provider() -> Provider:
+        return TestProvider()
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    assert get_tool_traits(app, "custom_tool").required_capabilities == frozenset(
+        {capability_id}
+    )
+    await app.list_tools()
+    assert get_tool_traits(app, "provider_tool").required_capabilities == frozenset(
+        {capability_id}
+    )
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
 async def test_capability_filter_gates_ui_and_filesystem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

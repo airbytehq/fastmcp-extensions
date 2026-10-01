@@ -380,6 +380,27 @@ def extension_tool_filter(extension_id: str, meta_key: str) -> ToolFilterFn:
     return filter_tool
 
 
+def _is_capability_available(capability_id: str, app: FastMCP) -> bool:
+    """Resolve whether one built-in or deployment-defined capability is available."""
+    if capability_id == Capability.UI:
+        return client_supports_extension(UI_EXTENSION_ID)
+    if capability_id == Capability.CLIENT_FILESYSTEM:
+        return is_trusted_execution_enabled(app) and not _is_http_transport_request()
+    config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+    resolver = config.capability_resolvers.get(capability_id)
+    if resolver is None:
+        return False
+    try:
+        return bool(resolver(app))
+    except Exception as error:
+        logger.warning(
+            "Capability resolver for %s raised %s; treating it as unavailable",
+            capability_id,
+            type(error).__name__,
+        )
+        return False
+
+
 def available_capabilities(app: FastMCP) -> set[str]:
     """The built-in and deployment-defined capabilities available to this request.
 
@@ -392,24 +413,17 @@ def available_capabilities(app: FastMCP) -> set[str]:
     as unavailable. A capability with no resolver is unavailable unless it is
     built in.
     """
-    available: set[str] = set()
-    if client_supports_extension(UI_EXTENSION_ID):
-        available.add(Capability.UI)
-    if is_trusted_execution_enabled(app) and not _is_http_transport_request():
-        available.add(Capability.CLIENT_FILESYSTEM)
-
     config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
-    for capability_id, resolver in config.capability_resolvers.items():
-        try:
-            if resolver(app):
-                available.add(capability_id)
-        except Exception as error:
-            logger.warning(
-                "Capability resolver for %s raised %s; treating it as unavailable",
-                capability_id,
-                type(error).__name__,
-            )
-    return available
+    capability_ids = [
+        Capability.UI,
+        Capability.CLIENT_FILESYSTEM,
+        *config.capability_resolvers,
+    ]
+    return {
+        capability_id
+        for capability_id in capability_ids
+        if _is_capability_available(capability_id, app)
+    }
 
 
 def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[str]:
@@ -421,17 +435,18 @@ def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[str]:
 
 
 def capability_filter(tool: Tool, app: FastMCP) -> bool:
-    """Hide tools whose required capabilities are unavailable.
+    """Resolve only this tool's requirements and hide it if any are unavailable.
 
     Required built-in capabilities are resolved by the library. Custom
     capabilities require a configured resolver; missing resolvers or resolver
-    exceptions fail closed and leave the capability unavailable. Tools without
+    exceptions fail closed and leave the capability unavailable. Resolution
+    short-circuits at the first unavailable requirement; tools without
     requirements are visible without invoking any capability resolvers.
     """
-    required = _tool_required_capabilities(tool, app)
-    if not required:
-        return True
-    return required <= available_capabilities(app)
+    return all(
+        _is_capability_available(capability_id, app)
+        for capability_id in _tool_required_capabilities(tool, app)
+    )
 
 
 def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:

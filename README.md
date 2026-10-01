@@ -563,6 +563,7 @@ app = mcp_server(
     name="docs-server",
     server_config_args=[DOCS_API_KEY, DOCS_API_URL],
     capability_resolvers={DOCS_SEARCH: docs_search_available},
+    include_standard_tool_filters=True,
 )
 
 

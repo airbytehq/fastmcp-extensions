@@ -122,6 +122,17 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module.rsplit(".", 1)[-1]
 
 
+def _normalize_required_capabilities(
+    value: Iterable[Capability | str] | Capability | str | None,
+) -> frozenset[str]:
+    """Normalize a single capability ID or iterable of IDs to a frozenset."""
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        value = (value,)
+    return frozenset(value)
+
+
 def mcp_tool(
     *,
     read_only: bool = False,
@@ -134,7 +145,7 @@ def mcp_tool(
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
     annotations: Mapping[str, object] | None = None,
-    required_capabilities: Iterable[Capability | str] | None = None,
+    required_capabilities: Iterable[Capability | str] | Capability | str | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -163,9 +174,9 @@ def mcp_tool(
         annotations: Optional standard annotation overrides; only
             `ToolAnnotations` field names/aliases are accepted (unknown keys
             raise `ValueError` — use `meta=` for custom wire metadata).
-        required_capabilities: Optional iterable of built-in `Capability`
-            values or deployment-defined capability IDs the client must
-            satisfy for the tool to be visible. The
+        required_capabilities: Optional single built-in `Capability` value,
+            deployment-defined capability ID, or iterable of them that the
+            client must satisfy for the tool to be visible. The
             `requires_client_filesystem` and `app=`/`interactive_ui` sugar
             add `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
         extra_help_text: Optional text to append to the function's docstring
@@ -199,7 +210,7 @@ def mcp_tool(
             "interactive_ui=True requires app=AppConfig(...) so the tool is "
             "linked to a UI resource via _meta.ui"
         )
-    capabilities = set(required_capabilities or ())
+    capabilities = set(_normalize_required_capabilities(required_capabilities))
     if requires_client_filesystem:
         capabilities.add(Capability.CLIENT_FILESYSTEM)
     if app is not None or interactive_ui:
@@ -338,7 +349,7 @@ def mcp_provider(
     *,
     interactive_ui: bool = False,
     annotations: Mapping[str, object] | None = None,
-    required_capabilities: Iterable[Capability | str] | None = None,
+    required_capabilities: Iterable[Capability | str] | Capability | str | None = None,
 ) -> Callable[[P], P]:
     """Decorator to tag an MCP provider factory for deferred registration.
 
@@ -348,10 +359,11 @@ def mcp_provider(
             marker, which providers attach per tool through `app=`
             (`AppConfig`) when constructing them.
         annotations: Extra annotations to apply to provider-sourced tools.
-        required_capabilities: Optional iterable of built-in `Capability`
-            values or deployment-defined capability IDs the client must
-            satisfy for every provider-sourced tool. Provider tools carrying
-            the `_meta.ui` marker additionally require `Capability.UI`.
+        required_capabilities: Optional single built-in `Capability` value,
+            deployment-defined capability ID, or iterable of them that the
+            client must satisfy for every provider-sourced tool. Provider
+            tools carrying the `_meta.ui` marker additionally require
+            `Capability.UI`.
 
     Returns:
         Decorator function that tags the provider factory for registration
@@ -366,8 +378,9 @@ def mcp_provider(
     provider_annotations.update(
         {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
     )
-    if required_capabilities:
-        provider_annotations[TOOL_REQUIRES_KEY] = frozenset(required_capabilities)
+    capabilities = _normalize_required_capabilities(required_capabilities)
+    if capabilities:
+        provider_annotations[TOOL_REQUIRES_KEY] = capabilities
 
     def decorator(func: P) -> P:
         _REGISTERED_PROVIDERS.append((func, provider_annotations))

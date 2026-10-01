@@ -28,6 +28,7 @@ from fastmcp_extensions.tool_filters import capability_filter
 
 MODULE = "test_custom_capabilities"
 CUSTOM_CAPABILITY = "io.example/custom"
+OTHER_CUSTOM_CAPABILITY = "io.example/other"
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +59,7 @@ async def test_custom_capability_resolver_gates_tool_and_receives_app() -> None:
         resolver_apps.append(app)
         return available
 
-    @mcp_tool(required_capabilities=[CUSTOM_CAPABILITY])
+    @mcp_tool(required_capabilities=CUSTOM_CAPABILITY)
     def custom_tool() -> str:
         """A custom-capability tool."""
         return "ok"
@@ -79,6 +80,42 @@ async def test_custom_capability_resolver_gates_tool_and_receives_app() -> None:
     available = True
     assert capability_filter(tool, app) is True
     assert resolver_apps == [app, app]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_capability_filter_resolves_only_tool_requirements() -> None:
+    """A tool check does not run resolvers for unrelated capabilities."""
+    resolver_calls = {"a": 0, "b": 0}
+
+    def resolver_a(_app: FastMCP) -> bool:
+        resolver_calls["a"] += 1
+        return True
+
+    def resolver_b(_app: FastMCP) -> bool:
+        resolver_calls["b"] += 1
+        return True
+
+    @mcp_tool(required_capabilities=[CUSTOM_CAPABILITY])
+    def tool_requiring_a() -> str:
+        """A tool requiring only capability A."""
+        return "ok"
+
+    app = mcp_server(
+        "test",
+        include_standard_tool_filters=True,
+        capability_resolvers={
+            CUSTOM_CAPABILITY: resolver_a,
+            OTHER_CUSTOM_CAPABILITY: resolver_b,
+        },
+        telemetry=False,
+    )
+    register_mcp_tools(app, mcp_module=MODULE)
+    tool = await app.get_tool("tool_requiring_a")
+    assert tool is not None
+
+    assert capability_filter(tool, app) is True
+    assert resolver_calls == {"a": 1, "b": 0}
 
 
 @pytest.mark.asyncio
