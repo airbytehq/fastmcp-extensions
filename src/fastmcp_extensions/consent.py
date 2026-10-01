@@ -27,8 +27,7 @@ def delete_thing(ctx: Context, name: str) -> str | InputRequiredResult:
 Goose Desktop, for example, renders this as:
 
 ```text
-Your agent is attempting to perform the action below. Check the box and submit to
-approve, or submit without checking it to decline.
+Approval required
 -----------------------------------------------------------------------------------
 [ ] Yes, I approve this action: Permanently delete 'delete-me-1'. This cannot be
     undone.
@@ -168,10 +167,7 @@ ConsentForm = ConsentCheckbox | ConsentChoice
 """A consent form layout accepted by `request_consent` and `request_consent_async`."""
 
 
-APPROVAL_MESSAGE = (
-    "Your agent is attempting to perform the action below. Check the box and submit "
-    "to approve, or submit without checking it to decline."
-)
+APPROVAL_MESSAGE = "Approval required"
 """Prompt message (form header) used by `request_approval`."""
 
 
