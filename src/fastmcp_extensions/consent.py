@@ -24,20 +24,21 @@ def delete_thing(ctx: Context, name: str) -> str | InputRequiredResult:
     ...
 ```
 
-The user sees:
+Goose Desktop, for example, renders this as:
 
 ```text
-Your agent is attempting to perform the following actions:
-
-- Permanently delete 'delete-me-1'
-
-This cannot be undone.
-
-Do you approve these actions? To approve, check "Yes, I approve." and submit. To decline,
-submit without checking it.
-
-[ ] Yes, I approve.
+Your agent is attempting to perform the actions below. Check the box and submit to
+approve, or submit without checking it to decline.
+-----------------------------------------------------------------------------------
+[ ] Yes, I approve the following actions: Permanently delete 'delete-me-1'. This
+    cannot be undone.
+[Submit]
 ```
+
+The actions and notes are carried in the checkbox description, which clients such as
+Goose render as the checkbox label inside the form; the message is shown as a separate
+header. The checkbox title is "Yes, I approve." for clients that render a title plus
+help text.
 
 Generic consent prompts
 -----------------------
@@ -94,10 +95,12 @@ class ConsentCheckbox:
     """A single checkbox that must be checked to approve. Unchecked by default."""
 
     label: str = "Yes, I approve."
-    """Text shown next to the checkbox.
+    """Field title, shown next to the checkbox by clients that render titles."""
 
-    Sent as both the field title and description, because some clients (for example
-    Goose) show only the description next to a checkbox.
+    description: str | None = None
+    """Field description; defaults to `label`.
+
+    Some clients (for example Goose) show only the description next to the checkbox.
     """
 
     def requested_schema(self, protocol_version: str) -> dict[str, object]:
@@ -108,7 +111,7 @@ class ConsentCheckbox:
             {
                 "type": "boolean",
                 "title": self.label,
-                "description": self.label,
+                "description": self.description or self.label,
                 "default": False,
             },
         )
@@ -165,28 +168,28 @@ ConsentForm = ConsentCheckbox | ConsentChoice
 """A consent form layout accepted by `request_consent` and `request_consent_async`."""
 
 
-_APPROVAL_CHECKBOX = ConsentCheckbox(label="Yes, I approve.")
+APPROVAL_MESSAGE = (
+    "Your agent is attempting to perform the actions below. Check the box and submit "
+    "to approve, or submit without checking it to decline."
+)
+"""Prompt message (form header) used by `request_approval`."""
 
 
-def format_approval_message(
+def format_approval_label(
     actions_to_take: Sequence[str],
     additional_notes: str | None = None,
 ) -> str:
-    """Return the prompt text shown above the approval checkbox."""
+    """Return the approval checkbox text listing the actions and notes.
+
+    Uses a single line, because clients such as Goose collapse line breaks.
+    """
     if isinstance(actions_to_take, str) or not actions_to_take:
         raise ValueError("actions_to_take must be a non-empty list of strings.")
-    label = _APPROVAL_CHECKBOX.label
-    sections = [
-        "Your agent is attempting to perform the following actions:",
-        "\n".join(f"- {action}" for action in actions_to_take),
-    ]
+    actions = "; ".join(action.rstrip(". ") for action in actions_to_take)
+    label = f"Yes, I approve the following actions: {actions}."
     if additional_notes:
-        sections.append(additional_notes)
-    sections.append(
-        f'Do you approve these actions? To approve, check "{label}" and submit. '
-        "To decline, submit without checking it."
-    )
-    return "\n\n".join(sections)
+        label = f"{label} {additional_notes}"
+    return label
 
 
 def format_not_approved_message(actions_to_take: Sequence[str]) -> str:
@@ -207,14 +210,14 @@ def request_approval(
 ) -> bool | InputRequiredResult:
     """Ask the user to approve actions from a sync tool, proceeding when the client cannot ask.
 
-    The prompt lists `actions_to_take`, then `additional_notes`, then asks for approval
-    with a "Yes, I approve." checkbox (see `format_approval_message`). Return values match
-    `request_consent`.
+    Shows `APPROVAL_MESSAGE` with a single checkbox titled "Yes, I approve." whose
+    description lists `actions_to_take` and `additional_notes` (see
+    `format_approval_label`). Return values match `request_consent`.
     """
     return request_consent(
         ctx,
-        format_approval_message(actions_to_take, additional_notes),
-        form=_APPROVAL_CHECKBOX,
+        APPROVAL_MESSAGE,
+        form=_approval_checkbox(actions_to_take, additional_notes),
         request_key=request_key,
     )
 
@@ -232,8 +235,8 @@ async def request_approval_async(
     """
     return await request_consent_async(
         ctx,
-        format_approval_message(actions_to_take, additional_notes),
-        form=_APPROVAL_CHECKBOX,
+        APPROVAL_MESSAGE,
+        form=_approval_checkbox(actions_to_take, additional_notes),
         request_key=request_key,
     )
 
@@ -288,6 +291,16 @@ async def request_consent_async(
     except (ToolError, MCPError):
         return True
     return _is_approved(form, result)
+
+
+def _approval_checkbox(
+    actions_to_take: Sequence[str], additional_notes: str | None
+) -> ConsentCheckbox:
+    """Return the checkbox used by `request_approval`."""
+    return ConsentCheckbox(
+        label="Yes, I approve.",
+        description=format_approval_label(actions_to_take, additional_notes),
+    )
 
 
 def _resolve_without_elicit(

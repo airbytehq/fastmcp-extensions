@@ -11,10 +11,11 @@ from fastmcp.client.elicitation import ElicitResult
 from mcp.types import InputRequiredResult
 
 from fastmcp_extensions import (
+    APPROVAL_MESSAGE,
     ConsentCheckbox,
     ConsentChoice,
     ConsentForm,
-    format_approval_message,
+    format_approval_label,
     format_not_approved_message,
     request_approval,
     request_approval_async,
@@ -167,8 +168,16 @@ async def test_approval_prompt_respects_user_answer(
     )
 
     [(message, requested_schema)] = prompts
-    assert message == format_approval_message(ACTIONS, NOTES)
-    assert requested_schema["properties"]["approve"]["title"] == "Yes, I approve."
+    assert message == APPROVAL_MESSAGE
+    assert requested_schema["properties"]["approve"] == {
+        "type": "boolean",
+        "title": "Yes, I approve.",
+        "description": (
+            "Yes, I approve the following actions: "
+            "Permanently delete source 'delete-me'. This cannot be undone."
+        ),
+        "default": False,
+    }
     assert result == ("deleted" if approved else format_not_approved_message(ACTIONS))
 
 
@@ -249,34 +258,34 @@ async def test_prompts_fail_open_without_request_context() -> None:
     assert await request_approval_async(ctx, ACTIONS) is True
 
 
-def test_format_approval_message() -> None:
-    message = format_approval_message(
-        ["Delete source 'a'", "Delete connection 'b'"], "This cannot be undone."
+def test_format_approval_label() -> None:
+    label = format_approval_label(
+        ["Delete source 'a'.", "Delete connection 'b'"], "This cannot be undone."
     )
 
-    assert message == (
-        "Your agent is attempting to perform the following actions:\n\n"
-        "- Delete source 'a'\n"
-        "- Delete connection 'b'\n\n"
-        "This cannot be undone.\n\n"
-        'Do you approve these actions? To approve, check "Yes, I approve." and submit. '
-        "To decline, submit without checking it."
+    assert label == (
+        "Yes, I approve the following actions: "
+        "Delete source 'a'; Delete connection 'b'. This cannot be undone."
     )
 
 
-def test_format_approval_message_without_notes() -> None:
-    assert format_approval_message(["Delete source 'a'"]) == (
-        "Your agent is attempting to perform the following actions:\n\n"
-        "- Delete source 'a'\n\n"
-        'Do you approve these actions? To approve, check "Yes, I approve." and submit. '
-        "To decline, submit without checking it."
+def test_format_approval_label_without_notes() -> None:
+    assert format_approval_label(["Delete source 'a'"]) == (
+        "Yes, I approve the following actions: Delete source 'a'."
     )
 
 
 @pytest.mark.parametrize("actions", [[], "Delete source 'a'"], ids=["empty", "str"])
-def test_format_approval_message_rejects_invalid_actions(actions: Any) -> None:
+def test_format_approval_label_rejects_invalid_actions(actions: Any) -> None:
     with pytest.raises(ValueError, match="actions_to_take"):
-        format_approval_message(actions)
+        format_approval_label(actions)
+
+
+def test_consent_checkbox_description_defaults_to_label() -> None:
+    field = ConsentCheckbox(label="OK", description="Details").requested_schema("")
+    assert field["properties"]["approve"]["description"] == "Details"
+    field = ConsentCheckbox(label="OK").requested_schema("")
+    assert field["properties"]["approve"]["description"] == "OK"
 
 
 def test_format_not_approved_message() -> None:

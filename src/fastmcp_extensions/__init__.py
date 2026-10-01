@@ -55,11 +55,12 @@ from fastmcp_extensions.client_credentials_middleware import (
     wrap_client_credentials,
 )
 from fastmcp_extensions.consent import (
+    APPROVAL_MESSAGE,
     DEFAULT_CONSENT_REQUEST_KEY,
     ConsentCheckbox,
     ConsentChoice,
     ConsentForm,
-    format_approval_message,
+    format_approval_label,
     format_not_approved_message,
     request_approval,
     request_approval_async,
@@ -134,6 +135,7 @@ from fastmcp_extensions.user_facing_errors import (
 )
 
 __all__ = [
+    "APPROVAL_MESSAGE",
     "DEFAULT_CONSENT_REQUEST_KEY",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
@@ -193,7 +195,7 @@ __all__ = [
     "encode_session_token",
     "extension_tool_filter",
     "fetch_client_credentials_token",
-    "format_approval_message",
+    "format_approval_label",
     "format_not_approved_message",
     "get_mcp_config",
     "get_tool_traits",
