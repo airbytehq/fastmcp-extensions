@@ -1,26 +1,25 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Best-effort, fail-open user consent prompts for MCP tools.
+"""Best-effort, fail-open user approval and consent prompts for MCP tools.
 
-Use `request_consent` (sync tools) or `request_consent_async` (async tools) to ask the
-user to approve actions before a tool performs them:
+Approval prompts
+----------------
+
+`request_approval` (sync tools) and `request_approval_async` (async tools) ask the user to
+approve a list of actions before a tool performs them. The prompt layout is fixed:
 
 ```python
 from mcp.types import InputRequiredResult
 
-from fastmcp_extensions import request_consent
+from fastmcp_extensions import format_not_approved_message, request_approval
 
 
 @app.tool(annotations={"destructiveHint": True})
 def delete_thing(ctx: Context, name: str) -> str | InputRequiredResult:
     actions_to_take = [f"Permanently delete '{name}'"]
-    consent = request_consent(
-        ctx,
-        actions_to_take,
-        additional_notes="This cannot be undone.",
-    )
-    if isinstance(consent, InputRequiredResult):
-        return consent
-    if not consent:
+    approval = request_approval(ctx, actions_to_take, "This cannot be undone.")
+    if isinstance(approval, InputRequiredResult):
+        return approval
+    if not approval:
         return format_not_approved_message(actions_to_take)
     ...
 ```
@@ -40,25 +39,29 @@ submit without checking it.
 [ ] Yes, I approve.
 ```
 
-MCP forms have no button-label field, so the client picks the submit button's label
-(Goose shows a single "Submit"); the message and form fields must carry the meaning. Pass
-`form=` to choose the form:
+Generic consent prompts
+-----------------------
 
-- `ConsentCheckbox` (default): one checkbox that must be checked to approve.
-- `ConsentChoice`: a select between a reject option (selected by default) and an approve
-  option, for example "Keep it" / "Delete permanently".
+`request_consent` and `request_consent_async` take a caller-written `message` and a
+`form`: `ConsentCheckbox` (one checkbox that must be checked) or `ConsentChoice` (a select
+between a reject option, selected by default, and an approve option). MCP forms have no
+button-label field, so the client picks the submit button's label (Goose shows a single
+"Submit"); the message and form fields must carry the meaning.
 
-The prompt fails open: the actions proceed whenever the client cannot show a prompt, and
-are stopped only when the user declines, cancels, or submits without approving. This is a
-UX courtesy, not a security boundary; clients may auto-answer elicitations. Hide
-destructive tools with a request header (for example `X-MCP-No-Destructive-Tools: 1`) or a
+Semantics
+---------
+
+Prompts fail open: the tool proceeds whenever the client cannot show a prompt, and is
+stopped only when the user declines, cancels, or submits without approving. This is a UX
+courtesy, not a security boundary; clients may auto-answer elicitations. Hide destructive
+tools with a request header (for example `X-MCP-No-Destructive-Tools: 1`) or a
 client-side tool block when a real guard is needed.
 
 Clients on MCP `2026-07-28` and later are asked via Multi Round-Trip Requests (an
 `InputRequiredResult` the tool must return as-is; the client retries the call with the
 answer), which also works on stateless HTTP. Older clients are asked via a
 server-initiated `elicitation/create` request, which needs a transport with a
-back-channel (stdio or stateful HTTP); otherwise the actions proceed.
+back-channel (stdio or stateful HTTP); otherwise the tool proceeds.
 """
 
 from __future__ import annotations
@@ -96,13 +99,6 @@ class ConsentCheckbox:
     Sent as both the field title and description, because some clients (for example
     Goose) show only the description next to a checkbox.
     """
-
-    def instructions(self) -> str:
-        """Return the how-to-answer sentence appended to the prompt message."""
-        return (
-            f'To approve, check "{self.label}" and submit. '
-            "To decline, submit without checking it."
-        )
 
     def requested_schema(self, protocol_version: str) -> dict[str, object]:
         """Return the elicitation form schema."""
@@ -144,13 +140,6 @@ class ConsentChoice:
         if self.approve_label == self.reject_label:
             raise ValueError("approve_label and reject_label must differ.")
 
-    def instructions(self) -> str:
-        """Return the how-to-answer sentence appended to the prompt message."""
-        return (
-            f'To approve, select "{self.approve_label}" and submit. '
-            f'To decline, submit "{self.reject_label}".'
-        )
-
     def requested_schema(self, protocol_version: str) -> dict[str, object]:
         """Return the elicitation form schema.
 
@@ -176,23 +165,27 @@ ConsentForm = ConsentCheckbox | ConsentChoice
 """A consent form layout accepted by `request_consent` and `request_consent_async`."""
 
 
-def format_consent_message(
+_APPROVAL_CHECKBOX = ConsentCheckbox(label="Yes, I approve.")
+
+
+def format_approval_message(
     actions_to_take: Sequence[str],
     additional_notes: str | None = None,
-    *,
-    form: ConsentForm | None = None,
 ) -> str:
-    """Return the prompt text shown above the consent form."""
+    """Return the prompt text shown above the approval checkbox."""
     if isinstance(actions_to_take, str) or not actions_to_take:
         raise ValueError("actions_to_take must be a non-empty list of strings.")
-    form = form or ConsentCheckbox()
+    label = _APPROVAL_CHECKBOX.label
     sections = [
         "Your agent is attempting to perform the following actions:",
         "\n".join(f"- {action}" for action in actions_to_take),
     ]
     if additional_notes:
         sections.append(additional_notes)
-    sections.append(f"Do you approve these actions? {form.instructions()}")
+    sections.append(
+        f'Do you approve these actions? To approve, check "{label}" and submit. '
+        "To decline, submit without checking it."
+    )
     return "\n\n".join(sections)
 
 
@@ -205,18 +198,56 @@ def format_not_approved_message(actions_to_take: Sequence[str]) -> str:
     )
 
 
-def request_consent(
+def request_approval(
     ctx: Context,
     actions_to_take: Sequence[str],
     additional_notes: str | None = None,
     *,
-    form: ConsentForm | None = None,
     request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
 ) -> bool | InputRequiredResult:
     """Ask the user to approve actions from a sync tool, proceeding when the client cannot ask.
 
     The prompt lists `actions_to_take`, then `additional_notes`, then asks for approval
-    (see `format_consent_message`). `form` defaults to `ConsentCheckbox()`.
+    with a "Yes, I approve." checkbox (see `format_approval_message`). Return values match
+    `request_consent`.
+    """
+    return request_consent(
+        ctx,
+        format_approval_message(actions_to_take, additional_notes),
+        form=_APPROVAL_CHECKBOX,
+        request_key=request_key,
+    )
+
+
+async def request_approval_async(
+    ctx: Context,
+    actions_to_take: Sequence[str],
+    additional_notes: str | None = None,
+    *,
+    request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
+) -> bool | InputRequiredResult:
+    """Ask the user to approve actions from an async tool, proceeding when the client cannot ask.
+
+    Same contract as `request_approval`.
+    """
+    return await request_consent_async(
+        ctx,
+        format_approval_message(actions_to_take, additional_notes),
+        form=_APPROVAL_CHECKBOX,
+        request_key=request_key,
+    )
+
+
+def request_consent(
+    ctx: Context,
+    message: str,
+    *,
+    form: ConsentForm | None = None,
+    request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
+) -> bool | InputRequiredResult:
+    """Show `message` and `form` from a sync tool, proceeding when the client cannot ask.
+
+    `form` defaults to `ConsentCheckbox()`.
 
     Returns `True` to proceed, `False` when the user declined, cancelled, or submitted
     without approving, or an `InputRequiredResult` that the tool must return as-is so the
@@ -225,7 +256,6 @@ def request_consent(
     Must be called from a sync tool body, which FastMCP runs in a worker thread.
     """
     form = form or ConsentCheckbox()
-    message = format_consent_message(actions_to_take, additional_notes, form=form)
     prompt = _resolve_without_elicit(ctx, message, form, request_key)
     if prompt is not None:
         return prompt
@@ -239,18 +269,16 @@ def request_consent(
 
 async def request_consent_async(
     ctx: Context,
-    actions_to_take: Sequence[str],
-    additional_notes: str | None = None,
+    message: str,
     *,
     form: ConsentForm | None = None,
     request_key: str = DEFAULT_CONSENT_REQUEST_KEY,
 ) -> bool | InputRequiredResult:
-    """Ask the user to approve actions from an async tool, proceeding when the client cannot ask.
+    """Show `message` and `form` from an async tool, proceeding when the client cannot ask.
 
     Same contract as `request_consent`.
     """
     form = form or ConsentCheckbox()
-    message = format_consent_message(actions_to_take, additional_notes, form=form)
     prompt = _resolve_without_elicit(ctx, message, form, request_key)
     if prompt is not None:
         return prompt
