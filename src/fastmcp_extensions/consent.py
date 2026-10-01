@@ -252,6 +252,9 @@ def request_consent(
     client can prompt the user and retry the call with the answer.
 
     Must be called from a sync tool body, which FastMCP runs in a worker thread.
+
+    Give each prompt in one tool call its own `request_key`: on MRTR connections the
+    answer is looked up by key, so prompts sharing a key share one answer.
     """
     form = form or ConsentCheckbox()
     prompt = _resolve_without_elicit(ctx, message, form, request_key)
@@ -308,14 +311,15 @@ def _resolve_without_elicit(
     if not isinstance(ctx, Context) or ctx.request_context is None:
         return True
 
+    if ctx.is_background_task or not _client_declares_elicitation(ctx):
+        return True
+
     protocol_version = ctx.request_context.protocol_version
     if protocol_version >= _MRTR_MIN_PROTOCOL_VERSION:
         responses = ctx.input_responses
         response = responses.get(request_key) if responses else None
         if isinstance(response, ElicitResult):
             return _is_approved(form, response)
-        if not _client_declares_elicitation(ctx):
-            return True
         return InputRequiredResult(
             input_requests={
                 request_key: ElicitRequest(
@@ -326,9 +330,6 @@ def _resolve_without_elicit(
                 ),
             },
         )
-
-    if ctx.is_background_task or not _client_declares_elicitation(ctx):
-        return True
     return None
 
 

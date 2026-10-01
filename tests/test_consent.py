@@ -192,6 +192,24 @@ async def test_prompts_fail_open_without_elicitation_support(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_prompts_fail_open_in_background_tasks(
+    use_async: bool, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Context, "is_background_task", property(lambda _: True))
+    prompts: list[tuple[str, Any]] = []
+    handler = _handler({"approve": False}, prompts)
+
+    for app in (
+        _build_consent_app(use_async=use_async),
+        _build_approval_app(use_async=use_async),
+    ):
+        assert await _call(app, mode, elicitation_handler=handler) == "deleted"
+    assert prompts == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_consent_checkbox_schema_is_sent_to_the_client(mode: str) -> None:
     prompts: list[tuple[str, Any]] = []
