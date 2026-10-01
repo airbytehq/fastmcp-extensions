@@ -9,6 +9,7 @@ with FastMCP 2.0, including:
 - Tool testing utilities
 - Tool list measurement utilities
 - Prompt text retrieval helpers
+- Best-effort, fail-open user consent prompts for destructive tools
 - Telemetry middleware for MCP tool call instrumentation
 - Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
@@ -52,6 +53,12 @@ from fastmcp_extensions.capability_tokens import (
 from fastmcp_extensions.client_credentials_middleware import (
     ClientCredentialsExchangeMiddleware,
     wrap_client_credentials,
+)
+from fastmcp_extensions.consent import (
+    DEFAULT_CONSENT_FIELD_TITLE,
+    DEFAULT_CONSENT_REQUEST_KEY,
+    request_consent,
+    request_consent_async,
 )
 from fastmcp_extensions.decorators import (
     mcp_prompt,
@@ -121,6 +128,8 @@ from fastmcp_extensions.user_facing_errors import (
 )
 
 __all__ = [
+    "DEFAULT_CONSENT_FIELD_TITLE",
+    "DEFAULT_CONSENT_REQUEST_KEY",
     "DEFAULT_EXTENSIONS_HEADER",
     "DEFAULT_HASH_ALGORITHM",
     "DEFAULT_KEY_PREFIX",
@@ -194,6 +203,8 @@ __all__ = [
     "register_mcp_tools",
     "register_tool_call_telemetry",
     "render_default_landing_html",
+    "request_consent",
+    "request_consent_async",
     "run_mcp_http_server",
     "session_token_from_headers",
     "tool_telemetry_properties",
