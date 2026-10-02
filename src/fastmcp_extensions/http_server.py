@@ -52,14 +52,13 @@ def run_mcp_http_server(
     """Build and serve a FastMCP HTTP application.
 
     Stateless HTTP servers get `CapabilityTokenMiddleware` and
-    `RejectEventStreamGetMiddleware` by default, so client extension
-    declarations survive per-request session recreation without any per-server
-    wiring. Set `enable_stateless_capability_middleware` to `False` to opt out.
-    `wrapper`,
-    when provided, is the innermost of those layers and remains the
-    outermost layer everywhere else. Values in `uvicorn_config` override the
-    parity defaults and the resolved log level. Host and port are controlled by
-    their dedicated arguments.
+    `RejectEventStreamGetMiddleware` around the FastMCP app by default, so
+    client extension declarations survive per-request session recreation
+    without per-server wiring. Set `enable_stateless_capability_middleware`
+    to `False` to opt out. `wrapper`, when provided, is applied outermost so it
+    sees the final response headers, including `Mcp-Session-Id`. Values in
+    `uvicorn_config` override the parity defaults and the resolved log level.
+    Host and port are controlled by their dedicated arguments.
     """
     host = fastmcp.settings.host if host is None else host
     port = fastmcp.settings.port if port is None else port
@@ -68,8 +67,6 @@ def run_mcp_http_server(
         transport=transport,
         stateless_http=stateless_http,
     )
-    if wrapper is not None:
-        app = wrapper(app)
     resolved_stateless_http = (
         stateless_http
         if stateless_http is not None
@@ -86,6 +83,8 @@ def run_mcp_http_server(
     resolved_path = path if path is not None else fastmcp.settings.streamable_http_path
     if apply_stateless_layers:
         app = RejectEventStreamGetMiddleware(app, path=resolved_path)
+    if wrapper is not None:
+        app = wrapper(app)
 
     config = dict(DEFAULT_UVICORN_CONFIG)
     config.update(uvicorn_config or {})
