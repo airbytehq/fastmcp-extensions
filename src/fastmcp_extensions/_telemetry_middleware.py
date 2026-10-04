@@ -39,6 +39,7 @@ from fastmcp.server.middleware import (
     Middleware,
     MiddlewareContext,
 )
+from fastmcp.server.providers.addressing import parse_hashed_backend_name
 from fastmcp.tools import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
 
@@ -125,6 +126,8 @@ class ToolCallFacts:
     extra_source: Mapping[str, object] | Callable[[], Mapping[str, object]] | None = (
         None
     )
+    owned: bool = False
+    """Whether a telemetry middleware has put its properties on these facts."""
     _extra: Mapping[str, object] | None = None
     _tool: Tool | None = None
     _resolved: bool = False
@@ -147,6 +150,10 @@ class ToolCallFacts:
                     self._tool = await ctx.fastmcp.get_tool(
                         message.name, version=_requested_version(message.meta)
                     )
+                    # FastMCP falls back to hashed-name dispatch, so do the same.
+                    hashed = parse_hashed_backend_name(message.name)
+                    if self._tool is None and hashed is not None:
+                        self._tool = await ctx.fastmcp.get_tool_by_hash(*hashed)
             except Exception:
                 logger.debug("Failed to resolve the called tool", exc_info=True)
         return self._tool
@@ -305,8 +312,13 @@ class ToolCallTelemetryMiddleware(Middleware):
         """Wrap tool execution with telemetry collection."""
         timestamp = datetime.now(tz=timezone.utc)
         facts = tool_call_facts(context)
-        facts.extra_source = self._extra_properties
-        facts.attribution = resolve_extra_properties(self._attribution)
+        # A second telemetry middleware on the app reports its own properties.
+        owner = not facts.owned
+        attribution = resolve_extra_properties(self._attribution)
+        if owner:
+            facts.owned = True
+            facts.extra_source = self._extra_properties
+            facts.attribution = attribution
         mutation_class = await facts.mutation_class()
         token = _FACTS.set(facts)
         start = time.monotonic()
@@ -332,9 +344,13 @@ class ToolCallTelemetryMiddleware(Middleware):
                 extra={
                     "tool_group": facts.traits.mcp_module,
                     "mutation_class": mutation_class.value,
-                    **facts.attribution,
+                    **attribution,
                     **facts.span,
-                    **facts.extra_properties(),
+                    **(
+                        facts.extra_properties()
+                        if owner
+                        else resolve_extra_properties(self._extra_properties)
+                    ),
                 },
             )
             self._sinks.emit(record)

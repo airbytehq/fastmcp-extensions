@@ -104,6 +104,8 @@ _INTENT_SCHEMA = {
     ),
 }
 MAX_STRING, MAX_INTENT = 256, 4096
+_HOOK_TIMEOUT_S = 5.0
+"""How long an async `attributes` hook may run before it is abandoned."""
 _TRUNCATED = "...[truncated]"
 OUTCOMES = frozenset(
     {"success", "tool_error", "exception", "cancelled", "unknown_tool"}
@@ -191,7 +193,9 @@ class TracingConfig:
             writes, such as `mcp`, `fastmcp`, `gen_ai`, or `http`.
         attributes: Extra per-call attributes for the span only: a mapping, or
             a callable (sync or async) resolved after the tool returns or
-            raises, when the event's `extra_properties` are resolved too.
+            raises, when the event's `extra_properties` are resolved too. It
+            runs before the response is sent, so keep it fast; an async hook
+            is abandoned after five seconds.
         shared_properties: Names of `TelemetryConfig.extra_properties` keys to
             write to the span as well, so a property is set once. Only the
             named keys are copied: event properties can hold values that must
@@ -244,6 +248,9 @@ class _Call(NamedTuple):
 
 _CURRENT: ContextVar[_Call | None] = ContextVar(
     "fastmcp_extensions_traced_call", default=None
+)
+_LISTED: ContextVar[trace.Span | None] = ContextVar(
+    "fastmcp_extensions_listed_span", default=None
 )
 _INSTALLS: weakref.WeakSet[ToolCallTracingMiddleware] = weakref.WeakSet()
 CAPTURES: list[list[ReadableSpan]] = []
@@ -421,6 +428,9 @@ class ToolCallTracingMiddleware(Middleware):
         self.exporting = False
         self._installed_at = time.monotonic()
         self._contracts: ContractCache = {}
+        shared = config.shared_properties
+        # A bare string is one name; `in` on it would match substrings.
+        self._shared = frozenset([shared] if isinstance(shared, str) else shared)
         self.args = ArgTracer(
             self.prefix,
             default=config.arg_default,
@@ -442,7 +452,14 @@ class ToolCallTracingMiddleware(Middleware):
         # Checked before the handler runs: a resource or prompt handler that
         # lists tools in-process makes FastMCP rename its own request span.
         span = trace.get_current_span()
-        stamp = self._active() and _is_unclaimed_seam(span, "tools/list")
+        stamp = (
+            self._active()
+            and _LISTED.get() is not span
+            and _is_unclaimed_seam(span, "tools/list")
+        )
+        # Only the first look counts: FastMCP relabels another request's span
+        # as `tools/list` once its handler has listed tools in-process.
+        _LISTED.set(span)
         tools = await call_next(context)
         try:
             if stamp:
@@ -535,9 +552,6 @@ class ToolCallTracingMiddleware(Middleware):
                     context = stripped
                     if recording:
                         attrs = self._before(context, tool, not inside, own, intent)
-                        session = attrs.get(f"{self.prefix}.session_id")
-                        if session is not None:
-                            facts.span["session_id"] = session
                         # The same caller as the event, when a salt is set.
                         for key in ("caller_hash", "caller_id_type"):
                             if key in facts.attribution:
@@ -738,11 +752,14 @@ class ToolCallTracingMiddleware(Middleware):
         `shared_properties` come from the same resolution the event uses, so
         the two cannot differ. A source that fails contributes nothing.
         """
-        names = self.config.shared_properties
         attrs = _safe(
             lambda: user_attributes(
                 self.prefix,
-                {k: v for k, v in facts.extra_properties().items() if k in names},
+                {
+                    k: v
+                    for k, v in facts.extra_properties().items()
+                    if k in self._shared
+                },
             )
         )
         spec = self.config.attributes
@@ -757,10 +774,15 @@ class ToolCallTracingMiddleware(Middleware):
                 # only when this call is cancelled, not when the hook leaks one.
                 task = asyncio.ensure_future(value)
                 try:
-                    await asyncio.wait({task})
+                    await asyncio.wait({task}, timeout=_HOOK_TIMEOUT_S)
                 except asyncio.CancelledError:
                     task.cancel()
                     raise
+                if not task.done():
+                    # A slow hook must not hold a finished tool call.
+                    task.cancel()
+                    logger.debug("trace attributes hook timed out")
+                    return attrs
                 value = {} if task.cancelled() else task.result()
             attrs.update(user_attributes(self.prefix, value))
         except Exception as exc:

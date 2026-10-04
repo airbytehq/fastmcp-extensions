@@ -327,3 +327,33 @@ async def test_callable_segment_user_id_is_resolved_per_concurrent_call() -> Non
         "tool_user-b": "user-b",
         "tool_None": "mcp-server",
     }
+
+
+@pytest.mark.asyncio
+async def test_cancelled_call_is_reported_as_a_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        raise asyncio.CancelledError
+
+    with caplog.at_level(logging.INFO), pytest.raises(asyncio.CancelledError):
+        await ToolCallTelemetryMiddleware().on_call_tool(_make_context(), call_next)
+    (event,) = [r.telemetry for r in caplog.records if hasattr(r, "telemetry")]
+    assert (event["success"], event["error_type"]) == (False, "CancelledError")
+
+
+@pytest.mark.asyncio
+async def test_two_telemetry_middlewares_report_their_own_properties(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    outer = ToolCallTelemetryMiddleware(extra_properties={"who": "outer"})
+    inner = ToolCallTelemetryMiddleware(extra_properties={"who": "inner"})
+    ctx = _make_context()
+
+    async def tool(c: MiddlewareContext) -> ToolResult:
+        return _make_tool_result()
+
+    with caplog.at_level(logging.INFO):
+        await outer.on_call_tool(ctx, lambda c: inner.on_call_tool(c, tool))
+    events = [r.telemetry for r in caplog.records if hasattr(r, "telemetry")]
+    assert [event["who"] for event in events] == ["inner", "outer"]

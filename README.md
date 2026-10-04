@@ -622,8 +622,8 @@ and tracing exports one span. Both are derived from the same facts about the
 call, so they agree on the tool, the outcome, and the error type, and they can
 be joined:
 
-- The event carries `trace_id` and `span_id` of the span that traced the call,
-  and the span's `session_id` when there is one. An untraced call has none.
+- The event carries `trace_id` and `span_id` of the span that traced the call.
+  An untraced call has neither.
 - With `anonymization_salt` set, the span carries the event's `caller_hash` and
   `caller_id_type`.
 - `extra_properties` is resolved once per call. Name a key in
@@ -641,7 +641,7 @@ dashboards that already exist:
 | `tool_group` | `<p>.tool_module` |
 | `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
 | `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
-| `package_version` | `service.version` (resource) |
+| `package_version` | `service.version` (resource; with several traced apps in one process, the first app's) |
 
 ### What a span carries
 
@@ -729,7 +729,7 @@ app = mcp_server(
 | ----- | ------- | ------- |
 | `exporter` | `"otlp"` | `"otlp"`, `"console"` (writes to stderr), or a `SpanExporter` instance, which receives spans after the privacy boundary. |
 | `attribute_prefix` | `"fastmcp_extensions"` | Namespace for every attribute the layer writes. Its first segment cannot be a namespace FastMCP or OpenTelemetry writes (`mcp`, `fastmcp`, `gen_ai`, `enduser`, `error`, `exception`, `jsonrpc`, `rpc`, `http`, `url`), so `acme.mcp` is fine and `mcp.acme` disables tracing with a warning. |
-| `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. |
+| `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. It runs before the response is sent, so keep it fast; an async hook is abandoned after five seconds. |
 | `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
 | `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |

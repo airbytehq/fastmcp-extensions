@@ -19,7 +19,8 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import pytest
-from fastmcp import Client, Context, FastMCP
+from fastmcp import Client, Context, FastMCP, FastMCPApp
+from fastmcp.server.providers.addressing import hashed_backend_name
 from fastmcp.tools import ToolResult
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -231,7 +232,9 @@ async def test_tools_list_span_is_exported() -> None:
 
     @app.resource("data://tools")
     async def tool_count() -> str:
-        # FastMCP renames this request's span to `tools/list`; it is not one.
+        # FastMCP renames this request's span to `tools/list`; it is not one,
+        # however many times the handler lists tools.
+        await app.list_tools()
         return str(len(await app.list_tools()))
 
     with capture_tool_spans() as spans:
@@ -523,6 +526,41 @@ async def test_hook_attributes_are_bounded_and_cannot_touch_owned_keys(
 
 
 @pytest.mark.asyncio
+async def test_a_slow_async_hook_does_not_hold_the_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def hangs() -> dict[str, object]:
+        await asyncio.sleep(60)
+        return {"region": "us"}
+
+    monkeypatch.setattr(_tracing, "_HOOK_TIMEOUT_S", 0.05)
+    (span,) = await asyncio.wait_for(_spans(_app(attributes=hangs), "add", ADD), 5)
+    attrs = _attrs(span)
+    assert (attrs[f"{P}.outcome"], f"{P}.region" in attrs) == ("success", False)
+
+
+@pytest.mark.asyncio
+async def test_hashed_name_tool_keeps_its_own_intent() -> None:
+    app = _app(capture_intent=True)
+    backend = FastMCPApp("dash")
+
+    @backend.tool()
+    def save(intent: str = "none") -> str:
+        return intent
+
+    app.add_provider(backend)
+    name = hashed_backend_name("dash", "save")
+    with capture_tool_spans() as spans:
+        async with Client(app) as client:
+            result = await client.call_tool(name, {"intent": CANARY})
+    (span,) = [span for span in spans if span.name.startswith("tools/call")]
+    # The tool declares `intent`, so it is the tool's data: kept, not exported.
+    assert result.content[0].text == CANARY
+    assert span.name == f"tools/call {name}"
+    assert CANARY not in json.dumps(_attrs(span), default=str)
+
+
+@pytest.mark.asyncio
 async def test_event_and_span_describe_the_same_call(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -534,8 +572,9 @@ async def test_event_and_span_describe_the_same_call(
         "t",
         telemetry=TelemetryConfig(
             anonymization_salt="salt",
-            extra_properties=lambda: {"workspace_id": "w1", "user_id": CANARY},
-            tool_tracing=TracingConfig(shared_properties=("workspace_id",)),
+            extra_properties=lambda: {"workspace_id": "w1", "id": CANARY},
+            # A bare string is one name, not a set of substrings to match.
+            tool_tracing=TracingConfig(shared_properties="workspace_id"),
         ),
     )
 
@@ -562,8 +601,8 @@ async def test_event_and_span_describe_the_same_call(
         assert event["error_type"] == attrs.get("error.type")
         # A property is set once and reaches the span only when it is named.
         assert (event["workspace_id"], attrs[f"{P}.workspace_id"]) == ("w1", "w1")
-        assert event["user_id"] == CANARY
-        assert f"{P}.user_id" not in attrs
+        assert event["id"] == CANARY
+        assert f"{P}.id" not in attrs
     assert [event["success"] for event in events] == [True, False]
 
 
