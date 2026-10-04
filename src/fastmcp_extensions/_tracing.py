@@ -572,14 +572,23 @@ class ToolCallTracingMiddleware(Middleware):
                                 }
                             )
                         if callable(option):
-                            received = dict(context.message.arguments or {})
+                            sent = context.message.arguments or {}
+                            # A deep copy, so the callable cannot change what
+                            # the tool receives.
                             attrs.update(
                                 _safe(
                                     lambda: user_attributes(
-                                        self.prefix, option(received)
+                                        self.prefix, option(copy.deepcopy(sent))
                                     )
                                 )
                             )
+                        # Written again with the outcome, so tool code cannot
+                        # replace the captured intent on the span.
+                        for key in ("intent", "intent_present"):
+                            if f"{self.prefix}.{key}" in attrs:
+                                keep[f"{self.prefix}.{key}"] = attrs[
+                                    f"{self.prefix}.{key}"
+                                ]
                         _set_attributes(span, attrs)
                 except Exception:
                     # Tracing must never break a tool call.

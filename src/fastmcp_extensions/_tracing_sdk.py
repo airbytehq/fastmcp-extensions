@@ -12,6 +12,7 @@ functions, and nothing else may import it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import sys
@@ -145,11 +146,12 @@ def clean(
     """Rebuild `span` from the allowlist for `install`, or return `None` to drop it.
 
     This is the privacy boundary. It never raises: a span that fails to
-    rebuild is dropped.
+    rebuild is dropped, also when the synchronous `other_spans` hook raises
+    `CancelledError`.
     """
     try:
         return _clean(span, install)
-    except Exception:
+    except (Exception, asyncio.CancelledError):
         logger.debug("span dropped at the privacy boundary", exc_info=True)
         return None
 
@@ -186,6 +188,9 @@ def _clean(
             bounded = bound_value(value, allow_list=True)
         if bounded is not None:
             out[key] = bounded
+    # Intent is exported only when the layer captured one for this call.
+    if out.get(p + "intent_present") is not True:
+        out.pop(p + INTENT_ARG, None)
     if (server := bound_value(a.get("fastmcp.server.name"))) is not None:
         out["fastmcp.server.name"] = server
     protocol = a.get("mcp.protocol.version")

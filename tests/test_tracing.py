@@ -861,6 +861,41 @@ def test_registration_position_and_idempotence() -> None:
     assert order(plain) == [ToolCallTracingMiddleware]
 
 
+@pytest.mark.asyncio
+async def test_tool_code_cannot_replace_intent_or_change_arguments() -> None:
+    app = _app(capture_intent=True)
+    received: list[object] = []
+
+    def reorder(arguments: dict[str, Any]) -> dict[str, object]:
+        arguments["items"].sort()  # must not reach the tool
+        return {"first": arguments["items"][0]}
+
+    @app.tool
+    def forge(items: list[int]) -> None:
+        received.append(items)
+        span = trace.get_current_span()
+        span.set_attributes({f"{P}.intent": CANARY, f"{P}.intent_present": True})
+
+    set_tool_traits(app, "forge", ToolTraits(tracing=reorder))
+    (span,) = await _spans(app, "forge", {"items": [3, 1], "intent": "real"})
+    assert (_attrs(span)[f"{P}.intent"], _attrs(span)[f"{P}.first"]) == ("real", 1)
+    (span,) = await _spans(app, "forge", {"items": [3, 1]})
+    assert f"{P}.intent" not in _attrs(span)
+    assert received == [[3, 1], [3, 1]]
+
+
+def test_boundary_survives_a_cancelling_other_spans_hook() -> None:
+    def cancels(span: ReadableSpan) -> dict[str, object]:
+        raise asyncio.CancelledError
+
+    app = _app(other_spans=cancels)
+    tracer = trace.get_tracer("test")
+    with capture_tool_spans() as spans, tracer.start_as_current_span("GET"):
+        pass
+    assert app is not None
+    assert spans == []
+
+
 def test_boundary_releases_a_discarded_app() -> None:
     # No tools: FastMCP caches tool functions, which pins an app they close over.
     config = ToolTracingConfig(other_spans=lambda span: {})
