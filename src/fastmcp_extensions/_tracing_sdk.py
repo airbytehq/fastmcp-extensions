@@ -16,6 +16,7 @@ import logging
 import re
 import sys
 import uuid
+import weakref
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
@@ -57,6 +58,8 @@ _PROTOCOL_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CALLER_HASH = re.compile(r"[0-9a-f]{16}")
 _INSTANCE_ID = str(uuid.uuid4())
+_OWN_PROVIDERS: weakref.WeakSet[TracerProvider] = weakref.WeakSet()
+"""The providers this package created, as opposed to ones a host installed."""
 
 
 def global_provider(
@@ -72,22 +75,31 @@ def global_provider(
         return current, "existing"
     if not isinstance(current, trace.ProxyTracerProvider):
         return None
-    # Merging the detector last lets `OTEL_SERVICE_NAME` and
-    # `OTEL_RESOURCE_ATTRIBUTES` win over the defaults passed in.
-    resource = Resource.create(
-        {"service.instance.id": _INSTANCE_ID, **(resource_attributes or {})}
-    ).merge(OTELResourceDetector().detect())
     # A client's `traceparent` must not be able to switch tracing off.
     mine = TracerProvider(
         sampler=ParentBased(ALWAYS_ON, remote_parent_not_sampled=ALWAYS_ON),
-        resource=resource,
+        resource=_resource(resource_attributes),
     )
     trace.set_tracer_provider(mine)
     # Another thread may have set a provider first; attach to whoever won.
     current = trace.get_tracer_provider()
     if not isinstance(current, TracerProvider):
         return None
-    return current, "created" if current is mine else "existing"
+    if current is not mine:
+        return current, "existing"
+    _OWN_PROVIDERS.add(mine)
+    return current, "created"
+
+
+def _resource(attributes: Mapping[str, str] | None) -> Resource:
+    """Return a resource carrying `attributes` as defaults.
+
+    Merging the detector last lets `OTEL_SERVICE_NAME` and
+    `OTEL_RESOURCE_ATTRIBUTES` win over the defaults passed in.
+    """
+    return Resource.create(
+        {"service.instance.id": _INSTANCE_ID, **(attributes or {})}
+    ).merge(OTELResourceDetector().detect())
 
 
 def attach(
@@ -118,6 +130,11 @@ def attach(
     if found is None:
         return None
     provider, how = found
+    # A provider's resource is the first app's. On a provider this package
+    # created, every app exports its own identity; a host's provider keeps
+    # the identity the host gave it.
+    if provider in _OWN_PROVIDERS:
+        install.resource = _resource(resource_attributes)
     provider.add_span_processor(BatchSpanProcessor(BoundaryExporter(exporter, install)))
     return how
 
@@ -148,7 +165,7 @@ def _clean(
         kept = other_spans(span) if other_spans is not None else None
         if kept is None:
             return None
-        return _rebuild(span, span.name, dict(kept), (), span.parent, status)
+        return _rebuild(install, span, span.name, dict(kept), (), span.parent, status)
     if mark != install.mark:
         # Another app's span; its own boundary exports it.
         return None
@@ -194,7 +211,7 @@ def _clean(
         if p + "tools.count" not in out:
             return None
         out["mcp.method.name"] = "tools/list"
-        return _rebuild(span, "tools/list", out, (), None, status)
+        return _rebuild(install, span, "tools/list", out, (), None, status)
 
     # FastMCP rewrites the span's name, tool name, method, and status when the
     # tool makes an in-process FastMCP call, so all four come from our keys.
@@ -227,10 +244,13 @@ def _clean(
             events = (Event("exception", {"exception.type": error_type}, stamps[0]),)
     name = f"tools/call {tool}" if tool else "tools/call"
     status = StatusCode.UNSET if outcome == "success" else StatusCode.ERROR
-    return _rebuild(span, name, out, events, None if root else span.parent, status)
+    return _rebuild(
+        install, span, name, out, events, None if root else span.parent, status
+    )
 
 
 def _rebuild(
+    install: ToolCallTracingMiddleware,
     span: ReadableSpan,
     name: str,
     attributes: Mapping[str, object],
@@ -250,7 +270,7 @@ def _rebuild(
         name=name,
         context=bare(span.context),
         parent=parent and bare(parent),
-        resource=span.resource,
+        resource=install.resource or span.resource,
         attributes=cast("Mapping[str, AttributeValue]", attributes),
         events=events,
         links=(),

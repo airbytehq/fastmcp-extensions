@@ -78,6 +78,7 @@ from fastmcp_extensions.tool_traits import MutationClass, get_tool_traits
 if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
     from mcp import types as mt
+    from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import ReadableSpan
     from opentelemetry.sdk.trace.export import SpanExporter
     from opentelemetry.util.types import AttributeValue
@@ -426,6 +427,8 @@ class ToolCallTracingMiddleware(Middleware):
         self.prefix = config.attribute_prefix
         self.mark = uuid.uuid4().hex[:12]
         self.exporting = False
+        self.resource: Resource | None = None
+        """This app's own resource, on a provider this package created."""
         self._installed_at = time.monotonic()
         self._contracts: ContractCache = {}
         shared = config.shared_properties
@@ -773,6 +776,11 @@ class ToolCallTracingMiddleware(Middleware):
                 # Run as its own task: `asyncio.wait` raises `CancelledError`
                 # only when this call is cancelled, not when the hook leaks one.
                 task = asyncio.ensure_future(value)
+                # Retrieve the outcome even if the task is abandoned below, so
+                # asyncio does not log an exception that was never retrieved.
+                task.add_done_callback(
+                    lambda done: done.cancelled() or done.exception()
+                )
                 try:
                     await asyncio.wait({task}, timeout=_HOOK_TIMEOUT_S)
                 except asyncio.CancelledError:

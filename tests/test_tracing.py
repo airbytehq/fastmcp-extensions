@@ -461,10 +461,22 @@ def test_default_otlp_export_and_resource(
         )
     assert "tracing: exporter=otlp provider=created" in caplog.messages
     resource = providers[-1].resource.attributes
-    providers[-1].shutdown()
     assert resource["service.name"] == "orders-mcp"
     assert resource["service.version"] == resolve_version("fastmcp")
     assert resource["service.instance.id"]
+
+    # A second app shares the provider but exports its own service identity.
+    exporter = InMemorySpanExporter()
+    billing = mcp_server(
+        "billing-mcp",
+        telemetry=TelemetryConfig(tool_tracing=ToolTracingConfig(exporter=exporter)),
+    )
+    billing.tool(lambda: "pong", name="ping")
+    asyncio.run(billing.call_tool("ping", {}))
+    providers[-1].force_flush()
+    providers[-1].shutdown()
+    (span,) = exporter.get_finished_spans()
+    assert span.resource.attributes["service.name"] == "billing-mcp"
 
 
 @pytest.mark.asyncio

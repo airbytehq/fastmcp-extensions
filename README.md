@@ -641,7 +641,7 @@ dashboards that already exist:
 | `tool_group` | `<p>.tool_module` |
 | `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
 | `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
-| `package_version` | `service.version` (resource; with several traced apps in one process, the first app's) |
+| `package_version` | `service.version` (resource) |
 
 ### What a span carries
 
