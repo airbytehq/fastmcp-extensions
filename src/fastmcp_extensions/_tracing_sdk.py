@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 
 _PROTOCOL_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_CALLER_HASH = re.compile(r"[0-9a-f]{16}")
 _INSTANCE_ID = str(uuid.uuid4())
 
 
@@ -178,6 +179,15 @@ def _clean(
     if isinstance(session, str) and _SHA256.fullmatch(session):
         out[p + "session_id"] = session
         out["mcp.session.id"] = out["gen_ai.conversation.id"] = session
+
+    # The caller is exported only as telemetry's salted hash and its kind.
+    caller, kind = out.pop(p + "caller_hash", None), out.pop(p + "caller_id_type", None)
+    if (
+        isinstance(caller, str)
+        and _CALLER_HASH.fullmatch(caller)
+        and kind in ("subject", "client")
+    ):
+        out[p + "caller_hash"], out[p + "caller_id_type"] = caller, kind
 
     outcome = out.get(p + "outcome")
     if outcome not in OUTCOMES:

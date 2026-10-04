@@ -31,7 +31,6 @@ from fastmcp_extensions._tracing import (
     TracingConfig,
     add_trace_attributes,
     capture_tool_spans,
-    register_tool_call_tracing,
     trace_plan,
 )
 from fastmcp_extensions.auth import (
@@ -208,7 +207,6 @@ __all__ = [
     "register_mcp_resources",
     "register_mcp_tools",
     "register_tool_call_telemetry",
-    "register_tool_call_tracing",
     "render_default_landing_html",
     "run_mcp_http_server",
     "session_token_from_headers",

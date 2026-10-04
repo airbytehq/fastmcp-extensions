@@ -37,7 +37,6 @@ from fastmcp_extensions import (
     mcp_server,
     mcp_tool,
     register_mcp_tools,
-    register_tool_call_tracing,
     trace_plan,
 )
 from fastmcp_extensions._arg_trace import is_arg_key
@@ -48,6 +47,7 @@ from fastmcp_extensions._tracing import (
     INTENT_SENTENCE,
     ToolCallTracingMiddleware,
     bound_value,
+    register_tool_call_tracing,
 )
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 from fastmcp_extensions.tool_traits import ToolTraits, set_tool_traits
@@ -492,33 +492,28 @@ async def _leaks_cancellation() -> dict[str, object]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("attributes", "late_attributes", "expected"),
+    ("attributes", "expected"),
     [
         pytest.param(
             {"plan": "pro", "root": False, "note": "x" * 300},
-            lambda: {"region": "us"},
-            {"plan": "pro", "region": "us", "note": "x" * 256},
-            id="mapping-and-sync-late",
+            {"plan": "pro", "note": "x" * 256},
+            id="mapping",
         ),
         pytest.param(
             lambda: {"plan": "pro", "tool.x": 1, "Bad Key": 1, "skip": None},
-            _late,
-            {"plan": "pro", "region": "us"},
-            id="callable-and-async-late",
+            {"plan": "pro"},
+            id="callable",
         ),
-        pytest.param(_raises, _raises, {}, id="raising-hooks"),
+        pytest.param(_late, {"region": "us"}, id="async"),
+        pytest.param(_raises, {}, id="raising"),
         # The tool call itself was not cancelled, so it still succeeds.
-        pytest.param(None, _leaks_cancellation, {}, id="late-hook-leaks-cancel"),
+        pytest.param(_leaks_cancellation, {}, id="leaks-cancel"),
     ],
 )
 async def test_hook_attributes_are_bounded_and_cannot_touch_owned_keys(
-    attributes: Any, late_attributes: Any, expected: dict[str, object]
+    attributes: Any, expected: dict[str, object]
 ) -> None:
-    app = _app(
-        attribute_prefix="acme.mcp",
-        attributes=attributes,
-        late_attributes=late_attributes,
-    )
+    app = _app(attribute_prefix="acme.mcp", attributes=attributes)
     (span,) = await _spans(app, "add", ADD)
     attrs = _attrs(span)
     core = {key.replace(P, "acme.mcp") for key in CORE_KEYS}
@@ -528,12 +523,57 @@ async def test_hook_attributes_are_bounded_and_cannot_touch_owned_keys(
 
 
 @pytest.mark.asyncio
+async def test_event_and_span_describe_the_same_call(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    token = SimpleNamespace(claims={"sub": "alice"}, client_id=None)
+    monkeypatch.setattr(
+        "fastmcp_extensions._attribution.get_access_token", lambda: token
+    )
+    app = mcp_server(
+        "t",
+        telemetry=TelemetryConfig(
+            anonymization_salt="salt",
+            extra_properties=lambda: {"workspace_id": "w1", "user_id": CANARY},
+            tool_tracing=TracingConfig(shared_properties=("workspace_id",)),
+        ),
+    )
+
+    @app.tool
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    @app.tool
+    async def slow() -> None:
+        await asyncio.sleep(5)
+
+    with caplog.at_level(logging.INFO, logger="fastmcp_extensions._telemetry"):
+        (ok,) = await _spans(app, "add", ADD)
+        (cancelled,) = await _spans(app, "slow", how="cancel")
+    events = [r.telemetry for r in caplog.records if hasattr(r, "telemetry")]
+    for span, event in zip((ok, cancelled), events, strict=True):
+        attrs = _attrs(span)
+        # The event carries its span's identifiers, caller, and outcome.
+        assert event["trace_id"] == format(span.context.trace_id, "032x")
+        assert event["span_id"] == format(span.context.span_id, "016x")
+        assert event["caller_hash"] == attrs[f"{P}.caller_hash"]
+        assert attrs[f"{P}.caller_id_type"] == "subject"
+        assert event["success"] == (attrs[f"{P}.outcome"] == "success")
+        assert event["error_type"] == attrs.get("error.type")
+        # A property is set once and reaches the span only when it is named.
+        assert (event["workspace_id"], attrs[f"{P}.workspace_id"]) == ("w1", "w1")
+        assert event["user_id"] == CANARY
+        assert f"{P}.user_id" not in attrs
+    assert [event["success"] for event in events] == [True, False]
+
+
+@pytest.mark.asyncio
 async def test_failure_wiring_from_config_to_span() -> None:
     config = TracingConfig(
         error_classifier=lambda exc: (
             "rate_limited" if isinstance(exc, KeyError) else None
         ),
-        late_attributes=lambda: {"late": "yes"},
+        attributes=lambda: {"late": "yes"},
     )
     app = mcp_server(
         "t",
@@ -554,7 +594,7 @@ async def test_failure_wiring_from_config_to_span() -> None:
 
 @pytest.mark.asyncio
 async def test_span_survives_the_sdk_attribute_limit() -> None:
-    app = _app(late_attributes=lambda: {f"late_{n}": n for n in range(200)})
+    app = _app(attributes=lambda: {f"late_{n}": n for n in range(200)})
 
     @app.tool
     def chatty() -> None:
@@ -749,7 +789,6 @@ def test_registration_position_and_idempotence() -> None:
     assert order(_app()) == order(late) == list(kinds)
 
     off = mcp_server("off")  # tracing is off unless the telemetry config sets it
-    register_tool_call_tracing(off, TracingConfig(enabled=False))
     assert order(off) == [ToolCallTelemetryMiddleware]
 
     # `enabled=False` is the master switch: no telemetry and no tracing.

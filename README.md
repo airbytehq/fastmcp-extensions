@@ -605,15 +605,43 @@ enabled, spans are exported over OTLP/HTTP when
 `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set;
 until then tracing stays dormant. The OpenTelemetry SDK reads its own `OTEL_*`
 exporter and resource variables as usual (for sampling, see
-[Sampling and existing providers](#sampling-and-existing-providers)), and
-`DO_NOT_TRACK` switches export off. One log line at
+[Sampling and existing providers](#sampling-and-existing-providers)).
+`DO_NOT_TRACK` switches off everything that leaves the process (Sentry,
+Segment, and trace export); the structured log line stays. One log line at
 startup says what tracing is doing, for example
 `tracing: exporter=otlp provider=created` or
 `tracing: dormant (no OTLP endpoint set)`. Tracing never raises into a tool
 call and never breaks server startup. Servers built without `mcp_server()` call
-`register_tool_call_telemetry(app, TelemetryConfig(tool_tracing=True))`, or
-`register_tool_call_tracing(app, TracingConfig())` for tracing alone; both are
-idempotent.
+`register_tool_call_telemetry(app, TelemetryConfig(tool_tracing=True))`, which
+is idempotent.
+
+### One call, one event, one span
+
+Telemetry emits one event per tool call (log line, Sentry breadcrumb, Segment)
+and tracing exports one span. Both are derived from the same facts about the
+call, so they agree on the tool, the outcome, and the error type, and they can
+be joined:
+
+- The event carries `trace_id` and `span_id` of the span that traced the call,
+  and the span's `session_id` when there is one. An untraced call has none.
+- With `anonymization_salt` set, the span carries the event's `caller_hash` and
+  `caller_id_type`.
+- `extra_properties` is resolved once per call. Name a key in
+  `TracingConfig(shared_properties=...)` to write it to the span as well; keys
+  that are not named stay off the span.
+
+The two use different names for some of the same facts, because each matches
+dashboards that already exist:
+
+| Event field | Span attribute |
+| ----------- | -------------- |
+| `name` | `gen_ai.tool.name` |
+| `success` | `<p>.outcome` (`success`, or one of four failure outcomes) |
+| `error_type` | `<p>.error_type`, `error.type` |
+| `tool_group` | `<p>.tool_module` |
+| `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
+| `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
+| `package_version` | `service.version` (resource) |
 
 ### What a span carries
 
@@ -631,6 +659,7 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.upstream.status_code` | The HTTP status the failure carries, if any |
 | `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
 | `<p>.client_name`, `<p>.client_version` | The MCP client |
+| `<p>.caller_hash`, `<p>.caller_id_type` | The caller as telemetry's salted hash, and whether it is a `subject` or a `client`; only with `anonymization_salt` set |
 | `<p>.session_id`, `mcp.session.id`, `gen_ai.conversation.id` | SHA-256 of the `Mcp-Session-Id` header, never the raw value; on stdio, a random per-process digest |
 | `<p>.root` | `False` for a tool called by another tool through `app.call_tool()` |
 | `jsonrpc.request.id`, `gen_ai.tool.call.id` | Root spans only: the request ID if it is an integer or a short token, and its SHA-256 |
@@ -698,18 +727,17 @@ app = mcp_server(
 
 | Field | Default | Meaning |
 | ----- | ------- | ------- |
-| `enabled` | `True` | Master switch. |
 | `exporter` | `"otlp"` | `"otlp"`, `"console"` (writes to stderr), or a `SpanExporter` instance, which receives spans after the privacy boundary. |
 | `attribute_prefix` | `"fastmcp_extensions"` | Namespace for every attribute the layer writes. Its first segment cannot be a namespace FastMCP or OpenTelemetry writes (`mcp`, `fastmcp`, `gen_ai`, `enduser`, `error`, `exception`, `jsonrpc`, `rpc`, `http`, `url`), so `acme.mcp` is fine and `mcp.acme` disables tracing with a warning. |
-| `attributes` | `None` | Extra per-call attributes: a mapping, or a zero-argument callable resolved before the tool runs. |
-| `late_attributes` | `None` | A zero-argument callable, sync or async, resolved after the tool returns or raises. |
+| `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. |
+| `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
 | `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
 
-Attributes from `attributes`, `late_attributes`, a per-tool callable, or
+Attributes from `attributes`, `shared_properties`, a per-tool callable, or
 `add_trace_attributes()` are written under the prefix and bounded: strings are
 stripped, must be printable, and are cut to 256 characters; `bool`, `int`, and
 finite `float` pass; anything else is dropped. Keys must match
@@ -950,7 +978,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Tracing
 
-- `TracingConfig` / `register_tool_call_tracing` - Configure OpenTelemetry tool-call tracing and register it on a plain FastMCP app; `TelemetryConfig(tool_tracing=...)` does both.
+- `TracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
 - `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
 - `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
 - `capture_tool_spans` / `trace_plan` - Test helpers: collect spans as they would be exported, and list what is recorded for each tool.

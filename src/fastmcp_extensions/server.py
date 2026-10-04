@@ -120,8 +120,8 @@ marker in `Annotated[...]`: a declared-safe value, a keyed hash, or presence
 only. `trace_plan(app)` lists what is recorded for each tool.
 Tracing never breaks a tool call or server startup, and `telemetry=False` or
 `TelemetryConfig(enabled=False)` turns it off with the rest of telemetry.
-Servers built without `mcp_server()` can register tracing alone via
-`register_tool_call_tracing(app, config)`, which is idempotent.
+Each call's telemetry event and span are derived from the same facts, and the
+event carries the span's `trace_id` and `span_id` so the two can be joined.
 
 ## User-Facing Errors
 
@@ -139,7 +139,6 @@ import pkgutil
 import subprocess
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -538,9 +537,7 @@ def mcp_server(
     else:
         telemetry_config = telemetry
 
-    if telemetry_config is not None and telemetry_config.enabled:
-        if telemetry_config.package_name is None:
-            telemetry_config = replace(telemetry_config, package_name=package_name)
+    if telemetry_config is not None:
         register_tool_call_telemetry(app, telemetry_config)
 
     # Build the list of tool filters, including standard ones if requested

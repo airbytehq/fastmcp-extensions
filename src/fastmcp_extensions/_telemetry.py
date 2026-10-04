@@ -12,7 +12,8 @@ Three telemetry sinks, each independently toggled:
 3. **Segment analytics event** - enabled when a `segment_write_key` is supplied.
 
 Set `DO_NOT_TRACK` to a non-empty value other than `0`, `false`, or `no` to
-disable Sentry and Segment while keeping structured logs enabled.
+disable everything that leaves the process (Sentry, Segment, and trace export)
+while keeping structured logs enabled.
 """
 
 from __future__ import annotations
@@ -84,7 +85,8 @@ class TelemetryConfig:
 
     `tool_tracing` turns on OpenTelemetry tool-call tracing: `True` for the defaults,
     or a `TracingConfig`. It is off by default, and `enabled=False` turns it off
-    along with everything else.
+    along with everything else. The event of a traced call carries the span's
+    `trace_id` and `span_id`.
     """
 
     enabled: bool = True

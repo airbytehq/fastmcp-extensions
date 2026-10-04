@@ -15,7 +15,7 @@ OpenTelemetry SDK is installed. This module does three things:
 
 `mcp_server()` registers the middleware from `TelemetryConfig.tool_tracing`; see
 `fastmcp_extensions.server` for the user-facing configuration docs. Plain
-`FastMCP` apps use `register_tool_call_tracing()`, which is idempotent.
+`FastMCP` apps get the same through `register_tool_call_telemetry()`.
 
 This module imports only the OpenTelemetry API. Everything that needs the SDK
 lives in `_tracing_sdk`, which is imported lazily.
@@ -40,7 +40,6 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
-from fastmcp.exceptions import DisabledError, NotFoundError
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.server.telemetry import SEAM_SPAN_MARKER, get_protocol_span_attributes
@@ -52,14 +51,13 @@ from opentelemetry.trace import SpanKind, Status, StatusCode
 from fastmcp_extensions._arg_trace import ArgTracer, TraceArg
 from fastmcp_extensions._attribution import _client_info
 from fastmcp_extensions._telemetry import (
-    resolve_extra_properties,
     resolve_version,
     telemetry_opted_out,
 )
 from fastmcp_extensions._telemetry_middleware import (
+    ToolCallFacts,
     ToolCallTelemetryMiddleware,
-    _requested_version,
-    unwrap_tool_error,
+    tool_call_facts,
 )
 from fastmcp_extensions._tracing_extras import (
     MAX_LIST_ITEMS,
@@ -75,7 +73,7 @@ from fastmcp_extensions._tracing_extras import (
     user_facing_error_types,
     validation_attributes,
 )
-from fastmcp_extensions.tool_traits import MutationClass, ToolTraits, get_tool_traits
+from fastmcp_extensions.tool_traits import MutationClass, get_tool_traits
 
 if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
@@ -152,6 +150,8 @@ OWNED_KEYS = frozenset(
         "arg_key_scope",
         "arg_scope_id",
         "arg_trace_dropped",
+        "caller_hash",
+        "caller_id_type",
     }
 )
 """Attribute suffixes only the layer writes; hooks and tools cannot set them."""
@@ -169,7 +169,7 @@ class TracingConfig:
     """Configuration for OpenTelemetry tool-call tracing.
 
     Every attribute the layer writes is namespaced under `attribute_prefix`.
-    Values supplied through `attributes`, `late_attributes`, a per-tool
+    Values supplied through `attributes`, `shared_properties`, a per-tool
     callable, or `add_trace_attributes()` are bounded: strings are stripped,
     must be printable, and are cut to 256 characters; `bool`, `int`, and
     finite `float` pass; anything else is dropped.
@@ -181,7 +181,6 @@ class TracingConfig:
     applies only to the exporter configured here.
 
     Attributes:
-        enabled: Master switch.
         exporter: `"otlp"` exports over OTLP/HTTP only when
             `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT`
             is set, and otherwise stays dormant. `"console"` writes to stderr.
@@ -190,9 +189,13 @@ class TracingConfig:
         attribute_prefix: Namespace for every attribute the layer writes. Its
             first segment cannot be a namespace FastMCP or OpenTelemetry
             writes, such as `mcp`, `fastmcp`, `gen_ai`, or `http`.
-        attributes: Extra per-call attributes, resolved before the tool runs.
-        late_attributes: Extra per-call attributes, resolved after the tool
-            returns or raises, while the span is still open. May be async.
+        attributes: Extra per-call attributes for the span only: a mapping, or
+            a callable (sync or async) resolved after the tool returns or
+            raises, when the event's `extra_properties` are resolved too.
+        shared_properties: Names of `TelemetryConfig.extra_properties` keys to
+            write to the span as well, so a property is set once. Only the
+            named keys are copied: event properties can hold values that must
+            not reach a trace backend.
         capture_intent: Adds an optional `intent` string argument to every
             tool schema, appends one sentence to the server instructions,
             records the argument, and strips it before the tool runs. A tool
@@ -214,13 +217,14 @@ class TracingConfig:
             treated as `HASH`, so a raw value is never a default.
     """
 
-    enabled: bool = True
     exporter: Literal["otlp", "console"] | SpanExporter = "otlp"
     attribute_prefix: str = "fastmcp_extensions"
-    attributes: Mapping[str, object] | Callable[[], Mapping[str, object]] | None = None
-    late_attributes: (
-        Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]] | None
+    attributes: (
+        Mapping[str, object]
+        | Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]]
+        | None
     ) = None
+    shared_properties: Sequence[str] = ()
     capture_intent: bool = False
     error_classifier: Callable[[BaseException], str | None] | None = None
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
@@ -363,15 +367,6 @@ def _claimed_span(name: str, prefix: str) -> Iterator[tuple[trace.Span, bool]]:
             _CURRENT.reset(token)
 
 
-def _failure(exc: BaseException) -> tuple[str, BaseException]:
-    """Return the `(outcome, cause)` of a failed tool call."""
-    if isinstance(exc, asyncio.CancelledError):
-        return "cancelled", exc
-    if isinstance(exc, (NotFoundError, DisabledError)):
-        return "unknown_tool", exc
-    return "exception", unwrap_tool_error(exc)
-
-
 def _safe(
     source: Callable[[], Mapping[str, object]], prefix: str = ""
 ) -> dict[str, object]:
@@ -399,12 +394,11 @@ def _client_attributes() -> dict[str, object]:
     return {key: label for key, label in labels.items() if label is not None}
 
 
-def _tool_attributes(traits: ToolTraits, tool: Tool) -> dict[str, object]:
-    """Return the module and mutation class of `tool`, read at call time."""
+def _tool_attributes(module: str | None, mutation: MutationClass) -> dict[str, object]:
+    """Return the span form of a resolved tool's module and mutation class."""
     attrs: dict[str, object] = {}
-    if traits.mcp_module:
-        attrs["tool_module"] = traits.mcp_module
-    mutation = traits.mutation_class or MutationClass.from_annotations(tool.annotations)
+    if module:
+        attrs["tool_module"] = module
     if mutation is not MutationClass.UNKNOWN:
         attrs["tool_mutating"] = mutation is not MutationClass.READ
         attrs["tool_destructive"] = mutation is MutationClass.DESTRUCTIVE
@@ -488,8 +482,8 @@ class ToolCallTracingMiddleware(Middleware):
         app = ctx.fastmcp if ctx is not None else None
         outer = _CURRENT.get()
         inside = outer is not None and outer.inside_traced
-        traits = get_tool_traits(app, name) if app is not None else ToolTraits()
-        option = traits.tracing
+        facts = tool_call_facts(context)
+        option = facts.traits.tracing
         if option is False or not self._active():
             # Remember the untraced call so a nested call does not claim this
             # tool's request span and stamp it with the wrong tool.
@@ -497,7 +491,7 @@ class ToolCallTracingMiddleware(Middleware):
                 _Call(trace.get_current_span(), self.prefix, False, inside)
             )
             try:
-                return await call_next(await self._strip_intent(context, None))
+                return await call_next(await self._strip_intent(context, facts))
             finally:
                 _CURRENT.reset(token)
 
@@ -518,17 +512,21 @@ class ToolCallTracingMiddleware(Middleware):
                 try:
                     if recording:
                         _set_attributes(span, keep)
+                        # The event carries these, so it joins to this span.
+                        ids = span.get_span_context()
+                        facts.span["trace_id"] = trace.format_trace_id(ids.trace_id)
+                        facts.span["span_id"] = trace.format_span_id(ids.span_id)
                     arguments = context.message.arguments or {}
                     if recording or (
                         self.config.capture_intent and INTENT_ARG in arguments
                     ):
-                        tool = await self._tool(context)
+                        tool = await facts.tool()
                     if tool is not None:
                         # The boundary derives `gen_ai.tool.name` and the span
                         # name from this key, because FastMCP rewrites its own
                         # when the tool makes an in-process FastMCP call.
                         keep[f"{self.prefix}.tool_name"] = name
-                    stripped = await self._strip_intent(context, tool)
+                    stripped = await self._strip_intent(context, facts)
                     # Only the injected `intent` is recorded. A tool's own
                     # `intent` parameter is not stripped and is the tool's data.
                     intent = (
@@ -536,9 +534,24 @@ class ToolCallTracingMiddleware(Middleware):
                     )
                     context = stripped
                     if recording:
-                        attrs = self._before(
-                            context, tool, traits, not inside, own, intent
-                        )
+                        attrs = self._before(context, tool, not inside, own, intent)
+                        session = attrs.get(f"{self.prefix}.session_id")
+                        if session is not None:
+                            facts.span["session_id"] = session
+                        # The same caller as the event, when a salt is set.
+                        for key in ("caller_hash", "caller_id_type"):
+                            if key in facts.attribution:
+                                attrs[f"{self.prefix}.{key}"] = facts.attribution[key]
+                        if tool is not None:
+                            attrs.update(
+                                {
+                                    f"{self.prefix}.{key}": value
+                                    for key, value in _tool_attributes(
+                                        facts.traits.mcp_module,
+                                        await facts.mutation_class(),
+                                    ).items()
+                                }
+                            )
                         if callable(option):
                             received = dict(context.message.arguments or {})
                             attrs.update(
@@ -561,40 +574,27 @@ class ToolCallTracingMiddleware(Middleware):
                 if recording:
                     late: dict[str, object] = {}
                     try:
-                        if not isinstance(error, asyncio.CancelledError):
-                            late = await self._late()
+                        late = await self._late(
+                            facts, isinstance(error, asyncio.CancelledError)
+                        )
                     except asyncio.CancelledError as cancelled:
                         result, error = None, cancelled
                         raise
                     finally:
-                        self._after(span, result, error, tool, app, late, keep)
-
-    async def _tool(
-        self, context: MiddlewareContext[mt.CallToolRequestParams]
-    ) -> Tool | None:
-        """Return the tool this call resolves to, or `None`."""
-        try:
-            ctx = context.fastmcp_context
-            if ctx is None:
-                return None
-            return await ctx.fastmcp.get_tool(
-                context.message.name,
-                version=_requested_version(context.message.meta),
-            )
-        except Exception:
-            return None
+                        facts.settle(result, error)
+                        self._after(span, result, facts, tool, app, late, keep)
 
     async def _strip_intent(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
-        tool: Tool | None,
+        facts: ToolCallFacts,
     ) -> MiddlewareContext[mt.CallToolRequestParams]:
         """Remove a captured `intent` argument unless the tool declares it."""
         arguments = context.message.arguments or {}
         if not self.config.capture_intent or INTENT_ARG not in arguments:
             return context
         try:
-            tool = tool or await self._tool(context)
+            tool = await facts.tool()
             if tool is not None and INTENT_ARG in declared_parameters(tool):
                 return context
             stripped = {k: v for k, v in arguments.items() if k != INTENT_ARG}
@@ -626,21 +626,14 @@ class ToolCallTracingMiddleware(Middleware):
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
         tool: Tool | None,
-        traits: ToolTraits,
         root: bool,
         own: bool,
         intent: object,
     ) -> dict[str, object]:
-        """Return the attributes written before the tool runs.
-
-        Later sources win on a key clash, and hook attributes cannot touch
-        keys the layer owns.
-        """
+        """Return the attributes written before the tool runs."""
         p, name, ctx = self.prefix, context.message.name, context.fastmcp_context
         attrs = self._request_attributes(ctx)
-        if tool is not None:
-            attrs.update(_safe(lambda: _tool_attributes(traits, tool), p + "."))
-        else:
+        if tool is None:
             # The requested name is agent-supplied, so only a well-formed one
             # is recorded.
             attrs[f"{p}.tool_requested_name"] = safe_name(name)
@@ -687,16 +680,13 @@ class ToolCallTracingMiddleware(Middleware):
                     )
                 )
             )
-        attrs.update(
-            user_attributes(p, resolve_extra_properties(self.config.attributes))
-        )
         return attrs
 
     def _after(
         self,
         span: trace.Span,
         result: ToolResult | None,
-        error: BaseException | None,
+        facts: ToolCallFacts,
         tool: Tool | None,
         app: FastMCP | None,
         late: Mapping[str, object],
@@ -712,9 +702,10 @@ class ToolCallTracingMiddleware(Middleware):
             p = self.prefix
             # First, so the SDK's attribute limit evicts these before the rest.
             attrs: dict[str, object] = dict(late)
-            if error is not None:
-                outcome, cause = _failure(error)
-                attrs[f"{p}.error_type"] = type(cause).__name__
+            outcome, cause = facts.outcome, facts.cause
+            if facts.error_type is not None:
+                attrs[f"{p}.error_type"] = facts.error_type
+            if cause is not None:
                 attrs.update(
                     _safe(
                         lambda: error_attributes(
@@ -729,12 +720,8 @@ class ToolCallTracingMiddleware(Middleware):
                     )
                 )
                 attrs.update(_safe(lambda: validation_attributes(cause, tool), p + "."))
-            elif result is not None and result.is_error:
-                outcome = "tool_error"
-                attrs[f"{p}.error_type"] = "ToolError"
+            elif outcome == "tool_error":
                 attrs.update(_safe(lambda: error_attributes(None), p + "."))
-            else:
-                outcome = "success"
             if result is not None:
                 attrs.update(_safe(lambda: result_attributes(result), p + "."))
             attrs[f"{p}.outcome"] = outcome
@@ -745,14 +732,27 @@ class ToolCallTracingMiddleware(Middleware):
         except Exception:
             logger.debug("trace outcome skipped", exc_info=True)
 
-    async def _late(self) -> dict[str, object]:
-        """Return the bounded `late_attributes`, or nothing when the hook fails."""
-        hook = self.config.late_attributes
-        if hook is None:
-            return {}
+    async def _late(self, facts: ToolCallFacts, cancelled: bool) -> dict[str, object]:
+        """Return the bounded hook attributes, resolved after the tool.
+
+        `shared_properties` come from the same resolution the event uses, so
+        the two cannot differ. A source that fails contributes nothing.
+        """
+        names = self.config.shared_properties
+        attrs = _safe(
+            lambda: user_attributes(
+                self.prefix,
+                {k: v for k, v in facts.extra_properties().items() if k in names},
+            )
+        )
+        spec = self.config.attributes
         try:
-            value = hook()
+            value = spec if spec is None or isinstance(spec, Mapping) else spec()
             if inspect.isawaitable(value):
+                if cancelled:
+                    # A cancelled call cannot await; a coroutine is closed unrun.
+                    getattr(value, "close", lambda: None)()
+                    return attrs
                 # Run as its own task: `asyncio.wait` raises `CancelledError`
                 # only when this call is cancelled, not when the hook leaks one.
                 task = asyncio.ensure_future(value)
@@ -762,10 +762,10 @@ class ToolCallTracingMiddleware(Middleware):
                     task.cancel()
                     raise
                 value = {} if task.cancelled() else task.result()
-            return user_attributes(self.prefix, value)
-        except Exception:
-            logger.debug("late trace attributes skipped", exc_info=True)
-            return {}
+            attrs.update(user_attributes(self.prefix, value))
+        except Exception as exc:
+            logger.debug("trace attributes hook skipped: %s", type(exc).__name__)
+        return attrs
 
 
 def _verified_principal() -> str | None:
@@ -857,7 +857,9 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
     return dict(sorted(plan.items()))
 
 
-def register_tool_call_tracing(app: FastMCP, config: TracingConfig) -> None:
+def register_tool_call_tracing(
+    app: FastMCP, config: TracingConfig, *, package_name: str | None = None
+) -> None:
     """Register tool-call tracing on `app` unless it is already present.
 
     Never raises: when tracing cannot start, one log line says why and the
@@ -866,7 +868,7 @@ def register_tool_call_tracing(app: FastMCP, config: TracingConfig) -> None:
     if not isinstance(config, TracingConfig):
         logger.warning("tracing: disabled (config must be a TracingConfig)")
         return
-    if not config.enabled or any(
+    if any(
         isinstance(middleware, ToolCallTracingMiddleware)
         for middleware in app.middleware
     ):
@@ -896,10 +898,12 @@ def register_tool_call_tracing(app: FastMCP, config: TracingConfig) -> None:
         app.add_middleware(install)
     if config.capture_intent and INTENT_SENTENCE not in (app.instructions or ""):
         app.instructions = " ".join(filter(None, [app.instructions, INTENT_SENTENCE]))
-    _start_export(app, install)
+    _start_export(app, install, package_name)
 
 
-def _start_export(app: FastMCP, install: ToolCallTracingMiddleware) -> None:
+def _start_export(
+    app: FastMCP, install: ToolCallTracingMiddleware, package_name: str | None
+) -> None:
     """Attach the exporter and log one line saying what tracing is doing."""
     exporter = install.config.exporter
     try:
@@ -922,10 +926,7 @@ def _start_export(app: FastMCP, install: ToolCallTracingMiddleware) -> None:
                 "or a SpanExporter)"
             )
             return
-        package = getattr(
-            getattr(app, "x_mcp_server_config", None), "package_name", None
-        )
-        version = resolve_version(package)
+        version = resolve_version(package_name)
         provider = _tracing_sdk.attach(
             install,
             service_name=app.name,
