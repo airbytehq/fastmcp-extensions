@@ -645,7 +645,7 @@ async def test_per_tool_tracing_option() -> None:
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_isolated_tools")
 async def test_trace_plan() -> None:
-    config = TracingConfig(arg_default=TraceArg.SIMILARITY, capture_intent=True)
+    config = TracingConfig(arg_default=TraceArg.FINGERPRINT, capture_intent=True)
     app = mcp_server("plan", tracing=config)
 
     @app.tool
@@ -669,11 +669,11 @@ async def test_trace_plan() -> None:
     plan = await trace_plan(app)
     assert list(plan) == ["fetch", "search", "untraced"]
     assert {name: entry["args"] for name, entry in plan.items()} == {
-        "fetch": {"limit": "value int", "url": "similarity"},
+        "fetch": {"limit": "value int", "url": "fingerprint"},
         "search": {
             "mode": 'value allowed=["a","b"]',
             "note": "omit",
-            "query": "similarity",
+            "query": "fingerprint",
         },
         "untraced": {},
     }
@@ -684,7 +684,7 @@ async def test_trace_plan() -> None:
     # An app without tracing gets a plan with the default configuration.
     plain = FastMCP("plain")
     plain.tool(fetch)
-    assert (await trace_plan(plain))["fetch"]["args"]["url"] == "equality"
+    assert (await trace_plan(plain))["fetch"]["args"]["url"] == "hash"
 
 
 @pytest.mark.asyncio

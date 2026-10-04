@@ -699,7 +699,7 @@ app = mcp_server(
 | `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
-| `arg_default` | `TraceArg.EQUALITY` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `EQUALITY`. |
+| `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
 
 Attributes from `attributes`, `late_attributes`, a per-tool callable, or
 `add_trace_attributes()` are written under the prefix and bounded: strings are
@@ -761,14 +761,14 @@ def query(
 | Mode | Record | Default for |
 | ---- | ------ | ----------- |
 | `VALUE` | `{"value": v}` | `bool`, `Literal`, `Enum`, and lists of them |
-| `EQUALITY` | `{"eq": h}`, a keyed hash; lists add `"count"` | `str`, `int`, `float`, `UUID`, `list[str]` (set by `arg_default`) |
-| `SIMILARITY` | `EQUALITY` plus `"fp"`, a keyed fingerprint that puts near-identical short text close together | Opt-in only |
+| `HASH` | `{"eq": h}`, a keyed hash; lists add `"count"` | `str`, `int`, `float`, `UUID`, `list[str]` (set by `arg_default`) |
+| `FINGERPRINT` | `HASH` plus `"fp"`, a keyed fingerprint that shows how similar two short texts are without exposing either | Opt-in only |
 | `PRESENCE` | `{"present": true}` | `dict`, pydantic models, `Any`, unhinted arguments, and names containing `token`, `secret`, `password`, `credential`, `api_key`, `access_key`, `private_key`, `authorization`, or `session_state` (underscores and case are ignored, so `apiKey` matches) |
 | `OMIT` | Nothing | pydantic `SecretStr` / `SecretBytes` |
 
 - `VALUE` exports the raw value, so mark only arguments that are safe to read
   in a trace. Only a member of the closed set, or a bounded value of the hinted
-  type, is exported; anything else falls back to `EQUALITY`.
+  type, is exported; anything else falls back to `HASH`.
 - Hashes need `arg_key` and a caller identified by verified token claims. They
   are scoped to that caller and session, so they compare only within one
   scope. Without either, hashed modes record `{"present": true}`;
@@ -812,7 +812,7 @@ async def test_trace_plan():
     assert plan["query"]["args"] == {
         "limit": "value int",
         "note": "omit",
-        "sql": "equality",
+        "sql": "hash",
     }
 ```
 
@@ -943,7 +943,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 ### Tracing
 
 - `TracingConfig` / `register_tool_call_tracing` - Configure OpenTelemetry tool-call tracing and register it on a plain FastMCP app; `mcp_server(tracing=...)` does both.
-- `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `EQUALITY`, `SIMILARITY`, or `VALUE`.
+- `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
 - `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
 - `capture_tool_spans` / `trace_plan` - Test helpers: collect spans as they would be exported, and list what is recorded for each tool.
 

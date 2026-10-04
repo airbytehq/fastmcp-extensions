@@ -211,7 +211,7 @@ class TracingConfig:
             it. Without it, hashed argument records fall back to presence.
         arg_default: How `str`, `int`, `float`, `UUID`, and `list[str]`
             arguments without a `TraceArg` marker are recorded. `VALUE` is
-            treated as `EQUALITY`, so a raw value is never a default.
+            treated as `HASH`, so a raw value is never a default.
     """
 
     enabled: bool = True
@@ -225,7 +225,7 @@ class TracingConfig:
     error_classifier: Callable[[BaseException], str | None] | None = None
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
     arg_key: bytes | Callable[[], bytes | None] | None = field(default=None, repr=False)
-    arg_default: TraceArg = TraceArg.EQUALITY
+    arg_default: TraceArg = TraceArg.HASH
 
 
 class _Call(NamedTuple):
@@ -832,7 +832,7 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
     Returns:
         A dict keyed by tool name, sorted. Each value holds the tool's
         contract `fingerprint`, its `schema_chars`, and `args`: how each
-        argument is recorded (for example `equality`, `value int`, or
+        argument is recorded (for example `hash`, `value int`, or
         `omit`). `args` is empty for a tool with `tracing=False`.
     """
     tracer = next(

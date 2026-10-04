@@ -8,9 +8,9 @@ Each argument of a traced tool call becomes one compact JSON record under
 |---|---|---|
 | `OMIT` | nothing | nothing |
 | `PRESENCE` | `{"present": true}` | same |
-| `EQUALITY` | `{"eq": h}`; lists add `"count"` | `{"present": true}`; lists add `"count"` |
-| `SIMILARITY` | `EQUALITY` plus `"fp"` for short text and string lists | as `EQUALITY` |
-| `VALUE` | `{"value": v}` when `v` is in the closed set or in bounds, else as `EQUALITY` | same |
+| `HASH` | `{"eq": h}`; lists add `"count"` | `{"present": true}`; lists add `"count"` |
+| `FINGERPRINT` | `HASH` plus `"fp"` for short text and string lists | as `HASH` |
+| `VALUE` | `{"value": v}` when `v` is in the closed set or in bounds, else as `HASH` | same |
 
 `eq` is a keyed equality digest and `fp` a keyed 128-bit similarity bitset. Both
 are scoped to the verified principal and a session, so values compare only
@@ -87,12 +87,12 @@ class TraceArg(Enum):
 
     - `OMIT`: nothing is recorded.
     - `PRESENCE`: only that the argument was passed.
-    - `EQUALITY`: a keyed hash, which shows whether two calls passed the same
+    - `HASH`: a keyed hash, which shows whether two calls passed the same
       value.
-    - `SIMILARITY`: the hash plus a keyed fingerprint, which puts
-      near-identical short text close together.
+    - `FINGERPRINT`: the hash plus a keyed fingerprint, which shows how
+      similar two values are without exposing either.
     - `VALUE`: the raw value, when it is in the hint's closed set or a bounded
-      scalar of the hinted type; anything else is recorded as `EQUALITY`.
+      scalar of the hinted type; anything else is recorded as `HASH`.
 
     The hashed modes need `TracingConfig.arg_key` and a verified caller, and
     record presence without them.
@@ -100,8 +100,8 @@ class TraceArg(Enum):
 
     OMIT = "omit"
     PRESENCE = "presence"
-    EQUALITY = "equality"
-    SIMILARITY = "similarity"
+    HASH = "hash"
+    FINGERPRINT = "fingerprint"
     VALUE = "value"
 
 
@@ -150,7 +150,7 @@ def classify_tool(
     func: Callable[..., object] | None,
     names: Iterable[str],
     *,
-    default: TraceArg = TraceArg.EQUALITY,
+    default: TraceArg = TraceArg.HASH,
     tool: str = "",
 ) -> dict[str, ArgClass]:
     """Classify the client-supplied arguments `names` of a tool; never raises.
@@ -186,7 +186,7 @@ def classify_tool(
 
 
 def classify_arg(
-    name: str, hint: object, default: TraceArg = TraceArg.EQUALITY
+    name: str, hint: object, default: TraceArg = TraceArg.HASH
 ) -> ArgClass:
     """Apply the first matching rule: marker, secret type, secret name, type."""
     markers = list(dict.fromkeys(_markers(hint)))
@@ -205,7 +205,7 @@ def classify_arg(
     elif allowed is not None:
         mode = TraceArg.VALUE
     elif simple:
-        mode = TraceArg.EQUALITY if default is TraceArg.VALUE else default
+        mode = TraceArg.HASH if default is TraceArg.VALUE else default
     else:
         mode = TraceArg.PRESENCE
     if mode is TraceArg.OMIT:
@@ -222,7 +222,7 @@ def classify_arg(
     if float in scalars:
         scalars.add(int)
     if not scalars:
-        return ArgClass(TraceArg.EQUALITY, None, is_list)
+        return ArgClass(TraceArg.HASH, None, is_list)
     return ArgClass(mode, None, is_list, frozenset(scalars))
 
 
@@ -549,7 +549,7 @@ def _hashed_record(
     if canonical is None:
         return _PRESENT_RECORD
     record["eq"] = eq_hex(keys.k_eq, canonical)
-    k_fp = keys.k_fp.get(name) if cls.mode is TraceArg.SIMILARITY else None
+    k_fp = keys.k_fp.get(name) if cls.mode is TraceArg.FINGERPRINT else None
     if k_fp is not None:
         fingerprint = (
             fp_list(items, k_fp)
@@ -638,7 +638,7 @@ def _shapes(cls: ArgClass) -> list[set[str]]:
     shapes = [{"present"}]
     if cls.mode is TraceArg.PRESENCE:
         return shapes
-    similar = cls.mode is TraceArg.SIMILARITY
+    similar = cls.mode is TraceArg.FINGERPRINT
     shapes.append({"eq"})
     if similar:
         shapes.append({"eq", "fp"})
@@ -739,7 +739,7 @@ class ArgTracer:
         self,
         prefix: str,
         *,
-        default: TraceArg = TraceArg.EQUALITY,
+        default: TraceArg = TraceArg.HASH,
         key: bytes | Callable[[], bytes | None] | None = None,
         skip: Iterable[str] = (),
     ) -> None:
@@ -824,7 +824,7 @@ class ArgTracer:
                 fp_args = [
                     name
                     for name, cls in classes.items()
-                    if cls.mode is TraceArg.SIMILARITY
+                    if cls.mode is TraceArg.FINGERPRINT
                 ]
                 keys = derive_keys(master, self.prefix, kind, scope, tool, fp_args)
                 status = "ok"

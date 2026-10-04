@@ -59,14 +59,14 @@ def synthetic_tool(
     api_key: str,
     use_token: bool,
     omit: Annotated[str, TraceArg.OMIT],
-    name: Annotated[str, Field(description="d"), TraceArg.SIMILARITY],
-    similar_list: Annotated[list[str], TraceArg.SIMILARITY],
+    name: Annotated[str, Field(description="d"), TraceArg.FINGERPRINT],
+    similar_list: Annotated[list[str], TraceArg.FINGERPRINT],
     limit: Annotated[int, TraceArg.VALUE] = 20,
     label: Annotated[str | None, TraceArg.VALUE] = None,
     nested: Annotated[str, TraceArg.OMIT] | None = None,
     twice: Annotated[Annotated[str, TraceArg.OMIT], TraceArg.OMIT] = "",
-    my_secret: Annotated[str, TraceArg.EQUALITY] = "",
-    blob: Annotated[dict, TraceArg.EQUALITY] | None = None,
+    my_secret: Annotated[str, TraceArg.HASH] = "",
+    blob: Annotated[dict, TraceArg.HASH] | None = None,
     clash: Annotated[str, TraceArg.OMIT, TraceArg.VALUE] = "",
 ) -> None: ...
 
@@ -80,10 +80,10 @@ PLAN = {
     'value allowed=["x","y"] list': "modes",
     "value int": "limit",
     "value str": "label",
-    "equality": "text number ratio uid described mixed my_secret blob",
-    "equality list": "names either",
-    "similarity": "name",
-    "similarity list": "similar_list",
+    "hash": "text number ratio uid described mixed my_secret blob",
+    "hash list": "names either",
+    "fingerprint": "name",
+    "fingerprint list": "similar_list",
     "presence": "config model anything ints untyped api_key use_token clash",
     "omit": "pw omit nested twice",
 }
@@ -128,13 +128,13 @@ def test_classification_table(caplog: pytest.LogCaptureFixture) -> None:
         name: plan for plan, names in PLAN.items() for name in names.split()
     }
     assert "'clash'" in caplog.text
-    assert t.classify_arg("text", str, TraceArg.SIMILARITY).describe() == "similarity"
-    assert t.classify_arg("text", str, TraceArg.VALUE).describe() == "equality"
+    assert t.classify_arg("text", str, TraceArg.FINGERPRINT).describe() == "fingerprint"
+    assert t.classify_arg("text", str, TraceArg.VALUE).describe() == "hash"
     assert t.classify_arg("apiKey", str).describe() == "presence"
-    # A `VALUE` marker exports only the hinted scalar types; without one it is `EQUALITY`.
+    # A `VALUE` marker exports only the hinted scalar types; without one it is `HASH`.
     value = TraceArg.VALUE
     assert t.classify_arg("x", Annotated[float, value]).describe() == "value float,int"
-    assert t.classify_arg("x", Annotated[dict, value]).describe() == "equality"
+    assert t.classify_arg("x", Annotated[dict, value]).describe() == "hash"
 
     def unresolvable(a) -> None: ...
 
@@ -275,7 +275,7 @@ FORGED = {
     "value of the wrong type": ({"arg.limit": json.dumps({"value": CANARY})}, 1),
     "omitted argument": ({"arg.omit": '{"present":true}'}, 1),
     "undeclared argument": ({f"arg.{CANARY}": '{"present":true}'}, 1),
-    "fp on equality": ({"arg.number": f'{{"eq":"{ZEROS}","fp":"{ZEROS}"}}'}, 1),
+    "fp on hash": ({"arg.number": f'{{"eq":"{ZEROS}","fp":"{ZEROS}"}}'}, 1),
     "bad count": ({"arg.names": f'{{"count":-1,"eq":"{ZEROS}"}}'}, 1),
     "non-canonical JSON": ({"arg.flag": '{"value": true}'}, 1),
     "eq on presence": ({"arg.config": f'{{"eq":"{ZEROS}"}}'}, 1),
