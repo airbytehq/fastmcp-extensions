@@ -288,13 +288,18 @@ class BoundaryExporter(SpanExporter):
     def __init__(self, inner: SpanExporter, install: ToolCallTracingMiddleware) -> None:
         """Wrap `inner` for the spans of `install`."""
         self._inner = inner
-        self._install = install
+        # Held weakly: the provider keeps this exporter for the life of the
+        # process, and it must not keep a discarded app's config and hooks.
+        self._install = weakref.ref(install)
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         """Export the spans that survive the privacy boundary."""
+        install = self._install()
+        if install is None:
+            return SpanExportResult.SUCCESS
         kept = [
             cleaned
-            for cleaned in (clean(span, self._install) for span in spans)
+            for cleaned in (clean(span, install) for span in spans)
             if cleaned is not None
         ]
         if not kept:

@@ -381,11 +381,13 @@ def _safe(
     """Return the attributes from `source`, or nothing when it raises.
 
     Each attribute source runs through this, so one failing source cannot
-    lose the attributes of the others.
+    lose the attributes of the others. A `CancelledError` counts as a failure
+    of the source: a synchronous call cannot be interrupted by a cancellation
+    of the tool call, so the source raised it itself.
     """
     try:
         return {prefix + key: value for key, value in source().items()}
-    except Exception as exc:
+    except (Exception, asyncio.CancelledError) as exc:
         # Only the type: a per-tool callable's error message can quote the
         # client's argument values.
         logger.debug("trace attribute source skipped: %s", type(exc).__name__)
@@ -767,7 +769,12 @@ class ToolCallTracingMiddleware(Middleware):
         )
         spec = self.config.attributes
         try:
-            value = spec if spec is None or isinstance(spec, Mapping) else spec()
+            try:
+                value = spec if spec is None or isinstance(spec, Mapping) else spec()
+            except asyncio.CancelledError:
+                # Raised by the hook itself, as in `_safe`; not a cancelled call.
+                logger.debug("trace attributes hook skipped: CancelledError")
+                return attrs
             if inspect.isawaitable(value):
                 if cancelled:
                     # A cancelled call cannot await; a coroutine is closed unrun.

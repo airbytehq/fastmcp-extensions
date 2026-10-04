@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import hashlib
 import json
 import logging
 import sys
+import weakref
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Annotated, Any, Literal
@@ -24,7 +26,7 @@ from fastmcp.server.providers.addressing import hashed_backend_name
 from fastmcp.tools import ToolResult
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import NoOpTracerProvider, ProxyTracerProvider, StatusCode
 
@@ -50,6 +52,7 @@ from fastmcp_extensions._tracing import (
     bound_value,
     register_tool_call_tracing,
 )
+from fastmcp_extensions._tracing_sdk import BoundaryExporter
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 from fastmcp_extensions.tool_traits import ToolTraits, set_tool_traits
 
@@ -505,6 +508,10 @@ async def _leaks_cancellation() -> dict[str, object]:
     raise asyncio.CancelledError
 
 
+def _sync_leaks_cancellation() -> dict[str, object]:
+    raise asyncio.CancelledError
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("attributes", "expected"),
@@ -523,6 +530,7 @@ async def _leaks_cancellation() -> dict[str, object]:
         pytest.param(_raises, {}, id="raising"),
         # The tool call itself was not cancelled, so it still succeeds.
         pytest.param(_leaks_cancellation, {}, id="leaks-cancel"),
+        pytest.param(_sync_leaks_cancellation, {}, id="sync-leaks-cancel"),
     ],
 )
 async def test_hook_attributes_are_bounded_and_cannot_touch_owned_keys(
@@ -851,6 +859,22 @@ def test_registration_position_and_idempotence() -> None:
     plain = FastMCP("plain")
     register_tool_call_tracing(plain, ToolTracingConfig())
     assert order(plain) == [ToolCallTracingMiddleware]
+
+
+def test_boundary_releases_a_discarded_app() -> None:
+    # No tools: FastMCP caches tool functions, which pins an app they close over.
+    config = ToolTracingConfig(other_spans=lambda span: {})
+    app = mcp_server("t", telemetry=TelemetryConfig(tool_tracing=config))
+    install = next(
+        m for m in app.middleware if isinstance(m, ToolCallTracingMiddleware)
+    )
+    boundary = BoundaryExporter(InMemorySpanExporter(), install)
+    released = weakref.ref(install)
+    del app, install, config
+    gc.collect()
+    # The provider keeps the exporter; it must not keep the app's hooks alive.
+    assert released() is None
+    assert boundary.export([]) is SpanExportResult.SUCCESS
 
 
 def test_other_spans_keeps_only_what_the_hook_returns() -> None:
