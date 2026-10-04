@@ -10,9 +10,11 @@ with FastMCP 2.0, including:
 - Tool list measurement utilities
 - Prompt text retrieval helpers
 - Telemetry middleware for MCP tool call instrumentation
+- OpenTelemetry tracing for MCP tool calls (requires `[otel]` extra)
 - Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
 
+from fastmcp_extensions._arg_trace import TraceArg
 from fastmcp_extensions._telemetry import (
     DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
@@ -24,6 +26,13 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryRecord,
     register_tool_call_telemetry,
     tool_telemetry_properties,
+)
+from fastmcp_extensions._tracing import (
+    TracingConfig,
+    add_trace_attributes,
+    capture_tool_spans,
+    register_tool_call_tracing,
+    trace_plan,
 )
 from fastmcp_extensions.auth import (
     ClientAllowlistJWTVerifier,
@@ -162,12 +171,16 @@ __all__ = [
     "ToolFilterFn",
     "ToolStateBase",
     "ToolTraits",
+    "TraceArg",
+    "TracingConfig",
     "UserFacingErrorFormatter",
     "UserFacingErrorMiddleware",
+    "add_trace_attributes",
     "assert_http_trusted_execution_disabled",
     "build_client_credentials_post_kwargs",
     "build_mcp_auth",
     "capability_filter",
+    "capture_tool_spans",
     "client_declared_extensions_from_headers",
     "client_supports_extension",
     "decode_capability_token",
@@ -195,9 +208,11 @@ __all__ = [
     "register_mcp_resources",
     "register_mcp_tools",
     "register_tool_call_telemetry",
+    "register_tool_call_tracing",
     "render_default_landing_html",
     "run_mcp_http_server",
     "session_token_from_headers",
     "tool_telemetry_properties",
+    "trace_plan",
     "wrap_client_credentials",
 ]

@@ -28,6 +28,7 @@ from fastmcp_extensions.annotations import (
     TOOL_APP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
+    TOOL_TRACING_KEY,
     WITH_STATE_ANNOTATION,
     _canonical_annotation_key,
     standard_annotation_field_names,
@@ -136,6 +137,7 @@ def mcp_tool(
     annotations: Mapping[str, object] | None = None,
     required_capabilities: Iterable[Capability | str] | None = None,
     extra_help_text: str | None = None,
+    tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
 
@@ -170,6 +172,11 @@ def mcp_tool(
             add `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
+        tracing: Tool-call tracing for this tool, when the server enables it.
+            False opts the tool out. A callable receives the call's arguments
+            and returns extra span attributes. It applies on the app the
+            tool is registered on, not on a server that app is mounted into
+            (default: True)
 
     Returns:
         Decorator function that tags the tool with annotations
@@ -214,6 +221,10 @@ def mcp_tool(
         if not issubclass(with_state, ToolStateBase):
             raise TypeError("with_state must be a ToolStateBase subclass")
         annotations[WITH_STATE_ANNOTATION] = with_state
+    if tracing is not True:
+        if tracing is not False and not callable(tracing):
+            raise TypeError("tracing must be a bool or a callable")
+        annotations[TOOL_TRACING_KEY] = tracing
 
     def decorator(func: F) -> F:
         if extra_help_text:

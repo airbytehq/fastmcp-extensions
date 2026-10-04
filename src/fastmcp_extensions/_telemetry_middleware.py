@@ -75,6 +75,17 @@ def tool_telemetry_properties(app: FastMCP, tool_name: str) -> dict[str, str | N
     }
 
 
+def unwrap_tool_error(exc: BaseException) -> BaseException:
+    """Return the real failure behind a `ToolError` that wraps a tool exception.
+
+    FastMCP 3.4+ wraps tool exceptions in `ToolError`; the cause carries the
+    real failure type.
+    """
+    if isinstance(exc, ToolError) and exc.__cause__ is not None:
+        return exc.__cause__
+    return exc
+
+
 def _requested_version(meta: Mapping[str, object] | None) -> VersionSpec | None:
     """Return the tool version a `tools/call` requested through `_meta.fastmcp`."""
     fastmcp_meta = (meta or {}).get("fastmcp")
@@ -234,12 +245,9 @@ class ToolCallTelemetryMiddleware(Middleware):
                 error_type = "ToolError"
         except Exception as exc:
             success = False
-            # FastMCP 3.4+ wraps tool exceptions in `ToolError`; report the cause
-            # so telemetry records the real failure type, not the wrapper.
-            telemetry_error = (
-                exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
-            )
-            error_type = type(telemetry_error).__name__
+            # Report the cause so telemetry records the real failure type,
+            # not the `ToolError` wrapper.
+            error_type = type(unwrap_tool_error(exc)).__name__
             raise
         finally:
             duration_ms = round((time.monotonic() - start) * 1000, 2)

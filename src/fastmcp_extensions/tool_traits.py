@@ -12,7 +12,7 @@ Entries are held weakly by app so they die with the server.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, TypeAlias
@@ -80,6 +80,7 @@ class ToolTraits:
     mcp_module: str | None = None
     required_capabilities: frozenset[str] = field(default_factory=frozenset)
     mutation_class: MutationClass | None = None
+    tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True
 
 
 _TRAITS: WeakKeyDictionary[FastMCP, dict[str, ToolTraits]] = WeakKeyDictionary()

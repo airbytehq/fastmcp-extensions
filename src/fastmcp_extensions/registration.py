@@ -26,6 +26,7 @@ from fastmcp_extensions.annotations import (
     TOOL_APP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
+    TOOL_TRACING_KEY,
     UI_META_KEY,
     WITH_STATE_ANNOTATION,
     _canonical_annotation_key,
@@ -327,6 +328,7 @@ def register_mcp_tools(
         traits = ToolTraits(
             mcp_module=registration_annotations.pop(ANNOTATION_MCP_MODULE, None),
             required_capabilities=required_capabilities,
+            tracing=registration_annotations.pop(TOOL_TRACING_KEY, True),
         )
         if state_type is not None:
             state_types.add(state_type)
