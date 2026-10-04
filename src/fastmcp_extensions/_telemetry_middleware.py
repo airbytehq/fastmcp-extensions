@@ -345,12 +345,13 @@ class ToolCallTelemetryMiddleware(Middleware):
                     "tool_group": facts.traits.mcp_module,
                     "mutation_class": mutation_class.value,
                     **attribution,
-                    **facts.span,
                     **(
                         facts.extra_properties()
                         if owner
                         else resolve_extra_properties(self._extra_properties)
                     ),
+                    # Last, so a server property cannot break the join to the span.
+                    **facts.span,
                 },
             )
             self._sinks.emit(record)

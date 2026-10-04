@@ -592,7 +592,12 @@ async def test_event_and_span_describe_the_same_call(
         "t",
         telemetry=TelemetryConfig(
             anonymization_salt="salt",
-            extra_properties=lambda: {"workspace_id": "w1", "id": CANARY},
+            # A server `trace_id` must not replace the span's on the event.
+            extra_properties=lambda: {
+                "workspace_id": "w1",
+                "id": CANARY,
+                "trace_id": "stale",
+            },
             # A bare string is one name, not a set of substrings to match.
             tool_tracing=ToolTracingConfig(shared_properties="workspace_id"),
         ),

@@ -770,7 +770,9 @@ nested calls. It never raises and does nothing outside a traced call.
 A tool that reaches a traced app through `mount()` or a proxy is traced with
 the defaults: a `tracing=False` or `tracing=` callable declared on its own
 server is ignored, and each of its arguments is recorded as `PRESENCE`.
-`trace_plan(app)` shows what applies.
+`trace_plan(app)` shows what applies. If the mounted server enables tracing
+too, it exports its own span for the call under the parent's, with
+`<p>.root = False`, like a nested call; count calls by `<p>.root = True`.
 
 ### Per-argument declarations
 
