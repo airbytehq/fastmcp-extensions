@@ -30,8 +30,8 @@ from opentelemetry.trace import NoOpTracerProvider, ProxyTracerProvider, StatusC
 
 from fastmcp_extensions import (
     TelemetryConfig,
+    ToolTracingConfig,
     TraceArg,
-    TracingConfig,
     _tracing,
     add_trace_attributes,
     capture_tool_spans,
@@ -95,7 +95,7 @@ def _no_export_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _app(**config: Any) -> FastMCP:
     app = mcp_server(
         "t",
-        telemetry=TelemetryConfig(tool_tracing=TracingConfig(**config)),
+        telemetry=TelemetryConfig(tool_tracing=ToolTracingConfig(**config)),
         tool_filters=[lambda tool, _app: tool.name != "hidden"],
     )
 
@@ -321,7 +321,7 @@ async def test_argument_records(monkeypatch: pytest.MonkeyPatch) -> None:
     """Records are hashed for a verified principal, and re-checked at export."""
     monkeypatch.setattr(_tracing, "get_access_token", lambda: TOKEN)
     app = _app(arg_key=bytes(range(32)))
-    assert "arg_key" not in repr(TracingConfig(arg_key=bytes(range(32))))
+    assert "arg_key" not in repr(ToolTracingConfig(arg_key=bytes(range(32))))
 
     @app.tool
     def search(
@@ -574,7 +574,7 @@ async def test_event_and_span_describe_the_same_call(
             anonymization_salt="salt",
             extra_properties=lambda: {"workspace_id": "w1", "id": CANARY},
             # A bare string is one name, not a set of substrings to match.
-            tool_tracing=TracingConfig(shared_properties="workspace_id"),
+            tool_tracing=ToolTracingConfig(shared_properties="workspace_id"),
         ),
     )
 
@@ -608,7 +608,7 @@ async def test_event_and_span_describe_the_same_call(
 
 @pytest.mark.asyncio
 async def test_failure_wiring_from_config_to_span() -> None:
-    config = TracingConfig(
+    config = ToolTracingConfig(
         error_classifier=lambda exc: (
             "rate_limited" if isinstance(exc, KeyError) else None
         ),
@@ -733,7 +733,7 @@ async def test_per_tool_tracing_option() -> None:
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_isolated_tools")
 async def test_trace_plan() -> None:
-    config = TracingConfig(arg_default=TraceArg.FINGERPRINT, capture_intent=True)
+    config = ToolTracingConfig(arg_default=TraceArg.FINGERPRINT, capture_intent=True)
     app = mcp_server("plan", telemetry=TelemetryConfig(tool_tracing=config))
 
     @app.tool
@@ -778,7 +778,7 @@ async def test_trace_plan() -> None:
 @pytest.mark.asyncio
 async def test_intent_capture() -> None:
     app = _app(capture_intent=True)
-    register_tool_call_tracing(app, TracingConfig(capture_intent=True))
+    register_tool_call_tracing(app, ToolTracingConfig(capture_intent=True))
     assert app.instructions == INTENT_SENTENCE
 
     @app.tool
@@ -824,7 +824,7 @@ def test_registration_position_and_idempotence() -> None:
     # Registered late, tracing still lands inside telemetry and outside filters.
     late = mcp_server("late", tool_filters=[lambda _tool, _app: True])
     for _ in range(2):
-        register_tool_call_tracing(late, TracingConfig())
+        register_tool_call_tracing(late, ToolTracingConfig())
     assert order(_app()) == order(late) == list(kinds)
 
     off = mcp_server("off")  # tracing is off unless the telemetry config sets it
@@ -837,7 +837,7 @@ def test_registration_position_and_idempotence() -> None:
     assert order(disabled) == []
 
     plain = FastMCP("plain")
-    register_tool_call_tracing(plain, TracingConfig())
+    register_tool_call_tracing(plain, ToolTracingConfig())
     assert order(plain) == [ToolCallTracingMiddleware]
 
 

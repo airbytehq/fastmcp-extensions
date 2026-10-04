@@ -29,7 +29,7 @@ import sentry_sdk
 from segment import analytics as _segment_analytics
 
 if TYPE_CHECKING:
-    from fastmcp_extensions._tracing import TracingConfig
+    from fastmcp_extensions._tracing import ToolTracingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class TelemetryConfig:
     no value or raises falls back to `DEFAULT_SEGMENT_USER_ID`.
 
     `tool_tracing` turns on OpenTelemetry tool-call tracing: `True` for the defaults,
-    or a `TracingConfig`. It is off by default, and `enabled=False` turns it off
+    or a `ToolTracingConfig`. It is off by default, and `enabled=False` turns it off
     along with everything else. The event of a traced call carries the span's
     `trace_id` and `span_id`.
     """
@@ -101,7 +101,7 @@ class TelemetryConfig:
     known_public_mcp_domains: Sequence[str] = ()
     anonymization_salt: str | Callable[[], str | None] | None = None
     anonymized_attribution: bool = True
-    tool_tracing: TracingConfig | bool = False
+    tool_tracing: ToolTracingConfig | bool = False
 
 
 # ---------------------------------------------------------------------------

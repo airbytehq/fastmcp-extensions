@@ -627,7 +627,7 @@ be joined:
 - With `anonymization_salt` set, the span carries the event's `caller_hash` and
   `caller_id_type`.
 - `extra_properties` is resolved once per call. Name a key in
-  `TracingConfig(shared_properties=...)` to write it to the span as well; keys
+  `ToolTracingConfig(shared_properties=...)` to write it to the span as well; keys
   that are not named stay off the span.
 
 The two use different names for some of the same facts, because each matches
@@ -705,17 +705,17 @@ two things change:
 
 ### Options
 
-Pass a `TracingConfig` instead of `True`:
+Pass a `ToolTracingConfig` instead of `True`:
 
 ```python
 import os
 
-from fastmcp_extensions import TelemetryConfig, TracingConfig, mcp_server
+from fastmcp_extensions import TelemetryConfig, ToolTracingConfig, mcp_server
 
 app = mcp_server(
     display_name="orders-mcp",
     telemetry=TelemetryConfig(
-        tool_tracing=TracingConfig(
+        tool_tracing=ToolTracingConfig(
             attribute_prefix="acme.mcp",
             attributes={"deployment": "prod"},
             capture_intent=True,
@@ -978,7 +978,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Tracing
 
-- `TracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
+- `ToolTracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
 - `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
 - `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
 - `capture_tool_spans` / `trace_plan` - Test helpers: collect spans as they would be exported, and list what is recorded for each tool.

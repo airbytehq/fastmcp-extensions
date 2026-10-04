@@ -389,12 +389,12 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
     if config.tool_tracing:
         # Imported here because `_tracing` imports this module.
         from fastmcp_extensions._tracing import (
-            TracingConfig,
+            ToolTracingConfig,
             register_tool_call_tracing,
         )
 
         register_tool_call_tracing(
             app,
-            TracingConfig() if config.tool_tracing is True else config.tool_tracing,
+            ToolTracingConfig() if config.tool_tracing is True else config.tool_tracing,
             package_name=package_name,
         )

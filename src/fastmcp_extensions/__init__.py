@@ -28,7 +28,7 @@ from fastmcp_extensions._telemetry_middleware import (
     tool_telemetry_properties,
 )
 from fastmcp_extensions._tracing import (
-    TracingConfig,
+    ToolTracingConfig,
     add_trace_attributes,
     capture_tool_spans,
     trace_plan,
@@ -169,9 +169,9 @@ __all__ = [
     "ToolCallTelemetryRecord",
     "ToolFilterFn",
     "ToolStateBase",
+    "ToolTracingConfig",
     "ToolTraits",
     "TraceArg",
-    "TracingConfig",
     "UserFacingErrorFormatter",
     "UserFacingErrorMiddleware",
     "add_trace_attributes",

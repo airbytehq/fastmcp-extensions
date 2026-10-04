@@ -98,18 +98,20 @@ automatically instrumented app yields two instances and duplicate log lines.
 ## Tool-Call Tracing
 
 Tracing is part of telemetry and is off by default. Set `tool_tracing=True` (or a
-`TracingConfig`) on the `TelemetryConfig` to export one OpenTelemetry span per
+`ToolTracingConfig`) on the `TelemetryConfig` to export one OpenTelemetry span per
 tool call. It needs the `fastmcp-extensions[otel]`
 extra, and exports over OTLP/HTTP once `OTEL_EXPORTER_OTLP_ENDPOINT` or
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set:
 
 ```py
-from fastmcp_extensions import TelemetryConfig, TracingConfig, mcp_server
+from fastmcp_extensions import TelemetryConfig, ToolTracingConfig, mcp_server
 
 app = mcp_server(
     display_name="my-server",
     package_name="my-package",
-    telemetry=TelemetryConfig(tool_tracing=TracingConfig(attribute_prefix="acme.mcp")),
+    telemetry=TelemetryConfig(
+        tool_tracing=ToolTracingConfig(attribute_prefix="acme.mcp")
+    ),
 )
 ```
 

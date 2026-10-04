@@ -167,7 +167,7 @@ _STDIO_SESSION = hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
-class TracingConfig:
+class ToolTracingConfig:
     """Configuration for OpenTelemetry tool-call tracing.
 
     Every attribute the layer writes is namespaced under `attribute_prefix`.
@@ -420,7 +420,7 @@ class ToolCallTracingMiddleware(Middleware):
     span alone and runs no hook, even when another provider is recording.
     """
 
-    def __init__(self, config: TracingConfig) -> None:
+    def __init__(self, config: ToolTracingConfig) -> None:
         """Initialize the middleware for one app."""
         self.config = config
         self.prefix = config.attribute_prefix
@@ -860,7 +860,7 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
     tracer = next(
         (m.args for m in app.middleware if isinstance(m, ToolCallTracingMiddleware)),
         None,
-    ) or ArgTracer(TracingConfig().attribute_prefix)
+    ) or ArgTracer(ToolTracingConfig().attribute_prefix)
     plan: dict[str, dict[str, Any]] = {}
     for tool in await app.list_tools(run_middleware=False):
         fingerprint, schema_chars = tool_contract(tool)
@@ -880,15 +880,15 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
 
 
 def register_tool_call_tracing(
-    app: FastMCP, config: TracingConfig, *, package_name: str | None = None
+    app: FastMCP, config: ToolTracingConfig, *, package_name: str | None = None
 ) -> None:
     """Register tool-call tracing on `app` unless it is already present.
 
     Never raises: when tracing cannot start, one log line says why and the
     server runs untraced.
     """
-    if not isinstance(config, TracingConfig):
-        logger.warning("tracing: disabled (config must be a TracingConfig)")
+    if not isinstance(config, ToolTracingConfig):
+        logger.warning("tracing: disabled (config must be a ToolTracingConfig)")
         return
     if any(
         isinstance(middleware, ToolCallTracingMiddleware)

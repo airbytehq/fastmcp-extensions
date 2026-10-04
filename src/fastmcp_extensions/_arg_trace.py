@@ -94,7 +94,7 @@ class TraceArg(Enum):
     - `VALUE`: the raw value, when it is in the hint's closed set or a bounded
       scalar of the hinted type; anything else is recorded as `HASH`.
 
-    The hashed modes need `TracingConfig.arg_key` and a verified caller, and
+    The hashed modes need `ToolTracingConfig.arg_key` and a verified caller, and
     record presence without them.
     """
 
