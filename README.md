@@ -667,7 +667,7 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.tool.fingerprint` | Hash of the tool's name, description, schemas, and annotations |
 | `<p>.args.supplied`, `<p>.args.unknown`, `<p>.args.invalid` | Argument names the caller sent, names it invented, and `<name>:<pydantic error type>` for validation failures |
 | `<p>.arg.<name>` | One record per argument; see [Per-argument declarations](#per-argument-declarations) |
-| `<p>.arg_tracing`, `<p>.arg_key_scope`, `<p>.arg_scope_id`, `<p>.arg_trace_dropped` | How the argument records were keyed, and how many were dropped at export |
+| `<p>.arg_hash_status`, `<p>.arg_key_scope`, `<p>.arg_scope_id`, `<p>.arg_trace_dropped` | How the argument records were keyed, and how many were dropped at export |
 | `<p>.intent`, `<p>.intent_present` | With `capture_intent`: the agent's stated reason, cut to 4096 characters. Not recorded for a tool that declares its own `intent` parameter |
 | `<p>.result.*` | Result shape: content count and types, text and structured sizes, item count |
 | `<p>.eval.run_id`, `<p>.eval.case_id` | From the `X-MCP-Eval-Run` and `X-MCP-Eval-Case` request headers |
@@ -808,7 +808,7 @@ def query(
 - Hashes need `arg_key` and a caller identified by verified token claims. They
   are scoped to that caller and session, so they compare only within one
   scope. Without either, hashed modes record `{"present": true}`;
-  `<p>.arg_tracing` says which applied (`ok`, `no_key`, `no_scope`, `error`).
+  `<p>.arg_hash_status` says which applied (`ok`, `no_key`, `no_scope`, `error`).
 - Import `TraceArg` at runtime, not under `TYPE_CHECKING`. A marker that cannot
   be resolved turns every argument of that tool into `PRESENCE`, with a
   warning.

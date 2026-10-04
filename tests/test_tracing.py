@@ -77,7 +77,7 @@ CORE_KEYS = {
     *(f"{P}.{key}" for key in ("client_name", "client_version", "outcome", "root")),
     *(f"{P}.{key}" for key in ("mcp_protocol_version", "process.uptime_s")),
     *(f"{P}.{key}" for key in ("tool_destructive", "tool_mutating")),
-    *(f"{P}.{key}" for key in ("arg_tracing", "arg_key_scope")),
+    *(f"{P}.{key}" for key in ("arg_hash_status", "arg_key_scope")),
     *("fastmcp.server.name", "mcp.method.name", "mcp.protocol.version"),
     *("gen_ai.operation.name", "gen_ai.tool.call.id", "gen_ai.tool.name"),
     "jsonrpc.request.id",
@@ -335,7 +335,7 @@ async def test_argument_records(monkeypatch: pytest.MonkeyPatch) -> None:
     assert list(json.loads(family.pop("arg.query"))) == ["eq"]
     assert family.pop("arg_scope_id")
     assert family == {
-        "arg_tracing": "ok",
+        "arg_hash_status": "ok",
         "arg_key_scope": "approximate",
         "arg_trace_dropped": 1,
     }

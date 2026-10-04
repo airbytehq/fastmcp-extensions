@@ -163,7 +163,7 @@ def test_golden_vector() -> None:
         f"{p}.arg.text": '{"eq":"45397e3f11b5a5f44d59848b2f6a3121"}',
         f"{p}.arg.name": '{"eq":"9cb6f450030cd7fefd16633ed474d693",'
         '"fp":"210a0000405025000402000c00022041"}',
-        f"{p}.arg_tracing": "ok",
+        f"{p}.arg_hash_status": "ok",
         f"{p}.arg_key_scope": "transport_session",
         f"{p}.arg_scope_id": "ba5c45977e11f294",
     }
@@ -222,7 +222,10 @@ def test_key_and_scope_fallbacks(
     attrs = _record(ArgTracer(P, key=key), **scope)
     records = _records(attrs)
     hashed = {"eq"} if status == "ok" else {"present"}
-    assert (attrs[f"{P}.arg_tracing"], attrs[f"{P}.arg_key_scope"]) == (status, kind)
+    assert (attrs[f"{P}.arg_hash_status"], attrs[f"{P}.arg_key_scope"]) == (
+        status,
+        kind,
+    )
     assert (f"{P}.arg_scope_id" in attrs) == (status == "ok")
     assert records["flag"] == {"value": True}
     assert set(records["text"]) == hashed
@@ -280,7 +283,7 @@ FORGED = {
     "non-canonical JSON": ({"arg.flag": '{"value": true}'}, 1),
     "eq on presence": ({"arg.config": f'{{"eq":"{ZEROS}"}}'}, 1),
     # Seven digests and the scope id.
-    "eq without ok": ({"arg_tracing": "no_key", "arg_key_scope": "none"}, 8),
+    "eq without ok": ({"arg_hash_status": "no_key", "arg_key_scope": "none"}, 8),
 }
 
 
@@ -290,7 +293,7 @@ def test_revalidate_rejects_forged(forged: dict[str, str], dropped: int) -> None
     tracer = ArgTracer(P, key=MASTER)
     forged = {f"{P}.{key}": value for key, value in forged.items()}
     out = tracer.revalidate("synthetic_tool", {**_record(tracer), **forged})
-    ok = out[f"{P}.arg_tracing"] == "ok"
+    ok = out[f"{P}.arg_hash_status"] == "ok"
     assert out[f"{P}.arg_trace_dropped"] == dropped
     assert CANARY not in json.dumps(out)
     assert not any(key in out for key in forged if ".arg." in key)

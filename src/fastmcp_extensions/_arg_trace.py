@@ -40,7 +40,7 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-TRACING_STATES = frozenset({"ok", "no_key", "no_scope", "error"})
+HASH_STATUSES = frozenset({"ok", "no_key", "no_scope", "error"})
 KEY_SCOPES = frozenset({"transport_session", "approximate", "none"})
 ALLOWED_RECORD_KEYS = frozenset({"value", "present", "eq", "fp", "count"})
 SECRET_NAME_PARTS = (
@@ -605,7 +605,7 @@ def is_arg_key(prefix: str, key: str) -> bool:
     """Return whether `key` belongs to the argument-tracing family."""
     family = prefix + ".arg"
     return key.startswith(family + ".") or key in {
-        family + "_tracing",
+        family + "_hash_status",
         family + "_key_scope",
         family + "_scope_id",
         family + "_trace_dropped",
@@ -691,8 +691,8 @@ def validate(
     }
     if classes is None:
         return {}, len(new)
-    tracing = new.get(family + "_tracing")
-    if not (isinstance(tracing, str) and tracing in TRACING_STATES):
+    tracing = new.get(family + "_hash_status")
+    if not (isinstance(tracing, str) and tracing in HASH_STATUSES):
         tracing = None
     accepted: dict[str, str] = {}
     for key, value in new.items():
@@ -707,7 +707,7 @@ def validate(
                 and _record_ok(record, cls)
                 and ("eq" not in record or tracing == "ok")
             )
-        elif key == family + "_tracing":
+        elif key == family + "_hash_status":
             ok = tracing is not None
         elif key == family + "_key_scope":
             ok = (
@@ -829,13 +829,13 @@ class ArgTracer:
                 keys = derive_keys(master, self.prefix, kind, scope, tool, fp_args)
                 status = "ok"
             attrs = build_records(self.prefix, args or {}, classes, keys)
-            attrs[family + "_tracing"] = status
+            attrs[family + "_hash_status"] = status
             attrs[family + "_key_scope"] = keys.kind if keys else "none"
             if keys is not None:
                 attrs[family + "_scope_id"] = scope_id(self.prefix, keys.k_eq)
         except Exception as exc:
             logger.debug("Argument tracing failed: %s", type(exc).__name__)
-            return {family + "_tracing": "error", family + "_key_scope": "none"}
+            return {family + "_hash_status": "error", family + "_key_scope": "none"}
         return attrs
 
     def revalidate(

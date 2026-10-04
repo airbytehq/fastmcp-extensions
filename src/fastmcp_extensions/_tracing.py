@@ -146,7 +146,7 @@ OWNED_KEYS = frozenset(
         "tool_requested_name",
         "intent",
         "intent_present",
-        "arg_tracing",
+        "arg_hash_status",
         "arg_key_scope",
         "arg_scope_id",
         "arg_trace_dropped",
