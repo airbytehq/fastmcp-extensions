@@ -973,6 +973,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Telemetry
 
+- `TelemetryConfig` / `register_tool_call_telemetry` - Configure tool-call telemetry, including `tool_tracing`, and register it on a plain FastMCP app; `mcp_server(telemetry=...)` does both.
 - `ToolCallTelemetryMiddleware` - Record MCP tool-call timing, success, and error type.
 - `TelemetrySinks` / `TelemetryRecord` / `ToolCallTelemetryRecord` - Configure telemetry destinations and represent emitted records.
 
