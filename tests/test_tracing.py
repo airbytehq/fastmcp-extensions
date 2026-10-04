@@ -94,7 +94,7 @@ def _no_export_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _app(**config: Any) -> FastMCP:
     app = mcp_server(
         "t",
-        telemetry=TelemetryConfig(tracing=TracingConfig(**config)),
+        telemetry=TelemetryConfig(tool_tracing=TracingConfig(**config)),
         tool_filters=[lambda tool, _app: tool.name != "hidden"],
     )
 
@@ -454,7 +454,7 @@ def test_default_otlp_export_and_resource(
         mcp_server(
             "orders-mcp",
             package_name="fastmcp",
-            telemetry=TelemetryConfig(tracing=True),
+            telemetry=TelemetryConfig(tool_tracing=True),
         )
     assert "tracing: exporter=otlp provider=created" in caplog.messages
     resource = providers[-1].resource.attributes
@@ -536,7 +536,9 @@ async def test_failure_wiring_from_config_to_span() -> None:
         late_attributes=lambda: {"late": "yes"},
     )
     app = mcp_server(
-        "t", user_facing_errors=[ValueError], telemetry=TelemetryConfig(tracing=config)
+        "t",
+        user_facing_errors=[ValueError],
+        telemetry=TelemetryConfig(tool_tracing=config),
     )
 
     @app.tool
@@ -653,7 +655,7 @@ async def test_per_tool_tracing_option() -> None:
 @pytest.mark.usefixtures("_isolated_tools")
 async def test_trace_plan() -> None:
     config = TracingConfig(arg_default=TraceArg.FINGERPRINT, capture_intent=True)
-    app = mcp_server("plan", telemetry=TelemetryConfig(tracing=config))
+    app = mcp_server("plan", telemetry=TelemetryConfig(tool_tracing=config))
 
     @app.tool
     def search(
@@ -751,7 +753,9 @@ def test_registration_position_and_idempotence() -> None:
     assert order(off) == [ToolCallTelemetryMiddleware]
 
     # `enabled=False` is the master switch: no telemetry and no tracing.
-    disabled = mcp_server("x", telemetry=TelemetryConfig(enabled=False, tracing=True))
+    disabled = mcp_server(
+        "x", telemetry=TelemetryConfig(enabled=False, tool_tracing=True)
+    )
     assert order(disabled) == []
 
     plain = FastMCP("plain")

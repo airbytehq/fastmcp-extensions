@@ -273,7 +273,7 @@ class ToolCallTelemetryMiddleware(Middleware):
 def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
     """Register tool-call telemetry on `app` unless it is already present.
 
-    Also registers tool-call tracing when `config.tracing` is set.
+    Also registers tool-call tracing when `config.tool_tracing` is set.
     """
     if not config.enabled:
         return
@@ -296,7 +296,7 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
             )
         )
 
-    if config.tracing:
+    if config.tool_tracing:
         # Imported here because `_tracing` imports this module.
         from fastmcp_extensions._tracing import (
             TracingConfig,
@@ -304,5 +304,5 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
         )
 
         register_tool_call_tracing(
-            app, TracingConfig() if config.tracing is True else config.tracing
+            app, TracingConfig() if config.tool_tracing is True else config.tool_tracing
         )

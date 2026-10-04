@@ -97,7 +97,7 @@ automatically instrumented app yields two instances and duplicate log lines.
 
 ## Tool-Call Tracing
 
-Tracing is part of telemetry and is off by default. Set `tracing=True` (or a
+Tracing is part of telemetry and is off by default. Set `tool_tracing=True` (or a
 `TracingConfig`) on the `TelemetryConfig` to export one OpenTelemetry span per
 tool call. It needs the `fastmcp-extensions[otel]`
 extra, and exports over OTLP/HTTP once `OTEL_EXPORTER_OTLP_ENDPOINT` or
@@ -109,7 +109,7 @@ from fastmcp_extensions import TelemetryConfig, TracingConfig, mcp_server
 app = mcp_server(
     display_name="my-server",
     package_name="my-package",
-    telemetry=TelemetryConfig(tracing=TracingConfig(attribute_prefix="acme.mcp")),
+    telemetry=TelemetryConfig(tool_tracing=TracingConfig(attribute_prefix="acme.mcp")),
 )
 ```
 
@@ -412,7 +412,7 @@ def mcp_server(
         telemetry: Tool-call telemetry configuration. Defaults to structured
             log-only telemetry. Set to False or use
             `TelemetryConfig(enabled=False)` to disable the middleware.
-            `TelemetryConfig(tracing=...)` adds OpenTelemetry tool-call tracing.
+            `TelemetryConfig(tool_tracing=...)` adds OpenTelemetry tool-call tracing.
         user_facing_errors: Exception types to convert into concise `ToolError`s
             for MCP clients. Exceptions not in this sequence use FastMCP's
             default error handling.

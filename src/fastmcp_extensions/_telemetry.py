@@ -82,7 +82,7 @@ class TelemetryConfig:
     context of the call being tracked. A callable `segment_user_id` that returns
     no value or raises falls back to `DEFAULT_SEGMENT_USER_ID`.
 
-    `tracing` turns on OpenTelemetry tool-call tracing: `True` for the defaults,
+    `tool_tracing` turns on OpenTelemetry tool-call tracing: `True` for the defaults,
     or a `TracingConfig`. It is off by default, and `enabled=False` turns it off
     along with everything else.
     """
@@ -99,7 +99,7 @@ class TelemetryConfig:
     known_public_mcp_domains: Sequence[str] = ()
     anonymization_salt: str | Callable[[], str | None] | None = None
     anonymized_attribution: bool = True
-    tracing: TracingConfig | bool = False
+    tool_tracing: TracingConfig | bool = False
 
 
 # ---------------------------------------------------------------------------
