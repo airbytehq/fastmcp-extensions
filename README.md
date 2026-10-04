@@ -19,7 +19,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
 12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
-14. 🔭 **Tracing behind an allowlist** - `tracing=True` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](#tool-call-tracing).
+14. 🔭 **Tracing behind an allowlist** - `TelemetryConfig(tracing=True)` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](#tool-call-tracing).
 15. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
 
 ## Upgrading to 0.x (FastMCP 4)
@@ -582,21 +582,24 @@ capability unavailable; exceptions are logged by type without their message.
 ## Tool-Call Tracing
 
 FastMCP opens an OpenTelemetry span for every request, but nothing exports it
-until an SDK is installed. `tracing=` installs the SDK, adds what an operator
-needs to FastMCP's own `tools/call` span, and rebuilds every span from an
-allowlist before it is exported. Install the `otel` extra and turn it on:
+until an SDK is installed. Tracing is part of telemetry:
+`TelemetryConfig(tracing=...)` installs the SDK, adds what an operator needs to
+FastMCP's own `tools/call` span, and rebuilds every span from an allowlist
+before it is exported. Install the `otel` extra and turn it on:
 
 ```bash
 pip install "fastmcp-extensions[otel]"
 ```
 
 ```python
-from fastmcp_extensions import mcp_server
+from fastmcp_extensions import TelemetryConfig, mcp_server
 
-app = mcp_server(display_name="orders-mcp", package_name="orders-mcp", tracing=True)
+app = mcp_server(display_name="orders-mcp", telemetry=TelemetryConfig(tracing=True))
 ```
 
-Tracing is off by default. Once enabled, spans are exported over OTLP/HTTP when
+Tracing is off by default, and `telemetry=False` or
+`TelemetryConfig(enabled=False)` turns it off with the rest of telemetry. Once
+enabled, spans are exported over OTLP/HTTP when
 `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set;
 until then tracing stays dormant. The OpenTelemetry SDK reads its own `OTEL_*`
 exporter and resource variables as usual (for sampling, see
@@ -606,7 +609,9 @@ startup says what tracing is doing, for example
 `tracing: exporter=otlp provider=created` or
 `tracing: dormant (no OTLP endpoint set)`. Tracing never raises into a tool
 call and never breaks server startup. Servers built without `mcp_server()` call
-`register_tool_call_tracing(app, TracingConfig())`, which is idempotent.
+`register_tool_call_telemetry(app, TelemetryConfig(tracing=True))`, or
+`register_tool_call_tracing(app, TracingConfig())` for tracing alone; both are
+idempotent.
 
 ### What a span carries
 
@@ -674,16 +679,17 @@ Pass a `TracingConfig` instead of `True`:
 ```python
 import os
 
-from fastmcp_extensions import TracingConfig, mcp_server
+from fastmcp_extensions import TelemetryConfig, TracingConfig, mcp_server
 
 app = mcp_server(
     display_name="orders-mcp",
-    package_name="orders-mcp",
-    tracing=TracingConfig(
-        attribute_prefix="acme.mcp",
-        attributes={"deployment": "prod"},
-        capture_intent=True,
-        arg_key=lambda: bytes.fromhex(os.environ["ORDERS_MCP_ARG_KEY"]),
+    telemetry=TelemetryConfig(
+        tracing=TracingConfig(
+            attribute_prefix="acme.mcp",
+            attributes={"deployment": "prod"},
+            capture_intent=True,
+            arg_key=lambda: bytes.fromhex(os.environ["ORDERS_MCP_ARG_KEY"]),
+        ),
     ),
 )
 ```
@@ -942,7 +948,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Tracing
 
-- `TracingConfig` / `register_tool_call_tracing` - Configure OpenTelemetry tool-call tracing and register it on a plain FastMCP app; `mcp_server(tracing=...)` does both.
+- `TracingConfig` / `register_tool_call_tracing` - Configure OpenTelemetry tool-call tracing and register it on a plain FastMCP app; `TelemetryConfig(tracing=...)` does both.
 - `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
 - `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
 - `capture_tool_spans` / `trace_plan` - Test helpers: collect spans as they would be exported, and list what is recorded for each tool.

@@ -97,18 +97,19 @@ automatically instrumented app yields two instances and duplicate log lines.
 
 ## Tool-Call Tracing
 
-Tracing is off by default. Pass `tracing=True` (or a `TracingConfig`) to export
-one OpenTelemetry span per tool call. It needs the `fastmcp-extensions[otel]`
+Tracing is part of telemetry and is off by default. Set `tracing=True` (or a
+`TracingConfig`) on the `TelemetryConfig` to export one OpenTelemetry span per
+tool call. It needs the `fastmcp-extensions[otel]`
 extra, and exports over OTLP/HTTP once `OTEL_EXPORTER_OTLP_ENDPOINT` or
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set:
 
 ```py
-from fastmcp_extensions import TracingConfig, mcp_server
+from fastmcp_extensions import TelemetryConfig, TracingConfig, mcp_server
 
 app = mcp_server(
     display_name="my-server",
     package_name="my-package",
-    tracing=TracingConfig(attribute_prefix="acme.mcp"),
+    telemetry=TelemetryConfig(tracing=TracingConfig(attribute_prefix="acme.mcp")),
 )
 ```
 
@@ -117,9 +118,10 @@ survive, and raw results and exception messages are never exported. Each
 argument is exported as a record chosen by its type hint or by a `TraceArg`
 marker in `Annotated[...]`: a declared-safe value, a keyed hash, or presence
 only. `trace_plan(app)` lists what is recorded for each tool.
-Tracing never breaks a tool call or server startup. Servers built without
-`mcp_server()` can register via `register_tool_call_tracing(app, config)`, which
-is idempotent.
+Tracing never breaks a tool call or server startup, and `telemetry=False` or
+`TelemetryConfig(enabled=False)` turns it off with the rest of telemetry.
+Servers built without `mcp_server()` can register tracing alone via
+`register_tool_call_tracing(app, config)`, which is idempotent.
 
 ## User-Facing Errors
 
@@ -149,7 +151,6 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     register_tool_call_telemetry,
 )
-from fastmcp_extensions._tracing import TracingConfig, register_tool_call_tracing
 from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
@@ -366,7 +367,6 @@ def mcp_server(
     include_standard_tool_filters: bool = False,
     encoded_session_state: EncodedSessionStateConfig | None = None,
     telemetry: TelemetryConfig | bool = True,
-    tracing: TracingConfig | bool = False,
     user_facing_errors: Sequence[type[BaseException]] | None = None,
     user_facing_error_formatter: UserFacingErrorFormatter = str,
     **fastmcp_kwargs: Any,
@@ -412,8 +412,7 @@ def mcp_server(
         telemetry: Tool-call telemetry configuration. Defaults to structured
             log-only telemetry. Set to False or use
             `TelemetryConfig(enabled=False)` to disable the middleware.
-        tracing: OpenTelemetry tool-call tracing configuration. Defaults to
-            off. Set to True or pass a `TracingConfig` to enable it.
+            `TelemetryConfig(tracing=...)` adds OpenTelemetry tool-call tracing.
         user_facing_errors: Exception types to convert into concise `ToolError`s
             for MCP clients. Exceptions not in this sequence use FastMCP's
             default error handling.
@@ -543,11 +542,6 @@ def mcp_server(
         if telemetry_config.package_name is None:
             telemetry_config = replace(telemetry_config, package_name=package_name)
         register_tool_call_telemetry(app, telemetry_config)
-
-    # After telemetry and before the tool filters, so tracing sits just inside
-    # telemetry and still sees filter rejections.
-    if tracing:
-        register_tool_call_tracing(app, TracingConfig() if tracing is True else tracing)
 
     # Build the list of tool filters, including standard ones if requested
     all_tool_filters: list[ToolFilterFn] = list(tool_filters or [])

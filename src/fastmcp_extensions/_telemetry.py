@@ -22,10 +22,13 @@ import logging
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import sentry_sdk
 from segment import analytics as _segment_analytics
+
+if TYPE_CHECKING:
+    from fastmcp_extensions._tracing import TracingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,10 @@ class TelemetryConfig:
     Either identity may be a callable, which is resolved for every event in the
     context of the call being tracked. A callable `segment_user_id` that returns
     no value or raises falls back to `DEFAULT_SEGMENT_USER_ID`.
+
+    `tracing` turns on OpenTelemetry tool-call tracing: `True` for the defaults,
+    or a `TracingConfig`. It is off by default, and `enabled=False` turns it off
+    along with everything else.
     """
 
     enabled: bool = True
@@ -92,6 +99,7 @@ class TelemetryConfig:
     known_public_mcp_domains: Sequence[str] = ()
     anonymization_salt: str | Callable[[], str | None] | None = None
     anonymized_attribution: bool = True
+    tracing: TracingConfig | bool = False
 
 
 # ---------------------------------------------------------------------------

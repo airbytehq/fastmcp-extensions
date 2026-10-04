@@ -13,7 +13,7 @@ OpenTelemetry SDK is installed. This module does three things:
    never leave the process. Tool arguments leave only as the records
    `_arg_trace` builds, which are re-validated here.
 
-`mcp_server()` registers the middleware from a `TracingConfig`; see
+`mcp_server()` registers the middleware from `TelemetryConfig.tracing`; see
 `fastmcp_extensions.server` for the user-facing configuration docs. Plain
 `FastMCP` apps use `register_tool_call_tracing()`, which is idempotent.
 

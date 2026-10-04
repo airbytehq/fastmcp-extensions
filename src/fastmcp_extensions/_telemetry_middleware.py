@@ -271,23 +271,38 @@ class ToolCallTelemetryMiddleware(Middleware):
 
 
 def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
-    """Register tool-call telemetry on `app` unless it is already present."""
-    if not config.enabled or any(
+    """Register tool-call telemetry on `app` unless it is already present.
+
+    Also registers tool-call tracing when `config.tracing` is set.
+    """
+    if not config.enabled:
+        return
+
+    if not any(
         isinstance(middleware, ToolCallTelemetryMiddleware)
         for middleware in app.middleware
     ):
-        return
-
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name=config.package_name,
-            sentry_dsn=config.sentry_dsn,
-            segment_write_key=config.segment_write_key,
-            segment_user_id=config.segment_user_id,
-            segment_anonymous_id=config.segment_anonymous_id,
-            extra_properties=config.extra_properties,
-            known_public_mcp_domains=config.known_public_mcp_domains,
-            anonymization_salt=config.anonymization_salt,
-            anonymized_attribution=config.anonymized_attribution,
+        app.add_middleware(
+            ToolCallTelemetryMiddleware(
+                package_name=config.package_name,
+                sentry_dsn=config.sentry_dsn,
+                segment_write_key=config.segment_write_key,
+                segment_user_id=config.segment_user_id,
+                segment_anonymous_id=config.segment_anonymous_id,
+                extra_properties=config.extra_properties,
+                known_public_mcp_domains=config.known_public_mcp_domains,
+                anonymization_salt=config.anonymization_salt,
+                anonymized_attribution=config.anonymized_attribution,
+            )
         )
-    )
+
+    if config.tracing:
+        # Imported here because `_tracing` imports this module.
+        from fastmcp_extensions._tracing import (
+            TracingConfig,
+            register_tool_call_tracing,
+        )
+
+        register_tool_call_tracing(
+            app, TracingConfig() if config.tracing is True else config.tracing
+        )
