@@ -19,7 +19,7 @@ Use standard filters automatically:
 from fastmcp_extensions import mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     include_standard_tool_filters=True,
 )
 ```
@@ -34,7 +34,7 @@ from fastmcp_extensions.tool_filters import (
 )
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     server_config_args=[READONLY_MODE_CONFIG_ARG],
 )
 app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))

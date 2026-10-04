@@ -163,7 +163,7 @@ class ToolCallTelemetryMiddleware(Middleware):
 
     ```python
     app = mcp_server(
-        name="my-server",
+        display_name="my-server",
         package_name="my-package",
         telemetry=TelemetryConfig(
             sentry_dsn="https://...@sentry.io/...",

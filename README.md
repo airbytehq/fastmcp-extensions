@@ -74,13 +74,13 @@ uv add fastmcp-extensions
 
 ### Using the MCP Server Factory
 
-The `mcp_server` function creates a FastMCP instance with built-in server info resources and optional credential resolution:
+The `mcp_server` function creates a FastMCP instance with built-in server info resources and optional credential resolution. `package_name` is the installed distribution used for version reporting; when omitted, it is derived from the calling module's installed distribution.
 
 ```python
 from fastmcp_extensions import mcp_server, MCPServerConfigArg
 
 app = mcp_server(
-    name="my-mcp-server",
+    display_name="my-mcp-server",
     package_name="my-package",
     advertised_properties={
         "docs_url": "https://github.com/org/repo",
@@ -218,7 +218,7 @@ from fastmcp_extensions import (
     mcp_server,
 )
 
-app = mcp_server(name="my-mcp-server", package_name="my-package")
+app = mcp_server(display_name="my-mcp-server", package_name="my-package")
 
 # The server decides its env-var names and maps them into typed configs. Read
 # every field with os.getenv and only build the config once all are present, so
@@ -331,7 +331,7 @@ from fastmcp.apps import AppConfig
 from fastmcp_extensions import mcp_server, mcp_tool, register_mcp_tools
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     include_standard_tool_filters=True,
 )
 
@@ -448,7 +448,7 @@ binding at the server level with `EncodedSessionStateConfig`:
 from fastmcp_extensions import EncodedSessionStateConfig, mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     encoded_session_state=EncodedSessionStateConfig(
         signing="required",
         secret="a-secret-from-your-deployment",
@@ -505,7 +505,7 @@ SSE transport do not receive these stateless-only layers.
 
 ```python
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     include_standard_tool_filters=True,
 )
 ```
@@ -561,7 +561,7 @@ def docs_search_available(app: FastMCP) -> bool:
 
 
 app = mcp_server(
-    name="docs-server",
+    display_name="docs-server",
     server_config_args=[DOCS_API_KEY, DOCS_API_URL],
     capability_resolvers={DOCS_SEARCH: docs_search_available},
 )
@@ -593,7 +593,7 @@ pip install "fastmcp-extensions[otel]"
 ```python
 from fastmcp_extensions import mcp_server
 
-app = mcp_server(name="orders-mcp", package_name="orders-mcp", tracing=True)
+app = mcp_server(display_name="orders-mcp", package_name="orders-mcp", tracing=True)
 ```
 
 Tracing is off by default. Once enabled, spans are exported over OTLP/HTTP when
@@ -677,7 +677,7 @@ import os
 from fastmcp_extensions import TracingConfig, mcp_server
 
 app = mcp_server(
-    name="orders-mcp",
+    display_name="orders-mcp",
     package_name="orders-mcp",
     tracing=TracingConfig(
         attribute_prefix="acme.mcp",
@@ -825,7 +825,7 @@ passing their types to `mcp_server()`. A formatter can customize the message:
 from fastmcp_extensions import mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     user_facing_errors=[ValueError],
     user_facing_error_formatter=lambda error: f"Invalid request: {error}",
 )
