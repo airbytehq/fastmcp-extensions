@@ -579,6 +579,10 @@ async def test_hashed_name_tool_keeps_its_own_intent() -> None:
     assert span.name == f"tools/call {name}"
     assert CANARY not in json.dumps(_attrs(span), default=str)
 
+    # The hashed name carries the opt-out of the tool it resolves to.
+    set_tool_traits(app, "save", ToolTraits(tracing=False))
+    assert await _spans(app, name, {"intent": "x"}) == []
+
 
 @pytest.mark.asyncio
 async def test_event_and_span_describe_the_same_call(

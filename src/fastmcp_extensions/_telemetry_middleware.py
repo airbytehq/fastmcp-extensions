@@ -207,9 +207,13 @@ def tool_call_facts(
     traits = ToolTraits()
     try:
         if context.fastmcp_context is not None:
-            traits = get_tool_traits(
-                context.fastmcp_context.fastmcp, context.message.name
-            )
+            app, name = context.fastmcp_context.fastmcp, context.message.name
+            traits = get_tool_traits(app, name)
+            # A hashed backend name (`<hash>_<name>`) resolves to the tool
+            # registered as `<name>`, so that tool's traits and opt-out apply.
+            hashed = parse_hashed_backend_name(name)
+            if hashed is not None and traits == ToolTraits():
+                traits = get_tool_traits(app, hashed[1])
     except Exception:
         logger.debug("Failed to read tool traits", exc_info=True)
     return ToolCallFacts(context, traits)

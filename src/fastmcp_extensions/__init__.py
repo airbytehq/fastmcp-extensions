@@ -20,6 +20,7 @@ from fastmcp_extensions._telemetry import (
     TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
+    ToolTracingConfig,
 )
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
@@ -28,7 +29,6 @@ from fastmcp_extensions._telemetry_middleware import (
     tool_telemetry_properties,
 )
 from fastmcp_extensions._tracing import (
-    ToolTracingConfig,
     add_trace_attributes,
     capture_tool_spans,
     trace_plan,
