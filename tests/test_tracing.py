@@ -22,6 +22,7 @@ from typing import Annotated, Any, Literal
 import httpx
 import pytest
 from fastmcp import Client, Context, FastMCP, FastMCPApp
+from fastmcp.server.middleware import Middleware
 from fastmcp.server.providers.addressing import hashed_backend_name
 from fastmcp.tools import ToolResult
 from opentelemetry import trace
@@ -948,6 +949,36 @@ async def test_other_spans_never_sees_an_opted_out_tool(how: str) -> None:
     keep.clear()
     # The in-process test client's own CLIENT span is not the server's.
     assert [span for span in spans if span.kind is SpanKind.SERVER] == []
+
+
+@pytest.mark.asyncio
+async def test_other_spans_never_sees_a_failed_tools_list() -> None:
+    class Fails(Middleware):
+        async def on_list_tools(self, context: Any, call_next: Any) -> Any:
+            raise RuntimeError
+
+    keep = [True]  # cleared below: the hook outlives this test with its app
+    app = _app(other_spans=lambda span: {} if keep else None)
+    app.add_middleware(Fails())
+    with capture_tool_spans() as spans:
+        async with Client(app) as client:
+            with contextlib.suppress(Exception):
+                await client.list_tools()
+    keep.clear()
+    assert "tools/list" not in {s.name for s in spans if s.kind is SpanKind.SERVER}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_call_cancels_a_scheduled_hook() -> None:
+    tasks: list[asyncio.Future[None]] = []
+
+    def hook() -> asyncio.Future[None]:
+        tasks.append(asyncio.ensure_future(asyncio.sleep(5)))
+        return tasks[-1]
+
+    await _spans(_app(attributes=hook), "slow", how="cancel")
+    await asyncio.sleep(0)
+    assert tasks[-1].cancelled()
 
 
 def test_other_spans_keeps_only_what_the_hook_returns() -> None:

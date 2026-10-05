@@ -404,6 +404,10 @@ class ToolCallTracingMiddleware(Middleware):
         # Only the first look counts: FastMCP relabels another request's span
         # as `tools/list` once its handler has listed tools in-process.
         _LISTED.set(span)
+        if stamp:
+            # Before the handler, so a failed listing is still this layer's
+            # span and never reaches `other_spans`.
+            _set_attributes(span, {MARK: self.mark})
         tools = await call_next(context)
         try:
             if stamp:
@@ -734,8 +738,13 @@ class ToolCallTracingMiddleware(Middleware):
                 return attrs
             if inspect.isawaitable(value):
                 if cancelled:
-                    # A cancelled call cannot await; a coroutine is closed unrun.
-                    getattr(value, "close", lambda: None)()
+                    # A cancelled call cannot await: a coroutine is closed
+                    # unrun, and a task or future is cancelled.
+                    dispose = getattr(value, "close", None) or getattr(
+                        value, "cancel", None
+                    )
+                    if dispose is not None:
+                        dispose()
                     return attrs
                 # Run as its own task: `asyncio.wait` raises `CancelledError`
                 # only when this call is cancelled, not when the hook leaks one.

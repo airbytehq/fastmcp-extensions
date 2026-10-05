@@ -173,7 +173,9 @@ class ToolCallFacts:
     def extra_properties(self) -> Mapping[str, object]:
         """Return the server's `extra_properties`, resolved once per call."""
         if self._extra is None:
-            self._extra = resolve_extra_properties(self.extra_source)
+            # A copy, so the event and the span read the same values even if
+            # the server's mapping changes in between.
+            self._extra = dict(resolve_extra_properties(self.extra_source))
         return self._extra
 
     def settle(self, result: ToolResult | None, error: BaseException | None) -> None:
