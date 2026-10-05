@@ -50,6 +50,10 @@ def _caused_by(cause: BaseException) -> RuntimeError:
     return error
 
 
+def _cancels(_: BaseException) -> str:
+    raise asyncio.CancelledError
+
+
 USER_FACING = {"user_facing_errors": (KeyError,)}
 # (cause, keyword arguments, (category, fault[, upstream status]))
 ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] = [
@@ -75,6 +79,7 @@ ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] 
     (RuntimeError(), {"classifier": lambda _: "auth"}, ("auth", "caller")),
     (RuntimeError(), {"classifier": lambda _: "nonsense"}, ("internal", "server")),
     (RuntimeError(), {"classifier": lambda _: 1 / 0}, ("internal", "server")),
+    (RuntimeError(), {"classifier": _cancels}, ("internal", "server")),
 ]
 
 

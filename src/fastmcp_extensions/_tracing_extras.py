@@ -130,7 +130,8 @@ def error_attributes(
     if classifier is not None:
         try:
             chosen = classifier(cause)
-        except Exception:
+        except (Exception, asyncio.CancelledError):
+            # A faulty classifier is ignored; the built-in category applies.
             chosen = None
         if isinstance(chosen, str) and chosen in ERROR_FAULTS:
             category = chosen

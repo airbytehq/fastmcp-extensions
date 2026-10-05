@@ -893,6 +893,13 @@ async def test_tool_code_cannot_replace_intent_or_change_arguments() -> None:
     assert received == [[3, 1], [3, 1]]
 
 
+def test_intent_is_made_exportable() -> None:
+    # A lone surrogate cannot be encoded, and would fail the whole export batch.
+    assert _tracing.clean_intent(" why\x00 it\ud800 ran\nnext line ") == (
+        "why  it  ran\nnext line"
+    )
+
+
 def test_boundary_survives_a_cancelling_other_spans_hook() -> None:
     def cancels(span: ReadableSpan) -> dict[str, object]:
         raise asyncio.CancelledError

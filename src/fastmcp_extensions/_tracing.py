@@ -253,8 +253,17 @@ def add_trace_attributes(attributes: Mapping[str, object]) -> None:
 
 
 def clean_intent(value: object) -> str:
-    """Return the stripped intent text, cut to 4096 characters with a marker."""
-    text = str.strip(value) if isinstance(value, str) else ""
+    """Return the intent text, made exportable and cut to 4096 characters.
+
+    Newlines and tabs are kept. Other non-printable characters become spaces,
+    including unpaired surrogates, which cannot be encoded for export.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = "".join(
+        char if char.isprintable() or char in "\n\t" else " "
+        for char in str.strip(value)
+    ).strip()
     if len(text) > MAX_INTENT:
         text = text[: MAX_INTENT - len(_TRUNCATED)] + _TRUNCATED
     return text
