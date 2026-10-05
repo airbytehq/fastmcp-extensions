@@ -248,7 +248,8 @@ def add_trace_attributes(attributes: Mapping[str, object]) -> None:
         call = _CURRENT.get()
         if call is not None and call.traced and call.span.is_recording():
             _set_attributes(call.span, user_attributes(call.prefix, attributes))
-    except Exception:
+    except (Exception, asyncio.CancelledError):
+        # Nothing here awaits, so a `CancelledError` comes from the mapping.
         logger.debug("add_trace_attributes skipped", exc_info=True)
 
 
@@ -445,13 +446,22 @@ class ToolCallTracingMiddleware(Middleware):
         facts = tool_call_facts(context)
         option = facts.traits.tracing
         if option is False or not self._active():
+            span = trace.get_current_span()
+            seam = _is_unclaimed_seam(span)
             # Remember the untraced call so a nested call does not claim this
             # tool's request span and stamp it with the wrong tool.
-            token = _CURRENT.set(
-                _Call(trace.get_current_span(), self.prefix, False, inside)
-            )
+            token = _CURRENT.set(_Call(span, self.prefix, False, inside))
             try:
-                return await call_next(await self._strip_intent(context, facts))
+                with ExitStack() as stack:
+                    # An opted-out call exports nothing, also through
+                    # `other_spans`: the mark alone makes the boundary drop
+                    # FastMCP's request span, and FastMCP opens no span of
+                    # its own for an in-process call.
+                    if seam and self._active():
+                        _set_attributes(span, {MARK: self.mark})
+                    elif self._active():
+                        stack.enter_context(suppress_fastmcp_telemetry())
+                    return await call_next(await self._strip_intent(context, facts))
             finally:
                 _CURRENT.reset(token)
 

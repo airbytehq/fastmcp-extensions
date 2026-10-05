@@ -28,7 +28,12 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import NoOpTracerProvider, ProxyTracerProvider, StatusCode
+from opentelemetry.trace import (
+    NoOpTracerProvider,
+    ProxyTracerProvider,
+    SpanKind,
+    StatusCode,
+)
 
 from fastmcp_extensions import (
     TelemetryConfig,
@@ -677,8 +682,13 @@ async def test_span_survives_the_sdk_attribute_limit() -> None:
 async def test_add_trace_attributes_targets_the_innermost_call() -> None:
     app = _app()
 
+    class Cancels(dict[str, object]):
+        def items(self) -> Any:
+            raise asyncio.CancelledError
+
     @app.tool
     def inner() -> int:
+        add_trace_attributes(Cancels())  # must not cancel the call
         add_trace_attributes({"where": "inner", "outcome": "forged"})
         return 1
 
@@ -926,6 +936,18 @@ def test_boundary_releases_a_discarded_app() -> None:
     # The provider keeps the exporter; it must not keep the app's hooks alive.
     assert released() is None
     assert boundary.export([]) is SpanExportResult.SUCCESS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["", "direct"])
+async def test_other_spans_never_sees_an_opted_out_tool(how: str) -> None:
+    keep = [True]  # cleared below: the hook outlives this test with its app
+    app = _app(other_spans=lambda span: {} if keep else None)
+    set_tool_traits(app, "add", ToolTraits(tracing=False))
+    spans = await _spans(app, "add", ADD, how)
+    keep.clear()
+    # The in-process test client's own CLIENT span is not the server's.
+    assert [span for span in spans if span.kind is SpanKind.SERVER] == []
 
 
 def test_other_spans_keeps_only_what_the_hook_returns() -> None:
