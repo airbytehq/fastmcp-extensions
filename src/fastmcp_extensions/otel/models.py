@@ -97,6 +97,12 @@ class ToolTracingConfig:
         arg_default: How `str`, `int`, `float`, `UUID`, and `list[str]`
             arguments without a `TraceArg` marker are recorded. `VALUE` is
             treated as `HASH`, so a raw value is never a default.
+        session_id: A host hook returning a SHA-256 hex digest of the host's
+            session key. The digest is used as-is and not hashed again; a
+            missing, non-digest, or raising result falls back to the transport
+            session identifier.
+        require_own_provider: Export only through a `TracerProvider` created by
+            this package. A provider this package created earlier is also owned.
     """
 
     exporter: Literal["otlp", "console"] | SpanExporter = "otlp"
@@ -112,3 +118,5 @@ class ToolTracingConfig:
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
     arg_key: bytes | Callable[[], bytes | None] | None = field(default=None, repr=False)
     arg_default: TraceArg = TraceArg.HASH
+    session_id: Callable[[], str | None] | None = None
+    require_own_provider: bool = False

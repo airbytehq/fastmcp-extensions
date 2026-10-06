@@ -40,6 +40,7 @@ from fastmcp_extensions.otel.middleware import (
     _INSTALLS,
     _KEY,
     _REQUEST_ID,
+    _SHA256,
     CAPTURES,
     INTENT_ARG,
     MARK,
@@ -56,7 +57,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PROTOCOL_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}")
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 _CALLER_HASH = re.compile(r"[0-9a-f]{16}")
 _INSTANCE_ID = str(uuid.uuid4())
 _OWN_PROVIDERS: weakref.WeakSet[TracerProvider] = weakref.WeakSet()
@@ -128,6 +128,13 @@ def attach(
     if service_version:
         resource_attributes["service.version"] = service_version
     found = global_provider(resource_attributes)
+    if install.config.require_own_provider and (
+        found is None or found[0] not in _OWN_PROVIDERS
+    ):
+        raise RuntimeError(
+            "tracing: require_own_provider is set but a TracerProvider not "
+            "created by fastmcp-extensions is installed"
+        )
     if found is None:
         return None
     provider, how = found

@@ -660,7 +660,7 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
 | `<p>.client_name`, `<p>.client_version` | The MCP client |
 | `<p>.caller_hash`, `<p>.caller_id_type` | The caller as telemetry's salted hash, and whether it is a `subject` or a `client`; only with `anonymization_salt` set |
-| `<p>.session_id`, `mcp.session.id`, `gen_ai.conversation.id` | SHA-256 of the `Mcp-Session-Id` header, never the raw value; on stdio, a random per-process digest |
+| `<p>.session_id`, `mcp.session.id`, `gen_ai.conversation.id` | The validated SHA-256 hex digest from `session_id`, if configured and valid; otherwise SHA-256 of `Mcp-Session-Id` or the per-process stdio digest. The raw header value is never exported. |
 | `<p>.root` | `False` for a tool called by another tool through `app.call_tool()` |
 | `jsonrpc.request.id`, `gen_ai.tool.call.id` | Root spans only: the request ID if it is an integer or a short token, and its SHA-256 |
 | `<p>.tool_module`, `<p>.tool_mutating`, `<p>.tool_destructive` | From the tool's registration |
@@ -736,6 +736,8 @@ app = mcp_server(
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
+| `session_id` | `None` | Zero-argument hook returning a SHA-256 hex digest of the host's session key. It is used as-is and not hashed again; `None`, non-digest, or failing results fall back to the transport identifier. |
+| `require_own_provider` | `False` | When export starts, raise if the installed `TracerProvider` was not created by this package; dormant and `DO_NOT_TRACK` paths remain non-raising. |
 
 Attributes from `attributes`, `shared_properties`, a per-tool callable, or
 `add_trace_attributes()` are written under the prefix and bounded: strings are

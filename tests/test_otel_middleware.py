@@ -322,6 +322,88 @@ async def test_http_session_digest_and_untrusted_trace_context() -> None:
         assert attrs[key] == hashlib.sha256(b"raw-session").hexdigest()
 
 
+@pytest.mark.asyncio
+async def test_session_id_hook_is_used_for_tool_and_list_spans() -> None:
+    """The host-provided session digest is used as-is on both request spans."""
+    session_id = "ab" * 32
+    app = _app(session_id=lambda: session_id)
+    with capture_tool_spans() as spans:
+        async with Client(app) as client:
+            await client.call_tool("add", ADD)
+    exported = {span.name: _attrs(span) for span in spans}
+    assert exported["tools/call add"][f"{P}.session_id"] == session_id
+    assert exported["tools/list"][f"{P}.session_id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_session_id_hook_does_not_export_tool_written_value() -> None:
+    app = _app(session_id=lambda: "ab" * 32)
+
+    @app.tool
+    def spoof_session_id() -> None:
+        trace.get_current_span().set_attribute(f"{P}.session_id", "spoofed")
+
+    spans = await _spans(app, "spoof_session_id")
+    attrs = _attrs(spans[-1])
+    assert f"{P}.session_id" not in attrs
+
+
+@pytest.mark.asyncio
+async def test_session_id_hook_scopes_argument_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_id = "ab" * 32
+    monkeypatch.setattr(_tracing, "get_access_token", lambda: TOKEN)
+    spans = await _spans(
+        _app(session_id=lambda: session_id, arg_key=bytes(range(32))),
+        "add",
+        ADD,
+    )
+    attrs = _attrs(spans[0])
+    assert attrs[f"{P}.session_id"] == session_id
+    assert attrs[f"{P}.arg_key_scope"] == "transport_session"
+
+
+@pytest.mark.parametrize("value", [None, 17, "", "host-safe-session"])
+def test_session_id_hook_invalid_value_falls_back_to_header_digest(
+    value: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        _tracing,
+        "get_http_headers",
+        lambda **_: {"mcp-session-id": "raw-session"},
+    )
+
+    def hook() -> Any:
+        return value
+
+    middleware = ToolCallOtelMiddleware(ToolTracingConfig(session_id=hook))
+    attrs = middleware._request_attributes(None)
+    assert attrs[f"{P}.session_id"] == hashlib.sha256(b"raw-session").hexdigest()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [RuntimeError, asyncio.CancelledError])
+async def test_session_id_hook_error_falls_back_without_failing_tool_call(
+    error: type[BaseException], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        _tracing,
+        "get_http_headers",
+        lambda **_: {"mcp-session-id": "raw-session"},
+    )
+
+    def fail() -> str | None:
+        raise error()
+
+    spans = await _spans(_app(session_id=fail), "add", ADD)
+    assert len(spans) == 1
+    assert (
+        _attrs(spans[0])[f"{P}.session_id"]
+        == hashlib.sha256(b"raw-session").hexdigest()
+    )
+
+
 TOKEN = SimpleNamespace(claims={"iss": "https://issuer.example", "sub": "u1"})
 
 
@@ -379,7 +461,15 @@ def test_verified_principal(
 # id -> (config, the one log line, without its `tracing: ` prefix)
 SETUP_CASES: dict[str, tuple[dict[str, Any], str]] = {
     "dormant": ({}, "dormant (no OTLP endpoint set)"),
+    "dormant-required": (
+        {"require_own_provider": True},
+        "dormant (no OTLP endpoint set)",
+    ),
     "opted-out": (CONSOLE, "disabled (DO_NOT_TRACK is set)"),
+    "opted-out-required": (
+        {"require_own_provider": True},
+        "disabled (DO_NOT_TRACK is set)",
+    ),
     "no-sdk": (
         CONSOLE,
         "disabled (OpenTelemetry SDK not installed; install `fastmcp-extensions[otel]`)",
@@ -411,7 +501,7 @@ async def test_setup_logs_one_line_and_never_raises(
     case: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     config, message = SETUP_CASES[case]
-    if case == "opted-out":
+    if case in {"opted-out", "opted-out-required"}:
         monkeypatch.setenv("DO_NOT_TRACK", "1")
     elif case == "no-sdk":
         monkeypatch.setitem(sys.modules, "fastmcp_extensions.otel._sdk", None)
@@ -438,7 +528,11 @@ async def test_existing_sdk_provider(
         provider.add_span_processor(SimpleSpanProcessor(exporter))  # the host's own
     hooked: list[int] = []
     with caplog.at_level(logging.INFO, logger=LOGGER):
-        app = _app(exporter=exporter, attributes=lambda: hooked.append(1) or {})
+        app = _app(
+            exporter=exporter,
+            attributes=lambda: hooked.append(1) or {},
+            require_own_provider=False,
+        )
     assert opted_out or "tracing: exporter=custom provider=existing" in caplog.messages
     async with Client(app) as client:
         await client.call_tool("add", ADD)
@@ -486,6 +580,62 @@ def test_default_otlp_export_and_resource(
     providers[-1].shutdown()
     (span,) = exporter.get_finished_spans()
     assert span.resource.attributes["service.name"] == "billing-mcp"
+
+
+def test_require_own_provider_rejects_foreign_sdk_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = TracerProvider()
+    add_processor = provider.add_span_processor
+    added: list[object] = []
+
+    def record_processor(processor: object) -> None:
+        added.append(processor)
+        add_processor(processor)
+
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setattr(provider, "add_span_processor", record_processor)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
+    with pytest.raises(
+        RuntimeError,
+        match="tracing: require_own_provider is set but a TracerProvider not "
+        "created by fastmcp-extensions is installed",
+    ):
+        _app(require_own_provider=True)
+    assert added == []
+    provider.shutdown()
+
+
+def test_require_own_provider_rejects_non_sdk_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(trace, "get_tracer_provider", NoOpTracerProvider)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
+    with pytest.raises(
+        RuntimeError,
+        match="tracing: require_own_provider is set but a TracerProvider not "
+        "created by fastmcp-extensions is installed",
+    ):
+        _app(require_own_provider=True)
+
+
+def test_require_own_provider_allows_package_created_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    providers: list[Any] = [ProxyTracerProvider()]
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: providers[-1])
+    monkeypatch.setattr(trace, "set_tracer_provider", providers.append)
+    first_exporter, second_exporter = InMemorySpanExporter(), InMemorySpanExporter()
+    first = _app(exporter=first_exporter, require_own_provider=True)
+    provider = providers[-1]
+    second = _app(exporter=second_exporter, require_own_provider=True)
+    assert all(
+        middleware.exporting
+        for app in (first, second)
+        for middleware in app.middleware
+        if isinstance(middleware, ToolCallOtelMiddleware)
+    )
+    provider.shutdown()
 
 
 @pytest.mark.asyncio
