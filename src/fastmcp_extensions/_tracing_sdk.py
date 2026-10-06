@@ -44,6 +44,7 @@ from fastmcp_extensions._tracing import (
     INTENT_ARG,
     MARK,
     OUTCOMES,
+    SESSION_ID_HOOK_MARK,
     bound_value,
     clean_intent,
 )
@@ -128,6 +129,13 @@ def attach(
     if service_version:
         resource_attributes["service.version"] = service_version
     found = global_provider(resource_attributes)
+    if install.config.require_own_provider and (
+        found is None or found[0] not in _OWN_PROVIDERS
+    ):
+        raise RuntimeError(
+            "tracing: require_own_provider is set but a TracerProvider not "
+            "created by fastmcp-extensions is installed"
+        )
     if found is None:
         return None
     provider, how = found
@@ -196,9 +204,13 @@ def _clean(
     protocol = a.get("mcp.protocol.version")
     if isinstance(protocol, str) and _PROTOCOL_VERSION.fullmatch(protocol):
         out["mcp.protocol.version"] = out[p + "mcp_protocol_version"] = protocol
-    # FastMCP's raw `mcp.session.id` never passes; only our digest does.
+    # FastMCP's raw `mcp.session.id` never passes; only our digest or a host-safe
+    # value does.
     session = out.pop(p + "session_id", None)
-    if isinstance(session, str) and _SHA256.fullmatch(session):
+    session_id_from_hook = a.get(SESSION_ID_HOOK_MARK) == install.mark
+    if isinstance(session, str) and (
+        session_id_from_hook or _SHA256.fullmatch(session)
+    ):
         out[p + "session_id"] = session
         out["mcp.session.id"] = out["gen_ai.conversation.id"] = session
 

@@ -90,6 +90,9 @@ MARK = "fastmcp_extensions.install-id"
 The `-` cannot occur in an attribute prefix or a hook key, so nothing collides.
 """
 
+SESSION_ID_HOOK_MARK = f"{MARK}.session-id-hook"
+"""Internal marker for a host-provided safe session ID. Never exported."""
+
 INTENT_ARG = "intent"
 INTENT_SENTENCE = (
     "Tools may accept an optional `intent` string; if present, state in one "
@@ -593,11 +596,19 @@ class ToolCallTracingMiddleware(Middleware):
             f"{p}.process.uptime_s": round(time.monotonic() - self._installed_at, 1),
         }
         headers = get_http_headers(include={"mcp-session-id"})
-        session = headers.get("mcp-session-id")
-        if session:
-            attrs[f"{p}.session_id"] = _digest(session)
-        elif ctx is not None and ctx.transport == "stdio":
-            attrs[f"{p}.session_id"] = _STDIO_SESSION
+        session_id_hook = self.config.session_id
+        if session_id_hook is not None:
+            hook_attrs = _safe(lambda: {"session_id": session_id_hook()})
+            session_id = bound_value(hook_attrs.get("session_id"))
+            if isinstance(session_id, str):
+                attrs[f"{p}.session_id"] = session_id
+                attrs[SESSION_ID_HOOK_MARK] = self.mark
+        if f"{p}.session_id" not in attrs:
+            session = headers.get("mcp-session-id")
+            if session:
+                attrs[f"{p}.session_id"] = _digest(session)
+            elif ctx is not None and ctx.transport == "stdio":
+                attrs[f"{p}.session_id"] = _STDIO_SESSION
         attrs.update(_safe(_client_attributes, p + "."))
         attrs.update(_safe(lambda: eval_attributes(headers), p + "."))
         return attrs
@@ -865,8 +876,9 @@ def register_tool_call_tracing(
 ) -> None:
     """Register tool-call tracing on `app` unless it is already present.
 
-    Never raises: when tracing cannot start, one log line says why and the
-    server runs untraced.
+    Never raises unless `config.require_own_provider` is true and an active
+    export would attach to a provider this package did not create. Otherwise,
+    when tracing cannot start, one log line says why and the server runs untraced.
     """
     if not isinstance(config, ToolTracingConfig):
         logger.warning("tracing: disabled (config must be a ToolTracingConfig)")
@@ -951,6 +963,10 @@ def _start_export(
             "tracing: disabled (OpenTelemetry SDK not installed; "
             "install `fastmcp-extensions[otel]`)"
         )
+    except RuntimeError as exc:
+        if install.config.require_own_provider:
+            raise
+        logger.warning("tracing: disabled (%s during setup)", type(exc).__name__)
     except Exception as exc:
         logger.warning("tracing: disabled (%s during setup)", type(exc).__name__)
 
