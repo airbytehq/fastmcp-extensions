@@ -40,11 +40,11 @@ from fastmcp_extensions._tracing import (
     _INSTALLS,
     _KEY,
     _REQUEST_ID,
+    _SHA256,
     CAPTURES,
     INTENT_ARG,
     MARK,
     OUTCOMES,
-    SESSION_ID_HOOK_MARK,
     bound_value,
     clean_intent,
 )
@@ -57,7 +57,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PROTOCOL_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}")
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 _CALLER_HASH = re.compile(r"[0-9a-f]{16}")
 _INSTANCE_ID = str(uuid.uuid4())
 _OWN_PROVIDERS: weakref.WeakSet[TracerProvider] = weakref.WeakSet()
@@ -204,13 +203,9 @@ def _clean(
     protocol = a.get("mcp.protocol.version")
     if isinstance(protocol, str) and _PROTOCOL_VERSION.fullmatch(protocol):
         out["mcp.protocol.version"] = out[p + "mcp_protocol_version"] = protocol
-    # FastMCP's raw `mcp.session.id` never passes; only our digest or a host-safe
-    # value does.
+    # FastMCP's raw `mcp.session.id` never passes; only our digest does.
     session = out.pop(p + "session_id", None)
-    session_id_from_hook = a.get(SESSION_ID_HOOK_MARK) == install.mark
-    if isinstance(session, str) and (
-        session_id_from_hook or _SHA256.fullmatch(session)
-    ):
+    if isinstance(session, str) and _SHA256.fullmatch(session):
         out[p + "session_id"] = session
         out["mcp.session.id"] = out["gen_ai.conversation.id"] = session
 

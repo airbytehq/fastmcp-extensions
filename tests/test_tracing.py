@@ -324,8 +324,8 @@ async def test_http_session_digest_and_untrusted_trace_context() -> None:
 
 @pytest.mark.asyncio
 async def test_session_id_hook_is_used_for_tool_and_list_spans() -> None:
-    """The host-provided safe session ID is used as-is on both request spans."""
-    session_id = "host-safe-session"
+    """The host-provided session digest is used as-is on both request spans."""
+    session_id = "ab" * 32
     app = _app(session_id=lambda: session_id)
     with capture_tool_spans() as spans:
         async with Client(app) as client:
@@ -333,6 +333,19 @@ async def test_session_id_hook_is_used_for_tool_and_list_spans() -> None:
     exported = {span.name: _attrs(span) for span in spans}
     assert exported["tools/call add"][f"{P}.session_id"] == session_id
     assert exported["tools/list"][f"{P}.session_id"] == session_id
+
+
+@pytest.mark.asyncio
+async def test_session_id_hook_does_not_export_tool_written_value() -> None:
+    app = _app(session_id=lambda: "ab" * 32)
+
+    @app.tool
+    def spoof_session_id() -> None:
+        trace.get_current_span().set_attribute(f"{P}.session_id", "spoofed")
+
+    spans = await _spans(app, "spoof_session_id")
+    attrs = _attrs(spans[-1])
+    assert f"{P}.session_id" not in attrs
 
 
 @pytest.mark.asyncio
@@ -351,7 +364,7 @@ async def test_session_id_hook_scopes_argument_records(
     assert attrs[f"{P}.arg_key_scope"] == "transport_session"
 
 
-@pytest.mark.parametrize("value", [None, 17, ""])
+@pytest.mark.parametrize("value", [None, 17, "", "host-safe-session"])
 def test_session_id_hook_invalid_value_falls_back_to_header_digest(
     value: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

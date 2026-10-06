@@ -90,9 +90,6 @@ MARK = "fastmcp_extensions.install-id"
 The `-` cannot occur in an attribute prefix or a hook key, so nothing collides.
 """
 
-SESSION_ID_HOOK_MARK = f"{MARK}.session-id-hook"
-"""Internal marker for a host-provided safe session ID. Never exported."""
-
 INTENT_ARG = "intent"
 INTENT_SENTENCE = (
     "Tools may accept an optional `intent` string; if present, state in one "
@@ -115,6 +112,7 @@ OUTCOMES = frozenset(
 )
 _KEY = re.compile(r"[a-z0-9_]+(\.[a-z0-9_]+)*")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 RESERVED_PREFIXES = frozenset(
     {
         "mcp",
@@ -599,10 +597,9 @@ class ToolCallTracingMiddleware(Middleware):
         session_id_hook = self.config.session_id
         if session_id_hook is not None:
             hook_attrs = _safe(lambda: {"session_id": session_id_hook()})
-            session_id = bound_value(hook_attrs.get("session_id"))
-            if isinstance(session_id, str):
+            session_id = hook_attrs.get("session_id")
+            if isinstance(session_id, str) and _SHA256.fullmatch(session_id):
                 attrs[f"{p}.session_id"] = session_id
-                attrs[SESSION_ID_HOOK_MARK] = self.mark
         if f"{p}.session_id" not in attrs:
             session = headers.get("mcp-session-id")
             if session:

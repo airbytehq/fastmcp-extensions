@@ -127,9 +127,10 @@ class ToolTracingConfig:
         arg_default: How `str`, `int`, `float`, `UUID`, and `list[str]`
             arguments without a `TraceArg` marker are recorded. `VALUE` is
             treated as `HASH`, so a raw value is never a default.
-        session_id: A host hook for an already-safe session identifier, such as
-            a digest. Its return value is not hashed again; a missing, invalid,
-            or raising result falls back to the transport session identifier.
+        session_id: A host hook returning a SHA-256 hex digest of the host's
+            session key. The digest is used as-is and not hashed again; a
+            missing, non-digest, or raising result falls back to the transport
+            session identifier.
         require_own_provider: Export only through a `TracerProvider` created by
             this package. A provider this package created earlier is also owned.
     """
