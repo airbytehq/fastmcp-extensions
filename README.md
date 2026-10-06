@@ -19,7 +19,8 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
 12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
-14. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
+14. 🔭 **Tracing behind an allowlist** - `TelemetryConfig(tool_tracing=True)` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](#tool-call-tracing).
+15. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
 
 ## Upgrading to 0.x (FastMCP 4)
 
@@ -73,13 +74,13 @@ uv add fastmcp-extensions
 
 ### Using the MCP Server Factory
 
-The `mcp_server` function creates a FastMCP instance with built-in server info resources and optional credential resolution:
+The `mcp_server` function creates a FastMCP instance with built-in server info resources and optional credential resolution. `package_name` is the installed distribution used for version reporting; when omitted, it is derived from the calling module's installed distribution.
 
 ```python
 from fastmcp_extensions import mcp_server, MCPServerConfigArg
 
 app = mcp_server(
-    name="my-mcp-server",
+    display_name="my-mcp-server",
     package_name="my-package",
     advertised_properties={
         "docs_url": "https://github.com/org/repo",
@@ -217,7 +218,7 @@ from fastmcp_extensions import (
     mcp_server,
 )
 
-app = mcp_server(name="my-mcp-server", package_name="my-package")
+app = mcp_server(display_name="my-mcp-server", package_name="my-package")
 
 # The server decides its env-var names and maps them into typed configs. Read
 # every field with os.getenv and only build the config once all are present, so
@@ -330,7 +331,7 @@ from fastmcp.apps import AppConfig
 from fastmcp_extensions import mcp_server, mcp_tool, register_mcp_tools
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     include_standard_tool_filters=True,
 )
 
@@ -447,7 +448,7 @@ binding at the server level with `EncodedSessionStateConfig`:
 from fastmcp_extensions import EncodedSessionStateConfig, mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     encoded_session_state=EncodedSessionStateConfig(
         signing="required",
         secret="a-secret-from-your-deployment",
@@ -504,7 +505,7 @@ SSE transport do not receive these stateless-only layers.
 
 ```python
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     include_standard_tool_filters=True,
 )
 ```
@@ -560,7 +561,7 @@ def docs_search_available(app: FastMCP) -> bool:
 
 
 app = mcp_server(
-    name="docs-server",
+    display_name="docs-server",
     server_config_args=[DOCS_API_KEY, DOCS_API_URL],
     capability_resolvers={DOCS_SEARCH: docs_search_available},
 )
@@ -578,6 +579,281 @@ its environment variable. Omitting `http_header_key` makes that arg
 environment-only. Missing resolvers and resolver exceptions leave a custom
 capability unavailable; exceptions are logged by type without their message.
 
+## Tool-Call Tracing
+
+FastMCP opens an OpenTelemetry span for every request, but nothing exports it
+until an SDK is installed. Tracing is part of telemetry:
+`TelemetryConfig(tool_tracing=...)` installs the SDK, adds what an operator needs to
+FastMCP's own `tools/call` span, and rebuilds every span from an allowlist
+before it is exported. Install the `otel` extra and turn it on:
+
+```bash
+pip install "fastmcp-extensions[otel]"
+```
+
+```python
+from fastmcp_extensions import TelemetryConfig, mcp_server
+
+app = mcp_server(
+    display_name="orders-mcp", telemetry=TelemetryConfig(tool_tracing=True)
+)
+```
+
+Tracing is off by default, and `telemetry=False` or
+`TelemetryConfig(enabled=False)` turns it off with the rest of telemetry. Once
+enabled, spans are exported over OTLP/HTTP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set;
+until then tracing stays dormant. The OpenTelemetry SDK reads its own `OTEL_*`
+exporter and resource variables as usual (for sampling, see
+[Sampling and existing providers](#sampling-and-existing-providers)).
+`DO_NOT_TRACK` switches off everything that leaves the process (Sentry,
+Segment, and trace export); the structured log line stays. One log line at
+startup says what tracing is doing, for example
+`tracing: exporter=otlp provider=created` or
+`tracing: dormant (no OTLP endpoint set)`. Tracing never raises into a tool
+call and never breaks server startup. Servers built without `mcp_server()` call
+`register_tool_call_telemetry(app, TelemetryConfig(tool_tracing=True))`, which
+is idempotent.
+
+### One call, one event, one span
+
+Telemetry emits one event per tool call (log line, Sentry breadcrumb, Segment)
+and tracing exports one span. Both are derived from the same facts about the
+call, so they agree on the tool, the outcome, and the error type, and they can
+be joined:
+
+- The event carries `trace_id` and `span_id` of the span that traced the call.
+  An untraced call has neither.
+- With `anonymization_salt` set, the span carries the event's `caller_hash` and
+  `caller_id_type`.
+- `extra_properties` is resolved once per call. Name a key in
+  `ToolTracingConfig(shared_properties=...)` to write it to the span as well; keys
+  that are not named stay off the span.
+
+The two use different names for some of the same facts, because each matches
+dashboards that already exist:
+
+| Event field | Span attribute |
+| ----------- | -------------- |
+| `name` | `gen_ai.tool.name` |
+| `success` | `<p>.outcome` (`success`, or one of four failure outcomes) |
+| `error_type` | `<p>.error_type`, `error.type` |
+| `tool_group` | `<p>.tool_module` |
+| `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
+| `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
+| `package_version` | `service.version` (resource) |
+
+### What a span carries
+
+Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
+`attribute_prefix`:
+
+| Attribute | Value |
+| --------- | ----- |
+| `gen_ai.tool.name`, `gen_ai.operation.name` | The registered tool name and `execute_tool` |
+| `mcp.method.name`, `fastmcp.server.name` | `tools/call` and the server name |
+| `mcp.protocol.version`, `<p>.mcp_protocol_version` | The negotiated protocol version, when it is a date |
+| `<p>.outcome` | `success`, `tool_error` (a returned error), `exception`, `cancelled`, or `unknown_tool` |
+| `<p>.error_type`, `error.type` | Class name of the real cause, with FastMCP's `ToolError` wrapper removed |
+| `<p>.error.category`, `<p>.error.fault` | A closed category such as `invalid_arguments`, `auth`, or `upstream_timeout`, and who is at fault: `caller`, `upstream`, `server`, or `unknown` |
+| `<p>.upstream.status_code` | The HTTP status the failure carries, if any |
+| `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
+| `<p>.client_name`, `<p>.client_version` | The MCP client |
+| `<p>.caller_hash`, `<p>.caller_id_type` | The caller as telemetry's salted hash, and whether it is a `subject` or a `client`; only with `anonymization_salt` set |
+| `<p>.session_id`, `mcp.session.id`, `gen_ai.conversation.id` | SHA-256 of the `Mcp-Session-Id` header, never the raw value; on stdio, a random per-process digest |
+| `<p>.root` | `False` for a tool called by another tool through `app.call_tool()` |
+| `jsonrpc.request.id`, `gen_ai.tool.call.id` | Root spans only: the request ID if it is an integer or a short token, and its SHA-256 |
+| `<p>.tool_module`, `<p>.tool_mutating`, `<p>.tool_destructive` | From the tool's registration |
+| `<p>.tool.fingerprint` | Hash of the tool's name, description, schemas, and annotations |
+| `<p>.args.supplied`, `<p>.args.unknown`, `<p>.args.invalid` | Argument names the caller sent, names it invented, and `<name>:<pydantic error type>` for validation failures |
+| `<p>.arg.<name>` | One record per argument; see [Per-argument declarations](#per-argument-declarations) |
+| `<p>.arg_hash_status`, `<p>.arg_key_scope`, `<p>.arg_scope_id`, `<p>.arg_trace_dropped` | How the argument records were keyed, and how many were dropped at export |
+| `<p>.intent`, `<p>.intent_present` | With `capture_intent`: the agent's stated reason, cut to 4096 characters. Not recorded for a tool that declares its own `intent` parameter |
+| `<p>.result.*` | Result shape: content count and types, text and structured sizes, item count |
+| `<p>.eval.run_id`, `<p>.eval.case_id` | From the `X-MCP-Eval-Run` and `X-MCP-Eval-Case` request headers |
+| `<p>.process.uptime_s` | Seconds since tracing was installed |
+| other `<p>.*` | Attributes from the hooks, a per-tool callable, or `add_trace_attributes()` |
+
+`tools/list` requests export a span with `<p>.tools.count`,
+`<p>.tools.schema_chars`, and `<p>.tools.set_fingerprint`. The character count
+excludes the `intent` argument that `capture_intent` adds to each tool.
+
+Everything else is dropped: results, exception messages, stack traces, raw
+session IDs, `enduser.*`, and argument values other than those recorded as
+`VALUE`. Spans the layer did not stamp, such as HTTP client spans, are dropped
+unless `other_spans` keeps them.
+
+A client's trace context is not trusted: a root span is exported without a
+parent and without the client's `tracestate`. The trace ID a client sends in
+`_meta.traceparent` is kept, so a client chooses which trace its spans join.
+
+### Sampling and existing providers
+
+When no OpenTelemetry SDK `TracerProvider` is installed, the layer creates one
+that samples every call. `OTEL_TRACES_SAMPLER` is ignored, so a client cannot
+switch tracing off with an unsampled `traceparent`.
+
+To sample, install your own SDK `TracerProvider` before calling `mcp_server()`.
+The layer attaches to it (the startup line then says `provider=existing`), and
+two things change:
+
+- That provider's sampler decides which calls are traced. The SDK default,
+  `ParentBased`, drops a call whose client sends an unsampled `traceparent`;
+  build it with `remote_parent_not_sampled=ALWAYS_ON` to keep those calls.
+- That provider's own exporters receive FastMCP's unfiltered spans. The
+  allowlist applies only to the exporter configured here.
+
+### Options
+
+Pass a `ToolTracingConfig` instead of `True`:
+
+```python
+import os
+
+from fastmcp_extensions import TelemetryConfig, ToolTracingConfig, mcp_server
+
+app = mcp_server(
+    display_name="orders-mcp",
+    telemetry=TelemetryConfig(
+        tool_tracing=ToolTracingConfig(
+            attribute_prefix="acme.mcp",
+            attributes={"deployment": "prod"},
+            capture_intent=True,
+            arg_key=lambda: bytes.fromhex(os.environ["ORDERS_MCP_ARG_KEY"]),
+        ),
+    ),
+)
+```
+
+| Field | Default | Meaning |
+| ----- | ------- | ------- |
+| `exporter` | `"otlp"` | `"otlp"`, `"console"` (writes to stderr), or a `SpanExporter` instance, which receives spans after the privacy boundary. |
+| `attribute_prefix` | `"fastmcp_extensions"` | Namespace for every attribute the layer writes. Its first segment cannot be a namespace FastMCP or OpenTelemetry writes (`mcp`, `fastmcp`, `gen_ai`, `enduser`, `error`, `exception`, `jsonrpc`, `rpc`, `http`, `url`), so `acme.mcp` is fine and `mcp.acme` disables tracing with a warning. |
+| `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. It runs before the response is sent, so keep it fast; an async hook is abandoned after five seconds. |
+| `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
+| `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
+| `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |
+| `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
+| `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
+| `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
+
+Attributes from `attributes`, `shared_properties`, a per-tool callable, or
+`add_trace_attributes()` are written under the prefix and bounded: strings are
+stripped, must be printable, and are cut to 256 characters; `bool`, `int`, and
+finite `float` pass; anything else is dropped. Keys must match
+`[a-z0-9_]+(\.[a-z0-9_]+)*`. Keys the layer owns are dropped silently, and so
+is any key whose first segment is `arg`, `args`, `error`, `eval`, `process`,
+`result`, `tool`, `tools`, or `upstream` (`result` and `result.rows` alike).
+
+### Per-tool declarations
+
+```python
+from fastmcp_extensions import add_trace_attributes, mcp_tool
+
+
+@mcp_tool(read_only=True, tracing=False)  # no span for this tool
+def whoami() -> str:
+    return "me"
+
+
+# The callable receives the call's arguments and returns extra attributes.
+@mcp_tool(destructive=True, tracing=lambda args: {"dry_run": bool(args.get("dry_run"))})
+def delete_order(order_id: str, dry_run: bool = False) -> str:
+    add_trace_attributes({"orders_deleted": 0 if dry_run else 1})
+    return order_id
+```
+
+`add_trace_attributes()` targets the span of the tool call it runs in, also for
+nested calls. It never raises and does nothing outside a traced call.
+
+`tracing=` and `TraceArg` markers apply on the app the tool is registered on.
+A tool that reaches a traced app through `mount()` or a proxy is traced with
+the defaults: a `tracing=False` or `tracing=` callable declared on its own
+server is ignored, and each of its arguments is recorded as `PRESENCE`.
+`trace_plan(app)` shows what applies. If the mounted server enables tracing
+too, it exports its own span for the call under the parent's, with
+`<p>.root = False`, like a nested call; count calls by `<p>.root = True`.
+
+### Per-argument declarations
+
+Every argument is recorded as one small JSON record that says something about
+the value without containing it, so a trace can tell "the agent retried with
+the same input" from "the agent changed its input". Type hints pick the mode;
+a `TraceArg` marker inside `Annotated[...]` overrides it:
+
+```python
+from typing import Annotated
+
+from fastmcp_extensions import TraceArg, mcp_tool
+
+
+@mcp_tool(read_only=True)
+def query(
+    sql: str,
+    note: Annotated[str, TraceArg.OMIT] = "",
+    limit: Annotated[int, TraceArg.VALUE] = 20,
+) -> list[dict]:
+    return []
+```
+
+| Mode | Record | Default for |
+| ---- | ------ | ----------- |
+| `VALUE` | `{"value": v}` | `bool`, `Literal`, `Enum`, and lists of them |
+| `HASH` | `{"digest": h}`, a keyed hash; lists add `"count"` | `str`, `int`, `float`, `UUID`, `list[str]` (set by `arg_default`) |
+| `FINGERPRINT` | `HASH` plus `"similarity"`, a keyed fingerprint that shows how similar two short texts are without exposing either | Opt-in only |
+| `PRESENCE` | `{"present": true}` | `dict`, pydantic models, `Any`, unhinted arguments, and names containing `token`, `secret`, `password`, `credential`, `api_key`, `access_key`, `private_key`, `authorization`, or `session_state` (underscores and case are ignored, so `apiKey` matches) |
+| `OMIT` | Nothing | pydantic `SecretStr` / `SecretBytes` |
+
+- `VALUE` exports the raw value, so mark only arguments that are safe to read
+  in a trace. Only a member of the closed set, or a bounded value of the hinted
+  type, is exported; anything else falls back to `HASH`.
+- Hashes need `arg_key` and a caller identified by verified token claims. They
+  are scoped to that caller and session, so they compare only within one
+  scope. Without either, hashed modes record `{"present": true}`;
+  `<p>.arg_hash_status` says which applied (`ok`, `no_key`, `no_scope`, `error`).
+- Import `TraceArg` at runtime, not under `TYPE_CHECKING`. A marker that cannot
+  be resolved turns every argument of that tool into `PRESENCE`, with a
+  warning.
+- Records are checked again at export: one that does not match its argument's
+  mode is dropped and counted in `<p>.arg_trace_dropped`.
+
+### Testing
+
+`capture_tool_spans()` yields spans as they would be exported, after the
+privacy boundary; it works with an in-memory `Client(app)` and needs no
+endpoint. The list also holds `tools/list` spans (a FastMCP `Client` lists
+tools on its own) and any span `other_spans` keeps, so select by `span.name`.
+`trace_plan(app)` returns what is recorded for each tool, so a
+snapshot of it makes every change to what leaves the process show up in review.
+For a tool registered in several versions, it covers only the newest:
+
+```python
+import pytest
+from fastmcp import Client
+
+from fastmcp_extensions import capture_tool_spans, trace_plan
+
+
+@pytest.mark.asyncio
+async def test_query_span():
+    with capture_tool_spans() as spans:
+        async with Client(app) as client:
+            await client.call_tool("query", {"sql": "select 1", "limit": 5})
+    span = next(span for span in spans if span.name == "tools/call query")
+    assert span.attributes["acme.mcp.outcome"] == "success"
+    assert span.attributes["acme.mcp.arg.limit"] == '{"value":5}'
+
+
+@pytest.mark.asyncio
+async def test_trace_plan():
+    plan = await trace_plan(app)
+    assert plan["query"]["args"] == {
+        "limit": "value int",
+        "note": "omit",
+        "sql": "hash",
+    }
+```
+
 ## User-Facing Errors
 
 Convert expected exceptions into concise MCP client errors without tracebacks by
@@ -587,7 +863,7 @@ passing their types to `mcp_server()`. A formatter can customize the message:
 from fastmcp_extensions import mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     user_facing_errors=[ValueError],
     user_facing_error_formatter=lambda error: f"Invalid request: {error}",
 )
@@ -668,7 +944,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Decorators
 
-- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, annotations, required_capabilities, extra_help_text)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
+- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, annotations, required_capabilities, extra_help_text, tracing)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
 - `@mcp_prompt(name, description)` - Tag a prompt for deferred registration
 - `@mcp_resource(uri, description, mime_type)` - Tag a resource for deferred registration
 - `@mcp_provider(interactive_ui, annotations, required_capabilities)` - Tag a provider factory for deferred tool registration (`interactive_ui` is accepted but has no effect; provider tools are gated via their own `_meta.ui` marker and inherit `required_capabilities`).
@@ -699,8 +975,19 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Telemetry
 
+- `TelemetryConfig` / `register_tool_call_telemetry` - Configure tool-call telemetry, including `tool_tracing`, and register it on a plain FastMCP app; `mcp_server(telemetry=...)` does both.
 - `ToolCallTelemetryMiddleware` - Record MCP tool-call timing, success, and error type.
 - `TelemetrySinks` / `TelemetryRecord` / `ToolCallTelemetryRecord` - Configure telemetry destinations and represent emitted records.
+
+### Tracing
+
+These live in `fastmcp_extensions.otel` and are re-exported from `fastmcp_extensions`.
+
+- `ToolCallOtelMiddleware` / `register_tool_call_tracing` - The middleware that enriches each tool call's span, and the function that registers it on a plain FastMCP app.
+- `ToolTracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
+- `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
+- `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
+- `capture_tool_spans` / `trace_plan` - Test helpers: collect spans as they would be exported, and list what is recorded for each tool.
 
 ### Auth Utilities
 

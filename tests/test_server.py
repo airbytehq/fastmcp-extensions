@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Unit tests for the mcp_server() helper function."""
 
+import importlib.metadata
 import json
 import os
 from typing import Any
@@ -21,6 +22,7 @@ from fastmcp_extensions import (
 )
 from fastmcp_extensions._middleware import ToolFilterMiddleware
 from fastmcp_extensions._telemetry import resolve_version
+from fastmcp_extensions.server import _derive_package_name, _distribution_name
 from fastmcp_extensions.tool_filters import (
     _parse_csv_config,
     no_client_filesystem_filter,
@@ -129,6 +131,58 @@ def test_mcp_server_config_stores_name() -> None:
     app = mcp_server("my-test-server")
     config: MCPServerConfig = app.x_mcp_server_config
     assert config.name == "my-test-server"
+
+
+@pytest.mark.unit
+def test_mcp_server_name_is_deprecated_alias_for_display_name() -> None:
+    """Test that `name=` still works but warns, and both or neither raise."""
+    with pytest.warns(DeprecationWarning, match="display_name"):
+        app = mcp_server(name="legacy-server")
+    assert app.x_mcp_server_config.name == "legacy-server"
+
+    with pytest.raises(TypeError, match="both"):
+        mcp_server("new-server", name="legacy-server")
+    with pytest.raises(TypeError, match="missing"):
+        mcp_server()
+
+
+@pytest.mark.unit
+def test_derive_package_name_lookup_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test one distribution wins, then a direct version match, else None."""
+    distributions = {"pkg": ["my-dist"]}
+    versions: dict[str, str] = {}
+
+    def fake_version(name: str) -> str:
+        if name not in versions:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return versions[name]
+
+    monkeypatch.setattr(
+        importlib.metadata, "packages_distributions", lambda: distributions
+    )
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    lookup = _distribution_name.__wrapped__  # Bypass the cache
+    assert lookup("pkg") == "my-dist"
+
+    distributions["pkg"] = ["dist-a", "dist-b"]
+    assert lookup("pkg") is None
+
+    del distributions["pkg"]
+    versions["pkg"] = "1.2.3"
+    assert lookup("pkg") == "pkg"
+
+    # The caller's top-level import package is what gets looked up
+    with patch("fastmcp_extensions.server._distribution_name", side_effect=str.upper):
+        assert _derive_package_name() == __name__.split(".")[0].upper()
+
+
+@pytest.mark.unit
+def test_mcp_server_explicit_package_name_is_unchanged() -> None:
+    """Test that an explicit `package_name` skips derivation entirely."""
+    with patch("fastmcp_extensions.server._derive_package_name") as derive:
+        app = mcp_server("test-server", package_name="not-an-installed-dist")
+    assert app.x_mcp_server_config.package_name == "not-an-installed-dist"
+    derive.assert_not_called()
 
 
 @pytest.mark.unit

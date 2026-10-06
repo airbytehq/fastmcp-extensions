@@ -112,6 +112,13 @@ Set by `@mcp_tool(required_capabilities=...)` /
 time into `ToolTraits.required_capabilities` — it is never sent on the wire.
 """
 
+TOOL_TRACING_KEY = "_fastmcp_extensions_tracing"
+"""Internal registration-time key carrying the tool's tracing option.
+
+Set by `@mcp_tool(tracing=...)` and popped at registration time into
+`ToolTraits.tracing` — it is never sent on the wire.
+"""
+
 
 def standard_annotation_field_names() -> dict[str, str]:
     """Map every accepted standard annotation key to its `ToolAnnotations` field.

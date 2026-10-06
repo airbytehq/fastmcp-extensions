@@ -30,7 +30,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --group dev
+        # All extras, so pdoc can resolve optional types such as the `otel` SDK.
+        run: uv sync --group dev --all-extras
 
       - name: Build documentation
         run: uv run poe docs-generate

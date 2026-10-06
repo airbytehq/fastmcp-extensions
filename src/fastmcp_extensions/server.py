@@ -20,7 +20,7 @@ Create a simple MCP server with server info resource:
 from fastmcp_extensions import mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     package_name="my-package",
 )
 ```
@@ -33,7 +33,7 @@ Define credentials that resolve from HTTP headers, environment variables, or def
 from fastmcp_extensions import mcp_server, MCPServerConfigArg, get_mcp_config
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     server_config_args=[
         MCPServerConfigArg(
             name="api_key",
@@ -54,7 +54,7 @@ Automatically discover sibling modules in your package:
 
 ```py
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     auto_discover_assets=True,  # Discovers non-private sibling modules
 )
 ```
@@ -71,7 +71,7 @@ supplied:
 from fastmcp_extensions import TelemetryConfig, mcp_server
 
 app = mcp_server(
-    name="my-server",
+    display_name="my-server",
     package_name="my-package",
     telemetry=TelemetryConfig(
         sentry_dsn="https://...@sentry.io/...",
@@ -95,6 +95,36 @@ idempotent, while calling
 `app.add_middleware(ToolCallTelemetryMiddleware(...))` directly on top of an
 automatically instrumented app yields two instances and duplicate log lines.
 
+## Tool-Call Tracing
+
+Tracing is part of telemetry and is off by default. Set `tool_tracing=True` (or a
+`ToolTracingConfig`) on the `TelemetryConfig` to export one OpenTelemetry span per
+tool call. It needs the `fastmcp-extensions[otel]`
+extra, and exports over OTLP/HTTP once `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set:
+
+```py
+from fastmcp_extensions import TelemetryConfig, ToolTracingConfig, mcp_server
+
+app = mcp_server(
+    display_name="my-server",
+    package_name="my-package",
+    telemetry=TelemetryConfig(
+        tool_tracing=ToolTracingConfig(attribute_prefix="acme.mcp")
+    ),
+)
+```
+
+Spans pass a privacy boundary before export: only allowlisted attributes
+survive, and raw results and exception messages are never exported. Each
+argument is exported as a record chosen by its type hint or by a `TraceArg`
+marker in `Annotated[...]`: a declared-safe value, a keyed hash, or presence
+only. `trace_plan(app)` lists what is recorded for each tool.
+Tracing never breaks a tool call or server startup, and `telemetry=False` or
+`TelemetryConfig(enabled=False)` turns it off with the rest of telemetry.
+Each call's telemetry event and span are derived from the same facts, and the
+event carries the span's `trace_id` and `span_id` so the two can be joined.
+
 ## User-Facing Errors
 
 Pass `user_facing_errors` to `mcp_server()` to convert selected exception types
@@ -109,8 +139,8 @@ import inspect
 import json
 import pkgutil
 import subprocess
+import warnings
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -284,9 +314,50 @@ def _discover_mcp_module_names() -> list[str]:
     return sorted(module_names)
 
 
+@lru_cache(maxsize=None)
+def _distribution_name(top_level: str) -> str | None:
+    """Return the installed distribution that provides the import package `top_level`.
+
+    Cached, because `packages_distributions()` scans every installed distribution.
+
+    Returns:
+        The distribution name, or None if it cannot be determined unambiguously.
+    """
+    try:
+        distributions = set(md.packages_distributions().get(top_level, ()))
+        if len(distributions) == 1:
+            return distributions.pop()
+
+        # Editable installs can be missing from `packages_distributions()`
+        md.version(top_level)
+        return top_level
+    except Exception:
+        return None
+
+
+def _derive_package_name() -> str | None:
+    """Derive the installed distribution name of the module calling `mcp_server()`."""
+    try:
+        # Walk up the stack to the first frame outside this module
+        frame = inspect.currentframe()
+        while frame is not None and frame.f_globals.get("__name__") == __name__:
+            frame = frame.f_back
+        if frame is None:
+            return None
+
+        # `__package__` covers `python -m pkg.server`, where `__name__` is `__main__`
+        package = frame.f_globals.get("__package__")
+        if not (isinstance(package, str) and package):
+            package = frame.f_globals["__name__"]
+        return _distribution_name(package.split(".")[0])
+    except Exception:
+        return None
+
+
 def mcp_server(
-    name: str,
+    display_name: str | None = None,
     *,
+    name: str | None = None,
     package_name: str | None = None,
     advertised_properties: dict[str, Any] | None = None,
     server_info_provider: Callable[[], dict[str, Any]] | None = None,
@@ -313,8 +384,12 @@ def mcp_server(
     - Optional conversion of configured exceptions into concise `ToolError`s
 
     Args:
-        name: The name of the MCP server.
-        package_name: The Python package name (enables version detection in server info).
+        display_name: The display name of the MCP server, shown to MCP clients.
+        name: Deprecated alias for `display_name`.
+        package_name: The installed Python distribution name (enables version
+            detection in server info). Optional: when omitted, it is derived from
+            the calling module's installed distribution. Pass it explicitly when
+            that lookup is ambiguous or wrong.
         advertised_properties: Custom properties to include in server info.
             Common properties include:
             - docs_url: URL to documentation
@@ -338,6 +413,7 @@ def mcp_server(
         telemetry: Tool-call telemetry configuration. Defaults to structured
             log-only telemetry. Set to False or use
             `TelemetryConfig(enabled=False)` to disable the middleware.
+            `TelemetryConfig(tool_tracing=...)` adds OpenTelemetry tool-call tracing.
         user_facing_errors: Exception types to convert into concise `ToolError`s
             for MCP clients. Exceptions not in this sequence use FastMCP's
             default error handling.
@@ -352,7 +428,7 @@ def mcp_server(
         ```python
         # Simple usage with standard tool filters
         app = mcp_server(
-            name="my-server",
+            display_name="my-server",
             include_standard_tool_filters=True,
         )
 
@@ -360,7 +436,7 @@ def mcp_server(
         from fastmcp_extensions import mcp_server, MCPServerConfigArg
 
         app = mcp_server(
-            name="my-mcp-server",
+            display_name="my-mcp-server",
             package_name="my-package",
             include_standard_tool_filters=True,
             server_config_args=[
@@ -382,7 +458,26 @@ def mcp_server(
         STANDARD_TOOL_FILTERS,
     )
 
-    app = FastMCP(name, **fastmcp_kwargs)
+    if name is not None:
+        if display_name is not None:
+            raise TypeError(
+                "mcp_server() got both `display_name` and `name`; "
+                "pass only `display_name`."
+            )
+        warnings.warn(
+            "The `name` argument of mcp_server() is deprecated; "
+            "use `display_name` instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        display_name = name
+    elif display_name is None:
+        raise TypeError("mcp_server() missing required argument: `display_name`.")
+
+    if package_name is None:
+        package_name = _derive_package_name()
+
+    app = FastMCP(display_name, **fastmcp_kwargs)
 
     # Build the list of config args, including standard ones if requested.
     # Host-supplied args take precedence over standard args of the same name, so
@@ -396,7 +491,7 @@ def mcp_server(
         )
 
     config = MCPServerConfig(
-        name=name,
+        name=display_name,
         package_name=package_name,
         advertised_properties=advertised_properties or {},
         server_info_provider=server_info_provider,
@@ -444,9 +539,7 @@ def mcp_server(
     else:
         telemetry_config = telemetry
 
-    if telemetry_config is not None and telemetry_config.enabled:
-        if telemetry_config.package_name is None:
-            telemetry_config = replace(telemetry_config, package_name=package_name)
+    if telemetry_config is not None:
         register_tool_call_telemetry(app, telemetry_config)
 
     # Build the list of tool filters, including standard ones if requested

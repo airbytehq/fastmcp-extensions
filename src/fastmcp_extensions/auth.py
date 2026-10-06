@@ -63,7 +63,7 @@ auth = build_mcp_auth(
         audience="mcp-api",
     ),
 )
-app = mcp_server(name="my-server", auth=auth)
+app = mcp_server(display_name="my-server", auth=auth)
 ```
 """
 

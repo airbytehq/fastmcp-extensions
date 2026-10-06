@@ -24,19 +24,23 @@ it skips the app when an instance is already installed, so an app built with
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import DisabledError, NotFoundError, ToolError
 from fastmcp.server.middleware import (
     CallNext,
     Middleware,
     MiddlewareContext,
 )
-from fastmcp.tools import ToolResult
+from fastmcp.server.providers.addressing import parse_hashed_backend_name
+from fastmcp.tools import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
 
 from fastmcp_extensions._attribution import _AnonymizedAttribution
@@ -47,7 +51,7 @@ from fastmcp_extensions._telemetry import (
     TelemetrySinks,
     resolve_extra_properties,
 )
-from fastmcp_extensions.tool_traits import MutationClass, get_tool_traits
+from fastmcp_extensions.tool_traits import MutationClass, ToolTraits, get_tool_traits
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -75,6 +79,17 @@ def tool_telemetry_properties(app: FastMCP, tool_name: str) -> dict[str, str | N
     }
 
 
+def unwrap_tool_error(exc: BaseException) -> BaseException:
+    """Return the real failure behind a `ToolError` that wraps a tool exception.
+
+    FastMCP 3.4+ wraps tool exceptions in `ToolError`; the cause carries the
+    real failure type.
+    """
+    if isinstance(exc, ToolError) and exc.__cause__ is not None:
+        return exc.__cause__
+    return exc
+
+
 def _requested_version(meta: Mapping[str, object] | None) -> VersionSpec | None:
     """Return the tool version a `tools/call` requested through `_meta.fastmcp`."""
     fastmcp_meta = (meta or {}).get("fastmcp")
@@ -91,37 +106,119 @@ def _requested_version(meta: Mapping[str, object] | None) -> VersionSpec | None:
     return None
 
 
-async def _resolve_tool_properties(
-    context: MiddlewareContext[mt.CallToolRequestParams],
-) -> dict[str, str | None]:
-    """Resolve tool properties for one invocation.
+@dataclass(slots=True)
+class ToolCallFacts:
+    """What is known about one `tools/call`, computed once.
 
-    Tools without a registration-time class are classified from the tool this
-    call resolves to, so concurrent calls to different versions of a tool
-    never share a result.
+    The telemetry event and the trace span are both derived from this, so
+    they cannot disagree. Nothing here raises into the tool call.
     """
-    properties: dict[str, str | None] = {
-        "tool_group": None,
-        "mutation_class": MutationClass.UNKNOWN.value,
-    }
-    try:
-        if context.fastmcp_context is None:
-            return properties
-        app = context.fastmcp_context.fastmcp
-        tool_name = context.message.name
-        properties = tool_telemetry_properties(app, tool_name)
-        if get_tool_traits(app, tool_name).mutation_class is None:
-            tool = await app.get_tool(
-                tool_name, version=_requested_version(context.message.meta)
-            )
+
+    context: MiddlewareContext[mt.CallToolRequestParams]
+    traits: ToolTraits = field(default_factory=ToolTraits)
+    outcome: str | None = None
+    """`success`, `tool_error`, `exception`, `cancelled`, or `unknown_tool`."""
+    cause: BaseException | None = None
+    attribution: Mapping[str, object] = field(default_factory=dict)
+    """Anonymized attribution, resolved once for the event and the span."""
+    span: dict[str, object] = field(default_factory=dict)
+    """Identifiers of the span that traced this call; they join the event to it."""
+    extra_source: Mapping[str, object] | Callable[[], Mapping[str, object]] | None = (
+        None
+    )
+    owned: bool = False
+    """Whether a telemetry middleware has put its properties on these facts."""
+    _extra: Mapping[str, object] | None = None
+    _tool: Tool | None = None
+    _resolved: bool = False
+
+    @property
+    def error_type(self) -> str | None:
+        """The failure's class name, `ToolError` for a returned error."""
+        if self.cause is not None:
+            return type(self.cause).__name__
+        return "ToolError" if self.outcome == "tool_error" else None
+
+    async def tool(self) -> Tool | None:
+        """Return the tool (and version) this call resolves to, or `None`."""
+        if not self._resolved:
+            self._resolved = True
+            try:
+                ctx = self.context.fastmcp_context
+                if ctx is not None:
+                    message = self.context.message
+                    self._tool = await ctx.fastmcp.get_tool(
+                        message.name, version=_requested_version(message.meta)
+                    )
+                    # FastMCP falls back to hashed-name dispatch, so do the same.
+                    hashed = parse_hashed_backend_name(message.name)
+                    if self._tool is None and hashed is not None:
+                        self._tool = await ctx.fastmcp.get_tool_by_hash(*hashed)
+            except Exception:
+                logger.debug("Failed to resolve the called tool", exc_info=True)
+        return self._tool
+
+    async def mutation_class(self) -> MutationClass:
+        """Return the registered class, else the resolved tool's hints."""
+        if self.traits.mutation_class is not None:
+            return self.traits.mutation_class
+        try:
+            tool = await self.tool()
             if tool is not None:
-                properties["mutation_class"] = MutationClass.from_annotations(
-                    tool.annotations
-                ).value
+                return MutationClass.from_annotations(tool.annotations)
+        except Exception:
+            logger.debug("Failed to classify the called tool", exc_info=True)
+        return MutationClass.UNKNOWN
+
+    def extra_properties(self) -> Mapping[str, object]:
+        """Return the server's `extra_properties`, resolved once per call."""
+        if self._extra is None:
+            # A copy, so the event and the span read the same values even if
+            # the server's mapping changes in between.
+            self._extra = dict(resolve_extra_properties(self.extra_source))
+        return self._extra
+
+    def settle(self, result: ToolResult | None, error: BaseException | None) -> None:
+        """Record how the call ended. The first (innermost) caller wins."""
+        if self.outcome is not None:
+            return
+        if error is None:
+            failed = result is not None and result.is_error
+            self.outcome = "tool_error" if failed else "success"
+        elif isinstance(error, asyncio.CancelledError):
+            self.outcome, self.cause = "cancelled", error
+        elif isinstance(error, (NotFoundError, DisabledError)):
+            self.outcome, self.cause = "unknown_tool", error
+        else:
+            self.outcome, self.cause = "exception", unwrap_tool_error(error)
+
+
+_FACTS: ContextVar[ToolCallFacts | None] = ContextVar(
+    "fastmcp_extensions_tool_call", default=None
+)
+
+
+def tool_call_facts(
+    context: MiddlewareContext[mt.CallToolRequestParams],
+) -> ToolCallFacts:
+    """Return the facts an outer middleware holds for this call, or new ones."""
+    facts = _FACTS.get()
+    # By message identity: a nested `app.call_tool()` is a different call.
+    if facts is not None and facts.context.message is context.message:
+        return facts
+    traits = ToolTraits()
+    try:
+        if context.fastmcp_context is not None:
+            app, name = context.fastmcp_context.fastmcp, context.message.name
+            traits = get_tool_traits(app, name)
+            # A hashed backend name (`<hash>_<name>`) resolves to the tool
+            # registered as `<name>`, so that tool's traits and opt-out apply.
+            hashed = parse_hashed_backend_name(name)
+            if hashed is not None and traits == ToolTraits():
+                traits = get_tool_traits(app, hashed[1])
     except Exception:
-        # Telemetry must never break a tool call.
-        logger.debug("Failed to resolve tool telemetry properties", exc_info=True)
-    return properties
+        logger.debug("Failed to read tool traits", exc_info=True)
+    return ToolCallFacts(context, traits)
 
 
 class ToolCallTelemetryMiddleware(Middleware):
@@ -152,7 +249,7 @@ class ToolCallTelemetryMiddleware(Middleware):
 
     ```python
     app = mcp_server(
-        name="my-server",
+        display_name="my-server",
         package_name="my-package",
         telemetry=TelemetryConfig(
             sentry_dsn="https://...@sentry.io/...",
@@ -219,67 +316,90 @@ class ToolCallTelemetryMiddleware(Middleware):
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Wrap tool execution with telemetry collection."""
-        tool_name: str = context.message.name
         timestamp = datetime.now(tz=timezone.utc)
-        tool_properties = await _resolve_tool_properties(context)
+        facts = tool_call_facts(context)
+        # A second telemetry middleware on the app reports its own properties.
+        owner = not facts.owned
+        attribution = resolve_extra_properties(self._attribution)
+        if owner:
+            facts.owned = True
+            facts.extra_source = self._extra_properties
+            facts.attribution = attribution
+        mutation_class = await facts.mutation_class()
+        token = _FACTS.set(facts)
         start = time.monotonic()
-
-        success = True
-        error_type: str | None = None
-
+        result: ToolResult | None = None
+        error: BaseException | None = None
         try:
             result = await call_next(context)
-            if result.is_error:
-                success = False
-                error_type = "ToolError"
-        except Exception as exc:
-            success = False
-            # FastMCP 3.4+ wraps tool exceptions in `ToolError`; report the cause
-            # so telemetry records the real failure type, not the wrapper.
-            telemetry_error = (
-                exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
-            )
-            error_type = type(telemetry_error).__name__
+            return result
+        except BaseException as exc:
+            error = exc
             raise
         finally:
-            duration_ms = round((time.monotonic() - start) * 1000, 2)
+            _FACTS.reset(token)
+            facts.settle(result, error)
             record = TelemetryRecord(
                 invocation_type="mcp_tool_call",
-                name=tool_name,
+                name=context.message.name,
                 timestamp=timestamp.isoformat(),
-                duration_ms=duration_ms,
-                success=success,
-                error_type=error_type,
+                duration_ms=round((time.monotonic() - start) * 1000, 2),
+                success=facts.outcome == "success",
+                error_type=facts.error_type,
                 package_version=self._sinks.package_version,
                 extra={
-                    **tool_properties,
-                    **resolve_extra_properties(self._attribution),
-                    **resolve_extra_properties(self._extra_properties),
+                    "tool_group": facts.traits.mcp_module,
+                    "mutation_class": mutation_class.value,
+                    **attribution,
+                    **(
+                        facts.extra_properties()
+                        if owner
+                        else resolve_extra_properties(self._extra_properties)
+                    ),
+                    # Last, so a server property cannot break the join to the span.
+                    **facts.span,
                 },
             )
             self._sinks.emit(record)
 
-        return result
-
 
 def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
-    """Register tool-call telemetry on `app` unless it is already present."""
-    if not config.enabled or any(
+    """Register tool-call telemetry on `app` unless it is already present.
+
+    Also registers tool-call tracing when `config.tool_tracing` is set.
+    """
+    if not config.enabled:
+        return
+
+    # An app built by `mcp_server()` knows its package; the config can override it.
+    package_name = config.package_name or getattr(
+        getattr(app, "x_mcp_server_config", None), "package_name", None
+    )
+    if not any(
         isinstance(middleware, ToolCallTelemetryMiddleware)
         for middleware in app.middleware
     ):
-        return
-
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name=config.package_name,
-            sentry_dsn=config.sentry_dsn,
-            segment_write_key=config.segment_write_key,
-            segment_user_id=config.segment_user_id,
-            segment_anonymous_id=config.segment_anonymous_id,
-            extra_properties=config.extra_properties,
-            known_public_mcp_domains=config.known_public_mcp_domains,
-            anonymization_salt=config.anonymization_salt,
-            anonymized_attribution=config.anonymized_attribution,
+        app.add_middleware(
+            ToolCallTelemetryMiddleware(
+                package_name=package_name,
+                sentry_dsn=config.sentry_dsn,
+                segment_write_key=config.segment_write_key,
+                segment_user_id=config.segment_user_id,
+                segment_anonymous_id=config.segment_anonymous_id,
+                extra_properties=config.extra_properties,
+                known_public_mcp_domains=config.known_public_mcp_domains,
+                anonymization_salt=config.anonymization_salt,
+                anonymized_attribution=config.anonymized_attribution,
+            )
         )
-    )
+
+    if config.tool_tracing:
+        # Imported here because `otel.middleware` imports this module.
+        from fastmcp_extensions.otel.middleware import register_tool_call_tracing
+        from fastmcp_extensions.otel.models import ToolTracingConfig
+
+        register_tool_call_tracing(
+            app,
+            ToolTracingConfig() if config.tool_tracing is True else config.tool_tracing,
+            package_name=package_name,
+        )
