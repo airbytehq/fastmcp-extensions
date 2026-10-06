@@ -12,8 +12,8 @@ from uuid import UUID
 import pytest
 from pydantic import BaseModel, Field, SecretStr
 
-from fastmcp_extensions import _arg_trace as t
-from fastmcp_extensions._arg_trace import ArgClass, ArgTracer, TraceArg
+from fastmcp_extensions.otel import _arg_digests as t
+from fastmcp_extensions.otel._arg_digests import ArgClass, ArgTracer, TraceArg
 
 P = "acme.mcp"
 MASTER = bytes(range(32, 64))
@@ -91,19 +91,19 @@ PLAN = {
 SENT: dict[str, tuple[Any, str | None]] = {
     "flag": (True, "value"),
     "mode": ("a", "value"),
-    "color": ("green", "eq"),
+    "color": ("green", "digest"),
     "modes": (["y", "x"], "value"),
-    "text": (CANARY, "eq"),
-    "number": (0, "eq"),
-    "names": (["b", "a", "a"], "count eq"),
+    "text": (CANARY, "digest"),
+    "number": (0, "digest"),
+    "names": (["b", "a", "a"], "count digest"),
     "config": ({"password": CANARY}, "present"),
     "pw": (CANARY, None),
     "api_key": (CANARY, "present"),
     "omit": (CANARY, None),
-    "name": ("synthetic-value-0001", "eq fp"),
-    "similar_list": (["alpha", "beta", "gamma"], "count eq fp"),
+    "name": ("synthetic-value-0001", "digest similarity"),
+    "similar_list": (["alpha", "beta", "gamma"], "count digest similarity"),
     "limit": (20, "value"),
-    "label": ("x" * 300, "eq"),
+    "label": ("x" * 300, "digest"),
     "blob": ({1: CANARY}, "present"),
     "untyped": (None, None),
     "invented": (CANARY, None),
@@ -155,14 +155,14 @@ def test_classification_table(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_golden_vector() -> None:
-    """`eq`, `fp`, and the scope id stay byte-compatible with the lifted engine."""
+    """`digest`, `similarity`, and the scope id stay byte-compatible with the lifted engine."""
     # The prefix feeds the hash labels; this one has hashes already in use.
     p = "airbyte.mcp"
     args = {"text": "synthetic-value", "name": "synthetic-value-0001"}
     assert _record(ArgTracer(p, key=MASTER), args) == {
-        f"{p}.arg.text": '{"eq":"45397e3f11b5a5f44d59848b2f6a3121"}',
-        f"{p}.arg.name": '{"eq":"9cb6f450030cd7fefd16633ed474d693",'
-        '"fp":"210a0000405025000402000c00022041"}',
+        f"{p}.arg.text": '{"digest":"45397e3f11b5a5f44d59848b2f6a3121"}',
+        f"{p}.arg.name": '{"digest":"9cb6f450030cd7fefd16633ed474d693",'
+        '"similarity":"210a0000405025000402000c00022041"}',
         f"{p}.arg_hash_status": "ok",
         f"{p}.arg_key_scope": "transport_session",
         f"{p}.arg_scope_id": "ba5c45977e11f294",
@@ -193,10 +193,10 @@ def test_record_forms() -> None:
     )
     assert CANARY not in json.dumps(wrong)
     assert {name: " ".join(record) for name, record in _records(wrong).items()} == {
-        "limit": "eq",
+        "limit": "digest",
         "label": "value",
         "names": "present",
-        "text": "eq",
+        "text": "digest",
     }
     oversized = ArgClass(TraceArg.VALUE, allowed=frozenset({"x" * 390}))
     assert t.build_records(P, {"m": "x" * 390}, {"m": oversized}, None) == {
@@ -221,7 +221,7 @@ def test_key_and_scope_fallbacks(
     """Without a key or a principal, hashed modes degrade to presence."""
     attrs = _record(ArgTracer(P, key=key), **scope)
     records = _records(attrs)
-    hashed = {"eq"} if status == "ok" else {"present"}
+    hashed = {"digest"} if status == "ok" else {"present"}
     assert (attrs[f"{P}.arg_hash_status"], attrs[f"{P}.arg_key_scope"]) == (
         status,
         kind,
@@ -230,7 +230,7 @@ def test_key_and_scope_fallbacks(
     assert records["flag"] == {"value": True}
     assert set(records["text"]) == hashed
     assert set(records["names"]) == {"count"} | hashed
-    assert any("eq" in record for record in records.values()) == (status == "ok")
+    assert any("digest" in record for record in records.values()) == (status == "ok")
 
 
 def test_scope_isolation() -> None:
@@ -278,12 +278,15 @@ FORGED = {
     "value of the wrong type": ({"arg.limit": json.dumps({"value": CANARY})}, 1),
     "omitted argument": ({"arg.omit": '{"present":true}'}, 1),
     "undeclared argument": ({f"arg.{CANARY}": '{"present":true}'}, 1),
-    "fp on hash": ({"arg.number": f'{{"eq":"{ZEROS}","fp":"{ZEROS}"}}'}, 1),
-    "bad count": ({"arg.names": f'{{"count":-1,"eq":"{ZEROS}"}}'}, 1),
+    "similarity on hash": (
+        {"arg.number": f'{{"digest":"{ZEROS}","similarity":"{ZEROS}"}}'},
+        1,
+    ),
+    "bad count": ({"arg.names": f'{{"count":-1,"digest":"{ZEROS}"}}'}, 1),
     "non-canonical JSON": ({"arg.flag": '{"value": true}'}, 1),
-    "eq on presence": ({"arg.config": f'{{"eq":"{ZEROS}"}}'}, 1),
+    "digest on presence": ({"arg.config": f'{{"digest":"{ZEROS}"}}'}, 1),
     # Seven digests and the scope id.
-    "eq without ok": ({"arg_hash_status": "no_key", "arg_key_scope": "none"}, 8),
+    "digest without ok": ({"arg_hash_status": "no_key", "arg_key_scope": "none"}, 8),
 }
 
 
@@ -298,4 +301,4 @@ def test_revalidate_rejects_forged(forged: dict[str, str], dropped: int) -> None
     assert CANARY not in json.dumps(out)
     assert not any(key in out for key in forged if ".arg." in key)
     assert (f"{P}.arg_scope_id" in out) == ok
-    assert any("eq" in record for record in _records(out).values()) == ok
+    assert any("digest" in record for record in _records(out).values()) == ok

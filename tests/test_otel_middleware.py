@@ -40,7 +40,6 @@ from fastmcp_extensions import (
     TelemetryConfig,
     ToolTracingConfig,
     TraceArg,
-    _tracing,
     add_trace_attributes,
     capture_tool_spans,
     mcp_server,
@@ -48,22 +47,23 @@ from fastmcp_extensions import (
     register_mcp_tools,
     trace_plan,
 )
-from fastmcp_extensions._arg_trace import is_arg_key
 from fastmcp_extensions._middleware import ToolFilterMiddleware
 from fastmcp_extensions._telemetry import resolve_version
 from fastmcp_extensions._telemetry_middleware import ToolCallTelemetryMiddleware
-from fastmcp_extensions._tracing import (
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS
+from fastmcp_extensions.otel import middleware as _tracing
+from fastmcp_extensions.otel._arg_digests import is_arg_key
+from fastmcp_extensions.otel._sdk import BoundaryExporter
+from fastmcp_extensions.otel.middleware import (
     INTENT_SENTENCE,
-    ToolCallTracingMiddleware,
+    ToolCallOtelMiddleware,
     bound_value,
     register_tool_call_tracing,
 )
-from fastmcp_extensions._tracing_sdk import BoundaryExporter
-from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 from fastmcp_extensions.tool_traits import ToolTraits, set_tool_traits
 
 P = "fastmcp_extensions"
-LOGGER = "fastmcp_extensions._tracing"
+LOGGER = "fastmcp_extensions.otel.middleware"
 CANARY = "canary-9f3e"
 ADD = {"a": 1, "b": 2}
 CONSOLE = {"exporter": "console"}
@@ -344,7 +344,7 @@ async def test_argument_records(monkeypatch: pytest.MonkeyPatch) -> None:
     (span,) = await _spans(app, "search", arguments)
     attrs = _attrs(span)
     family = {k[len(P) + 1 :]: v for k, v in attrs.items() if is_arg_key(P, k)}
-    assert list(json.loads(family.pop("arg.query"))) == ["eq"]
+    assert list(json.loads(family.pop("arg.query"))) == ["digest"]
     assert family.pop("arg_scope_id")
     assert family == {
         "arg_hash_status": "ok",
@@ -414,7 +414,7 @@ async def test_setup_logs_one_line_and_never_raises(
     if case == "opted-out":
         monkeypatch.setenv("DO_NOT_TRACK", "1")
     elif case == "no-sdk":
-        monkeypatch.setitem(sys.modules, "fastmcp_extensions._tracing_sdk", None)
+        monkeypatch.setitem(sys.modules, "fastmcp_extensions.otel._sdk", None)
     elif case == "foreign":
         monkeypatch.setattr(trace, "get_tracer_provider", NoOpTracerProvider)
     with caplog.at_level(logging.INFO, logger=LOGGER):
@@ -490,7 +490,7 @@ def test_default_otlp_export_and_resource(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "target", [(_tracing, "_client_info"), (ToolCallTracingMiddleware, "_before")]
+    "target", [(_tracing, "_client_info"), (ToolCallOtelMiddleware, "_before")]
 )
 async def test_failing_attribute_source_keeps_the_span(
     target: tuple[object, str], monkeypatch: pytest.MonkeyPatch
@@ -763,7 +763,7 @@ async def test_per_tool_tracing_option() -> None:
         *(f"{P}.{key}" for key in ("kind", "tool_module", "arg.kind"))
     }
     assert (attrs[f"{P}.kind"], attrs[f"{P}.root"]) == ("source", True)
-    assert attrs[f"{P}.tool_module"] == "test_tracing"
+    assert attrs[f"{P}.tool_module"] == "test_otel_middleware"
     assert (attrs[f"{P}.tool_mutating"], attrs[f"{P}.tool_destructive"]) == (True, True)
 
     with pytest.raises(TypeError, match="tracing must be a bool or a callable"):
@@ -854,7 +854,7 @@ async def test_intent_capture() -> None:
 def test_registration_position_and_idempotence() -> None:
     kinds = (
         ToolCallTelemetryMiddleware,
-        ToolCallTracingMiddleware,
+        ToolCallOtelMiddleware,
         ToolFilterMiddleware,
     )
 
@@ -878,7 +878,7 @@ def test_registration_position_and_idempotence() -> None:
 
     plain = FastMCP("plain")
     register_tool_call_tracing(plain, ToolTracingConfig())
-    assert order(plain) == [ToolCallTracingMiddleware]
+    assert order(plain) == [ToolCallOtelMiddleware]
 
 
 @pytest.mark.asyncio
@@ -927,9 +927,7 @@ def test_boundary_releases_a_discarded_app() -> None:
     # No tools: FastMCP caches tool functions, which pins an app they close over.
     config = ToolTracingConfig(other_spans=lambda span: {})
     app = mcp_server("t", telemetry=TelemetryConfig(tool_tracing=config))
-    install = next(
-        m for m in app.middleware if isinstance(m, ToolCallTracingMiddleware)
-    )
+    install = next(m for m in app.middleware if isinstance(m, ToolCallOtelMiddleware))
     boundary = BoundaryExporter(InMemorySpanExporter(), install)
     released = weakref.ref(install)
     del app, install, config

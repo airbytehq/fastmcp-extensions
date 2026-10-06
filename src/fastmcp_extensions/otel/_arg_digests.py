@@ -8,13 +8,13 @@ Each argument of a traced tool call becomes one compact JSON record under
 |---|---|---|
 | `OMIT` | nothing | nothing |
 | `PRESENCE` | `{"present": true}` | same |
-| `HASH` | `{"eq": h}`; lists add `"count"` | `{"present": true}`; lists add `"count"` |
-| `FINGERPRINT` | `HASH` plus `"fp"` for short text and string lists | as `HASH` |
+| `HASH` | `{"digest": h}`; lists add `"count"` | `{"present": true}`; lists add `"count"` |
+| `FINGERPRINT` | `HASH` plus `"similarity"` for short text and string lists | as `HASH` |
 | `VALUE` | `{"value": v}` when `v` is in the closed set or in bounds, else as `HASH` | same |
 
-`eq` is a keyed equality digest and `fp` a keyed 128-bit similarity bitset. Both
-are scoped to the verified principal and a session, so values compare only
-within one scope and are never recoverable. Without a key no digest is made.
+`digest` is a keyed equality digest and `similarity` a keyed 128-bit similarity
+bitset. Both are scoped to the verified principal and a session, so values
+compare only within one scope and are never recoverable. Without a key no digest is made.
 
 This module imports only the standard library. `validate` re-checks every
 record at the export boundary, so forged or malformed attributes never leave.
@@ -38,11 +38,13 @@ from enum import Enum
 from typing import Annotated, Literal, Union, get_args, get_origin
 from uuid import UUID
 
+from fastmcp_extensions.otel.models import TraceArg
+
 logger = logging.getLogger(__name__)
 
 HASH_STATUSES = frozenset({"ok", "no_key", "no_scope", "error"})
 KEY_SCOPES = frozenset({"transport_session", "approximate", "none"})
-ALLOWED_RECORD_KEYS = frozenset({"value", "present", "eq", "fp", "count"})
+ALLOWED_RECORD_KEYS = frozenset({"value", "present", "digest", "similarity", "count"})
 SECRET_NAME_PARTS = (
     "token",
     "secret",
@@ -76,33 +78,6 @@ _MAX_SAFE_INT = 2**53
 _HEX16 = re.compile(r"[0-9a-f]{16}")
 _HEX32 = re.compile(r"[0-9a-f]{32}")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
-
-
-# A plain `Enum`, not a `str` subclass: FastMCP publishes a lone string in
-# `Annotated[T, "..."]` as the parameter's description.
-class TraceArg(Enum):
-    """How one tool argument is recorded on the tool span.
-
-    Declare it inside `Annotated[...]` on the tool's parameter.
-
-    - `OMIT`: nothing is recorded.
-    - `PRESENCE`: only that the argument was passed.
-    - `HASH`: a keyed hash, which shows whether two calls passed the same
-      value.
-    - `FINGERPRINT`: the hash plus a keyed fingerprint, which shows how
-      similar two values are without exposing either.
-    - `VALUE`: the raw value, when it is in the hint's closed set or a bounded
-      scalar of the hinted type; anything else is recorded as `HASH`.
-
-    The hashed modes need `ToolTracingConfig.arg_key` and a verified caller, and
-    record presence without them.
-    """
-
-    OMIT = "omit"
-    PRESENCE = "presence"
-    HASH = "hash"
-    FINGERPRINT = "fingerprint"
-    VALUE = "value"
 
 
 @dataclass(frozen=True)
@@ -372,7 +347,7 @@ def _canonical_items(items: list[object]) -> bytes:
 
 
 def canonical_bytes(value: object) -> bytes | None:
-    """Return the canonical encoding used for `eq`, or `None` for `present`."""
+    """Return the canonical encoding used for `digest`, or `None` for `present`."""
     try:
         if isinstance(value, str) and _raw_too_long(value):
             return None
@@ -548,7 +523,7 @@ def _hashed_record(
     canonical = canonical_bytes(value) if items is None else _canonical_items(items)
     if canonical is None:
         return _PRESENT_RECORD
-    record["eq"] = eq_hex(keys.k_eq, canonical)
+    record["digest"] = eq_hex(keys.k_eq, canonical)
     k_fp = keys.k_fp.get(name) if cls.mode is TraceArg.FINGERPRINT else None
     if k_fp is not None:
         fingerprint = (
@@ -559,7 +534,7 @@ def _hashed_record(
             else None
         )
         if fingerprint is not None:
-            record["fp"] = fingerprint
+            record["similarity"] = fingerprint
     return record
 
 
@@ -639,13 +614,13 @@ def _shapes(cls: ArgClass) -> list[set[str]]:
     if cls.mode is TraceArg.PRESENCE:
         return shapes
     similar = cls.mode is TraceArg.FINGERPRINT
-    shapes.append({"eq"})
+    shapes.append({"digest"})
     if similar:
-        shapes.append({"eq", "fp"})
+        shapes.append({"digest", "similarity"})
     if cls.is_list:
-        shapes += [{"count", "present"}, {"count", "eq"}]
+        shapes += [{"count", "present"}, {"count", "digest"}]
         if similar:
-            shapes.append({"count", "eq", "fp"})
+            shapes.append({"count", "digest", "similarity"})
     return shapes
 
 
@@ -665,8 +640,8 @@ def _record_ok(record: dict[str, object], cls: ArgClass) -> bool:
     return (
         keys in _shapes(cls)
         and record.get("present", True) is True
-        and ("eq" not in keys or _is_hex32(record["eq"]))
-        and ("fp" not in keys or _is_hex32(record["fp"]))
+        and ("digest" not in keys or _is_hex32(record["digest"]))
+        and ("similarity" not in keys or _is_hex32(record["similarity"]))
         and type(count) is int
         and 0 <= count <= MAX_COUNT
     )
@@ -705,7 +680,7 @@ def validate(
                 and cls.mode is not TraceArg.OMIT
                 and record is not None
                 and _record_ok(record, cls)
-                and ("eq" not in record or tracing == "ok")
+                and ("digest" not in record or tracing == "ok")
             )
         elif key == family + "_hash_status":
             ok = tracing is not None

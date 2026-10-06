@@ -14,8 +14,7 @@ from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
 from fastmcp.tools import ToolResult
 from mcp.types import ImageContent, TextContent
 
-from fastmcp_extensions._tracing import OWNED_NAMESPACES
-from fastmcp_extensions._tracing_extras import (
+from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     error_attributes,
@@ -24,6 +23,7 @@ from fastmcp_extensions._tracing_extras import (
     tool_list_attributes,
     validation_attributes,
 )
+from fastmcp_extensions.otel.middleware import OWNED_NAMESPACES
 
 
 def _owned(attrs: dict[str, object]) -> dict[str, object]:

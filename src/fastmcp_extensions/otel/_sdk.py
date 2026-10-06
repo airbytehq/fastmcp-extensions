@@ -6,7 +6,7 @@ policy, the privacy boundary, and the span capture behind
 `capture_tool_spans()`.
 
 This module imports the SDK at the top, and the SDK is an optional
-dependency (the `[otel]` extra). `_tracing` therefore imports it only inside
+dependency (the `[otel]` extra). `middleware` therefore imports it only inside
 functions, and nothing else may import it.
 """
 
@@ -35,8 +35,8 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
 from opentelemetry.trace import SpanContext, Status, StatusCode
 
-from fastmcp_extensions._arg_trace import is_arg_key
-from fastmcp_extensions._tracing import (
+from fastmcp_extensions.otel._arg_digests import is_arg_key
+from fastmcp_extensions.otel.middleware import (
     _INSTALLS,
     _KEY,
     _REQUEST_ID,
@@ -51,7 +51,7 @@ from fastmcp_extensions._tracing import (
 if TYPE_CHECKING:
     from opentelemetry.util.types import AttributeValue
 
-    from fastmcp_extensions._tracing import ToolCallTracingMiddleware
+    from fastmcp_extensions.otel.middleware import ToolCallOtelMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def _resource(attributes: Mapping[str, str] | None) -> Resource:
 
 
 def attach(
-    install: ToolCallTracingMiddleware,
+    install: ToolCallOtelMiddleware,
     *,
     service_name: str,
     service_version: str | None,
@@ -140,9 +140,7 @@ def attach(
     return how
 
 
-def clean(
-    span: ReadableSpan, install: ToolCallTracingMiddleware
-) -> ReadableSpan | None:
+def clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan | None:
     """Rebuild `span` from the allowlist for `install`, or return `None` to drop it.
 
     This is the privacy boundary. It never raises: a span that fails to
@@ -156,9 +154,7 @@ def clean(
         return None
 
 
-def _clean(
-    span: ReadableSpan, install: ToolCallTracingMiddleware
-) -> ReadableSpan | None:
+def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan | None:
     p, a = install.prefix + ".", span.attributes or {}
     status = span.status.status_code
     mark = a.get(MARK)
@@ -255,7 +251,7 @@ def _clean(
 
 
 def _rebuild(
-    install: ToolCallTracingMiddleware,
+    install: ToolCallOtelMiddleware,
     span: ReadableSpan,
     name: str,
     attributes: Mapping[str, object],
@@ -290,7 +286,7 @@ def _rebuild(
 class BoundaryExporter(SpanExporter):
     """Exporter wrapper that passes only cleaned spans to the real exporter."""
 
-    def __init__(self, inner: SpanExporter, install: ToolCallTracingMiddleware) -> None:
+    def __init__(self, inner: SpanExporter, install: ToolCallOtelMiddleware) -> None:
         """Wrap `inner` for the spans of `install`."""
         self._inner = inner
         # Held weakly: the provider keeps this exporter for the life of the

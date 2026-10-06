@@ -799,8 +799,8 @@ def query(
 | Mode | Record | Default for |
 | ---- | ------ | ----------- |
 | `VALUE` | `{"value": v}` | `bool`, `Literal`, `Enum`, and lists of them |
-| `HASH` | `{"eq": h}`, a keyed hash; lists add `"count"` | `str`, `int`, `float`, `UUID`, `list[str]` (set by `arg_default`) |
-| `FINGERPRINT` | `HASH` plus `"fp"`, a keyed fingerprint that shows how similar two short texts are without exposing either | Opt-in only |
+| `HASH` | `{"digest": h}`, a keyed hash; lists add `"count"` | `str`, `int`, `float`, `UUID`, `list[str]` (set by `arg_default`) |
+| `FINGERPRINT` | `HASH` plus `"similarity"`, a keyed fingerprint that shows how similar two short texts are without exposing either | Opt-in only |
 | `PRESENCE` | `{"present": true}` | `dict`, pydantic models, `Any`, unhinted arguments, and names containing `token`, `secret`, `password`, `credential`, `api_key`, `access_key`, `private_key`, `authorization`, or `session_state` (underscores and case are ignored, so `apiKey` matches) |
 | `OMIT` | Nothing | pydantic `SecretStr` / `SecretBytes` |
 
@@ -981,6 +981,9 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Tracing
 
+These live in `fastmcp_extensions.otel` and are re-exported from `fastmcp_extensions`.
+
+- `ToolCallOtelMiddleware` / `register_tool_call_tracing` - The middleware that enriches each tool call's span, and the function that registers it on a plain FastMCP app.
 - `ToolTracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
 - `TraceArg` - Per-argument marker for `Annotated[...]`: `OMIT`, `PRESENCE`, `HASH`, `FINGERPRINT`, or `VALUE`.
 - `add_trace_attributes` - Add bounded attributes to the current tool call's span from inside a tool.
