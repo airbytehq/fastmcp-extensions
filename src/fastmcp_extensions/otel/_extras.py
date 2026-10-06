@@ -6,9 +6,9 @@ error category, argument names, validation failures, result shape, the tool's
 contract fingerprint, and eval tags.
 
 Every function returns attribute *suffixes* (for example `error.category`);
-`_tracing` adds the attribute prefix. An attribute with nothing to say is
+`middleware` adds the attribute prefix. An attribute with nothing to say is
 omitted. No function reads an exception message, an argument value, or result
-content, and none raises for any input a tool call can produce; `_tracing`
+content, and none raises for any input a tool call can produce; `middleware`
 still guards each call.
 """
 

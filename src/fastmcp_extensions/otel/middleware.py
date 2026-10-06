@@ -5,20 +5,20 @@ FastMCP opens a SERVER span for every request, but nothing exports it until an
 OpenTelemetry SDK is installed. This module does three things:
 
 1. **Setup** - installs the SDK and an exporter (from the `[otel]` extra).
-2. **Enrich** - `ToolCallTracingMiddleware` adds attributes to FastMCP's own
+2. **Enrich** - `ToolCallOtelMiddleware` adds attributes to FastMCP's own
    `tools/call` span while it is still open. It opens its own span only for
    nested or direct `app.call_tool()` calls.
 3. **Privacy boundary** - an exporter wrapper rebuilds every span from an
    allowlist and drops everything else, so raw results and exception messages
    never leave the process. Tool arguments leave only as the records
-   `_arg_trace` builds, which are re-validated here.
+   `_arg_digests` builds, which are re-validated here.
 
 `mcp_server()` registers the middleware from `TelemetryConfig.tool_tracing`; see
 `fastmcp_extensions.server` for the user-facing configuration docs. Plain
 `FastMCP` apps get the same through `register_tool_call_telemetry()`.
 
 This module imports only the OpenTelemetry API. Everything that needs the SDK
-lives in `_tracing_sdk`, which is imported lazily.
+lives in `_sdk`, which is imported lazily.
 """
 
 from __future__ import annotations
@@ -47,10 +47,8 @@ from fastmcp.tools import Tool, ToolResult
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
-from fastmcp_extensions._arg_trace import ArgTracer
 from fastmcp_extensions._attribution import _client_info
 from fastmcp_extensions._telemetry import (
-    ToolTracingConfig,
     resolve_version,
     telemetry_opted_out,
 )
@@ -59,7 +57,8 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     tool_call_facts,
 )
-from fastmcp_extensions._tracing_extras import (
+from fastmcp_extensions.otel._arg_digests import ArgTracer
+from fastmcp_extensions.otel._extras import (
     MAX_LIST_ITEMS,
     ContractCache,
     argument_name_attributes,
@@ -73,6 +72,7 @@ from fastmcp_extensions._tracing_extras import (
     user_facing_error_types,
     validation_attributes,
 )
+from fastmcp_extensions.otel.models import ToolTracingConfig
 from fastmcp_extensions.tool_traits import MutationClass, get_tool_traits
 
 if TYPE_CHECKING:
@@ -183,7 +183,7 @@ _CURRENT: ContextVar[_Call | None] = ContextVar(
 _LISTED: ContextVar[trace.Span | None] = ContextVar(
     "fastmcp_extensions_listed_span", default=None
 )
-_INSTALLS: weakref.WeakSet[ToolCallTracingMiddleware] = weakref.WeakSet()
+_INSTALLS: weakref.WeakSet[ToolCallOtelMiddleware] = weakref.WeakSet()
 CAPTURES: list[list[ReadableSpan]] = []
 """The span lists of the open `capture_tool_spans()` blocks."""
 
@@ -355,7 +355,7 @@ def _tool_attributes(module: str | None, mutation: MutationClass) -> dict[str, o
     return attrs
 
 
-class ToolCallTracingMiddleware(Middleware):
+class ToolCallOtelMiddleware(Middleware):
     """Middleware that enriches the OpenTelemetry span of every MCP tool call.
 
     It stays installed when export is dormant or disabled, because intent
@@ -847,7 +847,7 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
         `omit`). `args` is empty for a tool with `tracing=False`.
     """
     tracer = next(
-        (m.args for m in app.middleware if isinstance(m, ToolCallTracingMiddleware)),
+        (m.args for m in app.middleware if isinstance(m, ToolCallOtelMiddleware)),
         None,
     ) or ArgTracer(ToolTracingConfig().attribute_prefix)
     plan: dict[str, dict[str, Any]] = {}
@@ -881,8 +881,7 @@ def register_tool_call_tracing(
         logger.warning("tracing: disabled (config must be a ToolTracingConfig)")
         return
     if any(
-        isinstance(middleware, ToolCallTracingMiddleware)
-        for middleware in app.middleware
+        isinstance(middleware, ToolCallOtelMiddleware) for middleware in app.middleware
     ):
         return
     prefix = config.attribute_prefix
@@ -896,7 +895,7 @@ def register_tool_call_tracing(
         )
         return
 
-    install = ToolCallTracingMiddleware(config)
+    install = ToolCallOtelMiddleware(config)
     # Just inside telemetry and outside the tool filters, so filter
     # rejections are traced.
     telemetry_positions = [
@@ -914,7 +913,7 @@ def register_tool_call_tracing(
 
 
 def _start_export(
-    app: FastMCP, install: ToolCallTracingMiddleware, package_name: str | None
+    app: FastMCP, install: ToolCallOtelMiddleware, package_name: str | None
 ) -> None:
     """Attach the exporter and log one line saying what tracing is doing."""
     exporter = install.config.exporter
@@ -928,10 +927,10 @@ def _start_export(
         ):
             logger.info("tracing: dormant (no OTLP endpoint set)")
             return
-        import fastmcp_extensions._tracing_sdk as _tracing_sdk
+        import fastmcp_extensions.otel._sdk as _sdk
 
         if exporter not in ("otlp", "console") and not isinstance(
-            exporter, _tracing_sdk.SpanExporter
+            exporter, _sdk.SpanExporter
         ):
             logger.warning(
                 "tracing: disabled (exporter must be 'otlp', 'console', "
@@ -939,7 +938,7 @@ def _start_export(
             )
             return
         version = resolve_version(package_name)
-        provider = _tracing_sdk.attach(
+        provider = _sdk.attach(
             install,
             service_name=app.name,
             service_version=None if version == "unknown" else version,
@@ -981,7 +980,7 @@ def capture_tool_spans() -> Iterator[list[ReadableSpan]]:
         ImportError: If the OpenTelemetry SDK is not installed.
         RuntimeError: If a non-SDK global `TracerProvider` is installed.
     """
-    import fastmcp_extensions._tracing_sdk as _tracing_sdk
+    import fastmcp_extensions.otel._sdk as _sdk
 
-    with _tracing_sdk.capture() as spans:
+    with _sdk.capture() as spans:
         yield spans

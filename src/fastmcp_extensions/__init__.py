@@ -14,24 +14,17 @@ with FastMCP 2.0, including:
 - Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
 
-from fastmcp_extensions._arg_trace import TraceArg
 from fastmcp_extensions._telemetry import (
     DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
     TelemetryRecord,
     TelemetrySinks,
-    ToolTracingConfig,
 )
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
     register_tool_call_telemetry,
     tool_telemetry_properties,
-)
-from fastmcp_extensions._tracing import (
-    add_trace_attributes,
-    capture_tool_spans,
-    trace_plan,
 )
 from fastmcp_extensions.auth import (
     ClientAllowlistJWTVerifier,
@@ -85,6 +78,14 @@ from fastmcp_extensions.logging_redaction import (
     AuthorizationRedactionFilter,
     install_authorization_redaction,
     redact_authorization,
+)
+from fastmcp_extensions.otel import (
+    ToolCallOtelMiddleware,
+    ToolTracingConfig,
+    TraceArg,
+    add_trace_attributes,
+    capture_tool_spans,
+    trace_plan,
 )
 from fastmcp_extensions.registration import (
     PromptDef,
@@ -165,6 +166,7 @@ __all__ = [
     "TelemetryConfig",
     "TelemetryRecord",
     "TelemetrySinks",
+    "ToolCallOtelMiddleware",
     "ToolCallTelemetryMiddleware",
     "ToolCallTelemetryRecord",
     "ToolFilterFn",

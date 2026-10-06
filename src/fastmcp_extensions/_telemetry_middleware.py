@@ -394,11 +394,9 @@ def register_tool_call_telemetry(app: FastMCP, config: TelemetryConfig) -> None:
         )
 
     if config.tool_tracing:
-        # Imported here because `_tracing` imports this module.
-        from fastmcp_extensions._tracing import (
-            ToolTracingConfig,
-            register_tool_call_tracing,
-        )
+        # Imported here because `otel.middleware` imports this module.
+        from fastmcp_extensions.otel.middleware import register_tool_call_tracing
+        from fastmcp_extensions.otel.models import ToolTracingConfig
 
         register_tool_call_tracing(
             app,
