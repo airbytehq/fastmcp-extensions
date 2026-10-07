@@ -65,6 +65,8 @@ from fastmcp_extensions.otel._extras import (
     declared_parameters,
     error_attributes,
     eval_attributes,
+    is_error_like,
+    literal_error_strings,
     result_attributes,
     safe_name,
     tool_contract,
@@ -149,6 +151,7 @@ OWNED_KEYS = frozenset(
         "tool_requested_name",
         "intent",
         "intent_present",
+        "result_error_like",
         "arg_hash_status",
         "arg_key_scope",
         "arg_scope_id",
@@ -373,6 +376,7 @@ class ToolCallOtelMiddleware(Middleware):
         """This app's own resource, on a provider this package created."""
         self._installed_at = time.monotonic()
         self._contracts: ContractCache = {}
+        self._error_strings: dict[str, tuple[Tool, frozenset[str]]] = {}
         shared = config.shared_properties
         # A bare string is one name; `in` on it would match substrings.
         self._shared = frozenset([shared] if isinstance(shared, str) else shared)
@@ -380,9 +384,17 @@ class ToolCallOtelMiddleware(Middleware):
             self.prefix,
             default=config.arg_default,
             key=config.arg_key,
-            skip=(INTENT_ARG,) if config.capture_intent else (),
+            skip=(INTENT_ARG,) if self.records_intent else (),
         )
         _INSTALLS.add(self)
+
+    @property
+    def records_intent(self) -> bool:
+        """Return whether any `intent` argument can be recorded."""
+        return self.config.capture_intent or self.config.record_declared_intent
+
+    def _declares_intent(self, tool: Tool | None) -> bool:
+        return tool is not None and INTENT_ARG in declared_parameters(tool)
 
     def _active(self) -> bool:
         """Return whether spans stamped now would reach an exporter or a capture."""
@@ -502,10 +514,16 @@ class ToolCallOtelMiddleware(Middleware):
                         # when the tool makes an in-process FastMCP call.
                         keep[f"{self.prefix}.tool_name"] = name
                     stripped = await self._strip_intent(context, facts)
-                    # Only the injected `intent` is recorded. A tool's own
-                    # `intent` parameter is not stripped and is the tool's data.
+                    # A tool's own `intent` parameter is not stripped and is
+                    # the tool's data, recorded only when the server opts in.
                     intent = (
-                        arguments.get(INTENT_ARG) if stripped is not context else None
+                        arguments.get(INTENT_ARG)
+                        if stripped is not context
+                        or (
+                            self.config.record_declared_intent
+                            and self._declares_intent(tool)
+                        )
+                        else None
                     )
                     context = stripped
                     if recording:
@@ -564,6 +582,15 @@ class ToolCallOtelMiddleware(Middleware):
                     finally:
                         facts.settle(result, error)
                         self._after(span, result, facts, tool, app, late, keep)
+
+    def _tool_error_strings(self, tool: Tool) -> frozenset[str]:
+        """Return the `Literal` strings a tool's return annotation declares."""
+        hit = self._error_strings.get(tool.key)
+        if hit is not None and hit[0] is tool:
+            return hit[1]
+        errors = literal_error_strings(getattr(tool, "fn", None))
+        self._error_strings[tool.key] = (tool, errors)
+        return errors
 
     async def _strip_intent(
         self,
@@ -637,7 +664,9 @@ class ToolCallOtelMiddleware(Middleware):
                 attrs["gen_ai.tool.call.id"] = _digest(request_id)
                 if _REQUEST_ID.fullmatch(request_id):
                     attrs["jsonrpc.request.id"] = request_id
-        if self.config.capture_intent:
+        if self.config.capture_intent or (
+            self.config.record_declared_intent and self._declares_intent(tool)
+        ):
             text = clean_intent(intent)
             attrs[f"{p}.intent_present"] = bool(text)
             if text:
@@ -712,6 +741,18 @@ class ToolCallOtelMiddleware(Middleware):
                 attrs.update(_safe(lambda: error_attributes(None), p + "."))
             if result is not None:
                 attrs.update(_safe(lambda: result_attributes(result), p + "."))
+            # A separate flag: `outcome` stays what the tool reported. Always
+            # written, so tool code cannot set it; the boundary drops `False`.
+            attrs[f"{p}.result_error_like"] = bool(
+                _safe(
+                    lambda: {
+                        "hit": result is not None
+                        and tool is not None
+                        and outcome == "success"
+                        and is_error_like(result, self._tool_error_strings(tool))
+                    }
+                ).get("hit")
+            )
             attrs[f"{p}.outcome"] = outcome
             attrs.update(keep)
             _set_attributes(span, attrs)

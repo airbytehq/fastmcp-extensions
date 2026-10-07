@@ -184,7 +184,7 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
         if not _KEY.fullmatch(key[len(p) :]):
             continue
         if key == p + INTENT_ARG:
-            if not install.config.capture_intent:
+            if not install.records_intent:
                 continue
             bounded = clean_intent(value) or None
         else:
@@ -194,6 +194,8 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     # Intent is exported only when the layer captured one for this call.
     if out.get(p + "intent_present") is not True:
         out.pop(p + INTENT_ARG, None)
+    if out.get(p + "result_error_like") is not True:
+        out.pop(p + "result_error_like", None)
     if (server := bound_value(a.get("fastmcp.server.name"))) is not None:
         out["fastmcp.server.name"] = server
     protocol = a.get("mcp.protocol.version")

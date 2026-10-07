@@ -668,8 +668,9 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.args.supplied`, `<p>.args.unknown`, `<p>.args.invalid` | Argument names the caller sent, names it invented, and `<name>:<pydantic error type>` for validation failures |
 | `<p>.arg.<name>` | One record per argument; see [Per-argument declarations](#per-argument-declarations) |
 | `<p>.arg_hash_status`, `<p>.arg_key_scope`, `<p>.arg_scope_id`, `<p>.arg_trace_dropped` | How the argument records were keyed, and how many were dropped at export |
-| `<p>.intent`, `<p>.intent_present` | With `capture_intent`: the agent's stated reason, cut to 4096 characters. Not recorded for a tool that declares its own `intent` parameter |
+| `<p>.intent`, `<p>.intent_present` | With `capture_intent`: the agent's stated reason, cut to 4096 characters. Not recorded for a tool that declares its own `intent` parameter, unless `record_declared_intent` is set |
 | `<p>.result.*` | Result shape: content count and types, text and structured sizes, item count |
+| `<p>.result_error_like` | `True` when a successful result is exactly one of the strings in a `Literal[...]` of the tool's return annotation; omitted otherwise. Separate from `<p>.outcome`, which is unchanged |
 | `<p>.eval.run_id`, `<p>.eval.case_id` | From the `X-MCP-Eval-Run` and `X-MCP-Eval-Case` request headers |
 | `<p>.process.uptime_s` | Seconds since tracing was installed |
 | other `<p>.*` | Attributes from the hooks, a per-tool callable, or `add_trace_attributes()` |
@@ -732,6 +733,7 @@ app = mcp_server(
 | `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. It runs before the response is sent, so keep it fast; an async hook is abandoned after five seconds. |
 | `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
+| `record_declared_intent` | `False` | Records the `intent` argument of a tool that declares its own `intent` parameter as `<p>.intent`, bounded like a captured intent. The tool still receives it unchanged. |
 | `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |

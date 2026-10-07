@@ -18,8 +18,10 @@ import asyncio
 import hashlib
 import json
 import re
+import typing
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from types import UnionType
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, get_args, get_origin
 
 from fastmcp.exceptions import ToolError, ValidationError
 
@@ -242,6 +244,41 @@ def result_attributes(result: ToolResult) -> dict[str, object]:
         if lists:
             attrs["result.item_count"] = max(lists)
     return attrs
+
+
+def literal_error_strings(func: Callable[..., object] | None) -> frozenset[str]:
+    """Return every `str` inside a `Literal[...]` of a function's return annotation."""
+    if func is None:
+        return frozenset()
+    try:
+        hint = typing.get_type_hints(func, include_extras=True).get("return")
+    except Exception:
+        return frozenset()
+    if get_origin(hint) is Annotated:
+        hint = get_args(hint)[0]
+    members = get_args(hint) if get_origin(hint) in (Union, UnionType) else (hint,)
+    found: set[str] = set()
+    for member in members:
+        if get_origin(member) is Literal:
+            found.update(value for value in get_args(member) if isinstance(value, str))
+    return frozenset(found)
+
+
+def is_error_like(result: ToolResult, errors: Collection[str]) -> bool:
+    """Return whether a result is exactly one of the tool's declared error strings."""
+    if not errors:
+        return False
+    structured = result.structured_content
+    if isinstance(structured, dict) and structured.keys() == {"result"}:
+        value = structured["result"]
+        if isinstance(value, str) and value in errors:
+            return True
+    content = result.content
+    return (
+        len(content) == 1
+        and getattr(content[0], "type", None) == "text"
+        and getattr(content[0], "text", None) in errors
+    )
 
 
 def tool_contract(tool: Tool, cache: ContractCache | None = None) -> tuple[str, int]:

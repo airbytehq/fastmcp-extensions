@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import re
 from types import SimpleNamespace
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import pytest
 from fastmcp import FastMCP
@@ -18,6 +18,8 @@ from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     error_attributes,
+    is_error_like,
+    literal_error_strings,
     result_attributes,
     tool_contract,
     tool_list_attributes,
@@ -196,3 +198,28 @@ async def test_tool_contract_and_tool_list_fingerprints() -> None:
     assert attrs["tools.count"] == 2
     assert attrs["tools.schema_chars"] == sum(tool_contract(tool)[1] for tool in tools)
     assert re.fullmatch(r"[0-9a-f]{16}", str(attrs["tools.set_fingerprint"]))
+
+
+def test_literal_error_strings() -> None:
+    def tool() -> Annotated[Literal["Error: nope", 1] | str, "doc"]:
+        return ""
+
+    def plain() -> str:
+        return ""
+
+    assert literal_error_strings(tool) == {"Error: nope"}
+    assert literal_error_strings(plain) == frozenset()
+    assert literal_error_strings(None) == frozenset()
+
+
+def test_is_error_like_is_structural() -> None:
+    errors = frozenset({"Error: nope"})
+    text = TextContent(type="text", text="Error: nope")
+    assert is_error_like(ToolResult(content=[text]), errors)
+    assert is_error_like(
+        ToolResult(structured_content={"result": "Error: nope"}), errors
+    )
+    assert not is_error_like(ToolResult(content="Error: nope, details"), errors)
+    assert not is_error_like(ToolResult(content="ok"), errors)
+    assert not is_error_like(ToolResult(content=[text, text]), errors)
+    assert not is_error_like(ToolResult(content=[text]), frozenset())

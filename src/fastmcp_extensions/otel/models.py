@@ -82,7 +82,10 @@ class ToolTracingConfig:
             tool schema, appends one sentence to the server instructions,
             records the argument, and strips it before the tool runs. A tool
             that declares its own `intent` parameter keeps it, and it is not
-            recorded.
+            recorded unless `record_declared_intent` is set.
+        record_declared_intent: Records the `intent` argument of a tool that
+            declares its own `intent` parameter, bounded like a captured
+            intent. The tool still receives the argument unchanged.
         error_classifier: Server override for the error category. Ignored
             unless it returns a known category.
         other_spans: Decides what survives of spans the layer did not stamp,
@@ -114,6 +117,7 @@ class ToolTracingConfig:
     ) = None
     shared_properties: Sequence[str] = ()
     capture_intent: bool = False
+    record_declared_intent: bool = False
     error_classifier: Callable[[BaseException], str | None] | None = None
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
     arg_key: bytes | Callable[[], bytes | None] | None = field(default=None, repr=False)

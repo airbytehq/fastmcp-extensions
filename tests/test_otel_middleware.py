@@ -1143,3 +1143,72 @@ def test_other_spans_keeps_only_what_the_hook_returns() -> None:
     assert [(span.name, _attrs(span), span.events) for span in spans] == [
         ("GET", {"http.method": "GET"}, ())
     ]
+
+
+@pytest.mark.asyncio
+async def test_result_error_like_is_structural_and_separate_from_outcome() -> None:
+    app = _app()
+
+    @app.tool
+    def lookup(mode: str) -> Literal["Not found."] | str | ToolResult:
+        if mode == "raise":
+            raise ValueError(CANARY)
+        if mode == "error":
+            return ToolResult(content="Not found.", is_error=True)
+        return "Not found." if mode == "missing" else "Not found., details"
+
+    @app.tool
+    def forge() -> str:
+        trace.get_current_span().set_attribute(f"{P}.result_error_like", True)
+        return "Not found."
+
+    spans = [
+        _attrs(span)
+        for mode in ("missing", "found", "error", "raise")
+        for span in await _spans(app, "lookup", {"mode": mode})
+    ]
+    assert [s.get(f"{P}.result_error_like") for s in spans] == [True, None, None, None]
+    assert [s[f"{P}.outcome"] for s in spans] == [
+        "success",
+        "success",
+        "tool_error",
+        "exception",
+    ]
+    assert CANARY not in json.dumps(spans) and "Not found." not in json.dumps(spans)
+    # Only a declared `Literal` counts, and tool code cannot set the flag.
+    (span,) = await _spans(app, "forge")
+    assert f"{P}.result_error_like" not in _attrs(span)
+
+
+@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize(
+    "intent", [None, "  Inspect state  ", "  " + "x" * 5000 + "  "]
+)
+@pytest.mark.asyncio
+async def test_declared_intent_reaches_tool_unchanged_with_bounded_trace_copy(
+    capture: bool, intent: str | None
+) -> None:
+    received: list[str | None] = []
+    for record in (False, True):
+        app = _app(capture_intent=capture, record_declared_intent=record)
+
+        @app.tool
+        def plan(intent: str | None = None) -> str:
+            received.append(intent)
+            return "ok"
+
+        arguments = {"intent": intent} if intent is not None else {}
+        (span,) = await _spans(app, "plan", arguments)
+        attrs = _attrs(span)
+        assert received.pop() == intent
+        if not record:
+            assert f"{P}.intent" not in attrs
+            assert attrs.get(f"{P}.intent_present", False) is False
+            continue
+        expected = _tracing.clean_intent(intent)
+        assert attrs[f"{P}.intent_present"] is bool(expected)
+        assert attrs.get(f"{P}.intent") == (expected or None)
+        if intent is not None and len(intent) > 4096:
+            assert len(attrs[f"{P}.intent"]) == 4096
+        # Recorded as intent, never also as an argument record.
+        assert not any(is_arg_key(P, key) and "intent" in key for key in attrs)
