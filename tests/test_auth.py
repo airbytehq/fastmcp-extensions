@@ -68,6 +68,31 @@ def test_build_mcp_auth_single_introspection_returns_verifier_directly() -> None
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_build_mcp_auth_single_custom_verifier_is_used() -> None:
+    verifier = _static_verifier()
+
+    auth = build_mcp_auth(token_verifiers=[verifier])
+
+    assert isinstance(auth, TokenVerifier)
+    assert auth is verifier
+    assert await auth.verify_token("tok") is not None
+
+
+@pytest.mark.unit
+def test_build_mcp_auth_combines_oidc_with_custom_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
+    verifier = _static_verifier()
+
+    auth = build_mcp_auth(oidc=_oidc_config(), token_verifiers=[verifier])
+
+    assert isinstance(auth, MultiAuth)
+    assert verifier in auth.verifiers
+
+
+@pytest.mark.unit
 def test_build_mcp_auth_multiple_verifiers_returns_multiauth() -> None:
     auth = build_mcp_auth(
         jwt=JWTAuthConfig(public_key=_PUBLIC_KEY),
@@ -130,6 +155,9 @@ class _CapturingOIDCProxy:
 
     def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
+        self.base_url = kwargs.get("base_url")
+        self.resource_base_url = kwargs.get("resource_base_url")
+        self.required_scopes = kwargs.get("required_scopes")
 
 
 def _oidc_config(**overrides: object) -> OIDCAuthConfig:
@@ -526,6 +554,11 @@ def test_build_mcp_auth_jwt_configs_build_expected_verifiers(
         ),
         pytest.param(
             lambda: build_mcp_auth(jwt=[]), "must not be empty", id="empty-jwt-sequence"
+        ),
+        pytest.param(
+            lambda: build_mcp_auth(token_verifiers=[]),
+            "must not be empty",
+            id="empty-token-verifiers-sequence",
         ),
     ],
 )
