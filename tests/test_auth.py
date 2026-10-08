@@ -86,10 +86,17 @@ def test_build_mcp_auth_combines_oidc_with_custom_verifier(
     monkeypatch.setattr("fastmcp_extensions.auth.OIDCProxy", _CapturingOIDCProxy)
     verifier = _static_verifier()
 
-    auth = build_mcp_auth(oidc=_oidc_config(), token_verifiers=[verifier])
+    auth = build_mcp_auth(
+        oidc=_oidc_config(),
+        jwt=JWTAuthConfig(public_key=_PUBLIC_KEY),
+        token_verifiers=[verifier],
+        static_tokens={"tok": {"client_id": "test", "scopes": []}},
+    )
 
     assert isinstance(auth, MultiAuth)
-    assert verifier in auth.verifiers
+    assert isinstance(auth.verifiers[0], JWTVerifier)
+    assert auth.verifiers[1] is verifier
+    assert isinstance(auth.verifiers[2], StaticTokenVerifier)
 
 
 @pytest.mark.unit
