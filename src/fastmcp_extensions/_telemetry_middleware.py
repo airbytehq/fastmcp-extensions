@@ -4,6 +4,8 @@
 Intercepts every `tools/call` invocation and records structured telemetry:
 
 - `tool_name`, `timestamp`, `duration_ms`, `success`/`failure`, `error_type`
+- `outcome`, and for a failure `error_category`, `error_fault`,
+  `upstream_status_code`, and `error_cause_types`
 - `tool_group` (the tool's `mcp_module`) and `mutation_class`
   (`read` / `mutate` / `destructive` / `unknown`)
 - `package_version` (when a `package_name` is provided)
@@ -25,6 +27,7 @@ it skips the app when an instance is already installed, so an app built with
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -83,10 +86,15 @@ def unwrap_tool_error(exc: BaseException) -> BaseException:
     """Return the real failure behind a `ToolError` that wraps a tool exception.
 
     FastMCP 3.4+ wraps tool exceptions in `ToolError`; the cause carries the
-    real failure type.
+    real failure type. `UserFacingErrorMiddleware` suppresses the cause and
+    leaves the original on `user_facing_cause`.
     """
-    if isinstance(exc, ToolError) and exc.__cause__ is not None:
-        return exc.__cause__
+    if isinstance(exc, ToolError):
+        cause = exc.__cause__
+        if cause is None:
+            cause = getattr(exc, "user_facing_cause", None)
+        if isinstance(cause, BaseException):
+            return cause
     return exc
 
 
@@ -128,7 +136,10 @@ class ToolCallFacts:
     )
     owned: bool = False
     """Whether a telemetry middleware has put its properties on these facts."""
+    classifier: Callable[[BaseException], str | None] | None = None
+    """The tracing config's `error_classifier`, set by the tracing middleware."""
     _extra: Mapping[str, object] | None = None
+    _error: dict[str, object] | None = None
     _tool: Tool | None = None
     _resolved: bool = False
 
@@ -192,6 +203,40 @@ class ToolCallFacts:
         else:
             self.outcome, self.cause = "exception", unwrap_tool_error(error)
 
+    def error_facts(self) -> Mapping[str, object]:
+        """Return `error_attributes` for a failed call, computed once.
+
+        Empty for a successful call and before `settle`. Never raises.
+        """
+        if self.outcome is None:
+            return {}
+        if self._error is None:
+            self._error = {}
+            if self.outcome != "success":
+                try:
+                    # Imported here because `otel.middleware` imports this module.
+                    from fastmcp_extensions.otel._extras import (
+                        error_attributes,
+                        user_facing_error_types,
+                    )
+
+                    user_facing: tuple[type[BaseException], ...] = ()
+                    ctx = self.context.fastmcp_context
+                    with contextlib.suppress(Exception):
+                        if ctx is not None:
+                            user_facing = user_facing_error_types(ctx.fastmcp)
+                    self._error = error_attributes(
+                        self.cause,
+                        unknown_tool=self.outcome == "unknown_tool",
+                        user_facing_errors=user_facing,
+                        classifier=self.classifier,
+                    )
+                except (Exception, asyncio.CancelledError):
+                    logger.debug(
+                        "Failed to classify the tool call failure", exc_info=True
+                    )
+        return self._error
+
 
 _FACTS: ContextVar[ToolCallFacts | None] = ContextVar(
     "fastmcp_extensions_tool_call", default=None
@@ -232,6 +277,13 @@ class ToolCallTelemetryMiddleware(Middleware):
     - `success` - whether the call completed without raising or returning an error
     - `error_type` - the exception class name, `ToolError` for a returned error,
       or `None` on success
+    - `outcome` - `success`, `tool_error`, `exception`, `cancelled`, or
+      `unknown_tool`
+    - `error_category`, `error_fault` - the failure's category and who is at
+      fault, the same values as the trace span; absent on success
+    - `upstream_status_code` - the HTTP status a failure carries, when it has one
+    - `error_cause_types` - class names of the exceptions chained behind the
+      failure, at most four
     - `tool_group` - the tool's `mcp_module` (`None` when not registered
       through fastmcp-extensions)
     - `mutation_class` - `read`, `mutate`, `destructive`, or `unknown`,
@@ -356,6 +408,13 @@ class ToolCallTelemetryMiddleware(Middleware):
                         if owner
                         else resolve_extra_properties(self._extra_properties)
                     ),
+                    # After the server's properties, so one of the same name
+                    # cannot make the event disagree with the span.
+                    "outcome": facts.outcome,
+                    **{
+                        key.replace(".", "_"): value
+                        for key, value in facts.error_facts().items()
+                    },
                     # Last, so a server property cannot break the join to the span.
                     **facts.span,
                 },

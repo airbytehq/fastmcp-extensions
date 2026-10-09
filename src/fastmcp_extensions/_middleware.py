@@ -22,7 +22,7 @@ from fastmcp.tools import ToolResult
 from mcp import types as mt
 from mcp.types import Tool
 
-from fastmcp_extensions.tool_filters import ToolFilterFn
+from fastmcp_extensions.tool_filters import ToolFilterFn, ToolUnavailableError
 
 
 def _to_mcp_tool(tool: FastMCPTool | Tool) -> Tool:
@@ -111,14 +111,14 @@ class ToolFilterMiddleware(Middleware):
             The tool result if allowed.
 
         Raises:
-            ValueError: If the tool is filtered out.
+            ToolUnavailableError: If the tool is filtered out.
         """
         tool_name = context.message.name
 
         # Look up the tool to check if it should be filtered
         tool = await self._get_tool_by_name(tool_name)
         if tool is not None and not self._tool_filter(tool, self._app):
-            raise ValueError(
+            raise ToolUnavailableError(
                 f"Tool '{tool_name}' is not available. "
                 "It may be restricted based on your current session configuration."
             )

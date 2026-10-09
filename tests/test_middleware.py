@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import MiddlewareContext
 from mcp.types import Tool, ToolAnnotations
 
-from fastmcp_extensions import ToolFilterFn
+from fastmcp_extensions import ToolFilterFn, ToolUnavailableError
 from fastmcp_extensions._middleware import ToolFilterMiddleware
 
 
@@ -197,6 +197,25 @@ async def test_on_call_tool_denies_filtered_tools() -> None:
 
     with pytest.raises(ValueError, match="not available"):
         await middleware.on_call_tool(context, mock_call_next)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_on_call_tool_raises_tool_unavailable_error() -> None:
+    """Test that a filter rejection raises the public `ToolUnavailableError`."""
+    app = FastMCP("test-app")
+
+    @app.tool()
+    def filtered_tool() -> str:
+        return "should not be called"
+
+    middleware = ToolFilterMiddleware(app, tool_filter=lambda _tool, _app: False)
+    message = MagicMock()
+    message.name = "filtered_tool"
+    context = _create_mock_context("tools/call", message)
+
+    with pytest.raises(ToolUnavailableError):
+        await middleware.on_call_tool(context, MagicMock())
 
 
 @pytest.mark.unit

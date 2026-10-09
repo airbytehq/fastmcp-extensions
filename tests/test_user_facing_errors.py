@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from unittest.mock import MagicMock
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -140,6 +141,45 @@ async def test_mcp_server_inserts_before_caller_supplied_telemetry(
         await _call_tool(server)
 
     assert "error=MyError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_telemetry_outside_the_middleware_sees_the_original_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    server = FastMCP(
+        "test",
+        middleware=[
+            ToolCallTelemetryMiddleware(),
+            UserFacingErrorMiddleware((MyError,)),
+        ],
+    )
+
+    @server.tool
+    def raise_error() -> None:
+        raise MyError("inner position")
+
+    with caplog.at_level(
+        logging.INFO, logger="fastmcp_extensions._telemetry"
+    ), pytest.raises(ToolError, match="inner position"):
+        await _call_tool(server)
+
+    assert "error=MyError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_converted_error_keeps_its_cause_suppressed() -> None:
+    middleware = UserFacingErrorMiddleware((MyError,))
+
+    async def call_next(_: object) -> None:
+        raise MyError("bad")
+
+    with pytest.raises(ToolError) as raised:
+        await middleware.on_call_tool(MagicMock(), call_next)
+
+    assert str(raised.value) == "bad"
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
 
 
 def test_empty_error_types_are_rejected() -> None:

@@ -65,6 +65,14 @@ from fastmcp_extensions.server_config import (
 )
 from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
+
+class ToolUnavailableError(ValueError):
+    """Raised when a tool filter rejects a call to a registered tool.
+
+    A subclass of `ValueError`, which is what earlier releases raised.
+    """
+
+
 ToolFilterFn = Callable[[Tool, FastMCP], bool]
 """Type alias for tool filter functions.
 

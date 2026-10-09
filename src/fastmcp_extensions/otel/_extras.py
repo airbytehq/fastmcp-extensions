@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp.exceptions import ToolError, ValidationError
 
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 from fastmcp_extensions.user_facing_errors import UserFacingErrorMiddleware
 
 if TYPE_CHECKING:
@@ -44,16 +45,36 @@ ERROR_FAULTS: Mapping[str, str] = {
     "cancelled": "unknown",
     "tool_error": "unknown",
     "internal": "server",
+    "tool_unavailable": "caller",
+    "unclassified": "unknown",
 }
 MAX_LIST_ITEMS = 16
 OTHER = "<other>"
 _MAX_CHAIN = 5
 _MAX_INVALID = 5
+_MAX_TYPE_NAME = 64
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
 _EVAL_VALUE = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 _EVAL_HEADERS = {"eval.run_id": "x-mcp-eval-run", "eval.case_id": "x-mcp-eval-case"}
+# Exact class names only; a library not covered is handled by `error_classifier`.
+_TIMEOUT_NAMES = frozenset(
+    {
+        "Timeout",
+        "TimeoutException",
+        "ReadTimeout",
+        "ConnectTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ReadTimeoutError",
+        "ConnectTimeoutError",
+        "ServerTimeoutError",
+    }
+)
+_UNREACHABLE_NAMES = frozenset(
+    {"ConnectionError", "ConnectError", "ClientConnectionError", "NewConnectionError"}
+)
 
 ContractCache = dict[str, tuple[Any, str, int]]
 
@@ -93,14 +114,24 @@ def _status_code(exc: BaseException) -> int | None:
 
 
 def _network_category(exc: BaseException) -> str | None:
-    names = [cls.__name__ for cls in type(exc).__mro__]
-    timeouts = [name for name in names if "Timeout" in name]
-    if timeouts:
-        # Only the builtin / asyncio `TimeoutError`: a local deadline, not an HTTP client.
-        return "timeout" if set(timeouts) == {"TimeoutError"} else "upstream_timeout"
-    if any("ConnectionError" in name or "ConnectError" in name for name in names):
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    if names & _TIMEOUT_NAMES:
+        return "upstream_timeout"
+    if "TimeoutError" in names:
+        # The builtin / asyncio `TimeoutError`: a local deadline, not an HTTP client.
+        return "timeout"
+    if names & _UNREACHABLE_NAMES:
         return "upstream_unreachable"
     return None
+
+
+def is_type_name(value: object) -> bool:
+    """Return whether `value` is safe to export as an exception class name."""
+    return (
+        isinstance(value, str)
+        and str.isidentifier(value)
+        and len(value) <= _MAX_TYPE_NAME
+    )
 
 
 def error_attributes(
@@ -117,7 +148,10 @@ def error_attributes(
 
     A `classifier` result wins when it is a known category. The type rules
     look at `cause` only; the status-code and class-name rules also walk its
-    chain. A tool-filter rejection is a bare `ValueError`, so it is `internal`.
+    chain. A tool-filter rejection is `tool_unavailable`. A failure no rule
+    recognises is `unclassified` with fault `unknown`; only a `classifier`
+    returns `internal`. `error.cause_types` lists the class names chained
+    behind `cause`.
     """
     if cause is None:
         return {
@@ -142,6 +176,8 @@ def error_attributes(
             category = "unknown_tool"
         elif isinstance(cause, ValidationError):
             category = "invalid_arguments"
+        elif isinstance(cause, ToolUnavailableError):
+            category = "tool_unavailable"
         elif user_facing_errors and isinstance(cause, user_facing_errors):
             category = "user_error"
         elif status is not None:
@@ -149,7 +185,7 @@ def error_attributes(
         else:
             category = next(
                 (c for c in map(_network_category, chain) if c is not None),
-                "tool_error" if isinstance(cause, ToolError) else "internal",
+                "tool_error" if isinstance(cause, ToolError) else "unclassified",
             )
     attrs: dict[str, object] = {
         "error.category": category,
@@ -157,6 +193,11 @@ def error_attributes(
     }
     if status is not None:
         attrs["upstream.status_code"] = status
+    causes = tuple(
+        name for name in (type(e).__name__ for e in chain[1:]) if is_type_name(name)
+    )
+    if causes:
+        attrs["error.cause_types"] = causes
     return attrs
 
 

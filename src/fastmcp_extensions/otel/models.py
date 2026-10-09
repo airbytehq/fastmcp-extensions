@@ -83,8 +83,10 @@ class ToolTracingConfig:
             records the argument, and strips it before the tool runs. A tool
             that declares its own `intent` parameter keeps it, and it is not
             recorded.
-        error_classifier: Server override for the error category. Ignored
-            unless it returns a known category.
+        error_classifier: Server override for the error category, for the
+            span and the telemetry event. Ignored unless it returns a known
+            category. The only source of `internal`: without it, a failure no
+            rule recognises is `unclassified`.
         other_spans: Decides what survives of spans the layer did not stamp,
             such as HTTP client spans. Returns the complete attribute set to
             keep, or `None` to drop the span. By default all are dropped. A

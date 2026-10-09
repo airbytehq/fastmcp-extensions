@@ -525,7 +525,8 @@ Filters compose with logical **AND**, so each filter can only narrow the visible
 tool set. Tools requiring `Capability.CLIENT_FILESYSTEM` remain hidden unless
 trusted execution is enabled for a local stdio server. The gate is always forced
 off for HTTP requests; call `assert_http_trusted_execution_disabled(app)` from
-an HTTP entrypoint to fail fast if its configuration is enabled.
+an HTTP entrypoint to fail fast if its configuration is enabled. A call to a
+filtered tool raises `ToolUnavailableError`, a `ValueError` subclass.
 
 ### Custom capabilities
 
@@ -619,8 +620,8 @@ is idempotent.
 
 Telemetry emits one event per tool call (log line, Sentry breadcrumb, Segment)
 and tracing exports one span. Both are derived from the same facts about the
-call, so they agree on the tool, the outcome, and the error type, and they can
-be joined:
+call, so they agree on the tool, the outcome, the error type, and the error
+category, and they can be joined:
 
 - The event carries `trace_id` and `span_id` of the span that traced the call.
   An untraced call has neither.
@@ -636,8 +637,11 @@ dashboards that already exist:
 | Event field | Span attribute |
 | ----------- | -------------- |
 | `name` | `gen_ai.tool.name` |
-| `success` | `<p>.outcome` (`success`, or one of four failure outcomes) |
+| `success`, `outcome` | `<p>.outcome` (`success`, or one of four failure outcomes) |
 | `error_type` | `<p>.error_type`, `error.type` |
+| `error_category`, `error_fault` | `<p>.error.category`, `<p>.error.fault` |
+| `upstream_status_code` | `<p>.upstream.status_code` |
+| `error_cause_types` | `<p>.error.cause_types` |
 | `tool_group` | `<p>.tool_module` |
 | `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
 | `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
@@ -656,7 +660,8 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.outcome` | `success`, `tool_error` (a returned error), `exception`, `cancelled`, or `unknown_tool` |
 | `<p>.error_type`, `error.type` | Class name of the real cause, with FastMCP's `ToolError` wrapper removed |
 | `<p>.error.category`, `<p>.error.fault` | A closed category such as `invalid_arguments`, `auth`, or `upstream_timeout`, and who is at fault: `caller`, `upstream`, `server`, or `unknown` |
-| `<p>.upstream.status_code` | The HTTP status the failure carries, if any |
+| `<p>.error.cause_types` | Class names of the exceptions chained behind the cause (`raise ... from`), at most four |
+| `<p>.upstream.status_code` | The HTTP status the failure carries, if any (100 to 599) |
 | `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
 | `<p>.client_name`, `<p>.client_version` | The MCP client |
 | `<p>.caller_hash`, `<p>.caller_id_type` | The caller as telemetry's salted hash, and whether it is a `subject` or a `client`; only with `anonymization_salt` set |
@@ -673,6 +678,15 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.eval.run_id`, `<p>.eval.case_id` | From the `X-MCP-Eval-Run` and `X-MCP-Eval-Case` request headers |
 | `<p>.process.uptime_s` | Seconds since tracing was installed |
 | other `<p>.*` | Attributes from the hooks, a per-tool callable, or `add_trace_attributes()` |
+
+`<p>.error.category` is one of fifteen values, grouped here by
+`<p>.error.fault`. `caller`: `invalid_arguments`, `unknown_tool`, `user_error`,
+`auth`, `not_found`, `tool_unavailable`. `upstream`: `rate_limited`,
+`upstream_error`, `upstream_unreachable`, `upstream_timeout`. `unknown`:
+`timeout`, `cancelled`, `tool_error`, `unclassified`. `server`: `internal`. A
+tool-filter rejection is `tool_unavailable`. A failure no rule recognises is
+`unclassified` with fault `unknown`; `internal` (fault `server`) appears only
+when `error_classifier` returns it.
 
 `tools/list` requests export a span with `<p>.tools.count`,
 `<p>.tools.schema_chars`, and `<p>.tools.set_fingerprint`. The character count
@@ -732,7 +746,7 @@ app = mcp_server(
 | `attributes` | `None` | Extra per-call attributes for the span only: a mapping, or a zero-argument callable, sync or async, resolved after the tool returns or raises. It runs before the response is sent, so keep it fast; an async hook is abandoned after five seconds. |
 | `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
-| `error_classifier` | `None` | `(exception) -> category` override; ignored unless it returns a known category. |
+| `error_classifier` | `None` | `(exception) -> category` override for the span and the event; ignored unless it returns a known category. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
@@ -744,6 +758,21 @@ finite `float` pass; anything else is dropped. Keys must match
 `[a-z0-9_]+(\.[a-z0-9_]+)*`. Keys the layer owns are dropped silently, and so
 is any key whose first segment is `arg`, `args`, `error`, `eval`, `process`,
 `result`, `tool`, `tools`, or `upstream` (`result` and `result.rows` alike).
+At export, `<p>.error.*` and `<p>.upstream.*` are a closed group: only the keys
+in the table above survive, only with valid values, and only on a failed call.
+
+An `error_classifier` that maps a server's own exception types to categories:
+
+```python
+CATEGORIES = {WorkspaceNotSelectedError: "user_error", BillingError: "internal"}
+
+ToolTracingConfig(
+    error_classifier=lambda exc: next(
+        (category for kind, category in CATEGORIES.items() if isinstance(exc, kind)),
+        None,
+    )
+)
+```
 
 ### Per-tool declarations
 
@@ -765,6 +794,11 @@ def delete_order(order_id: str, dry_run: bool = False) -> str:
 
 `add_trace_attributes()` targets the span of the tool call it runs in, also for
 nested calls. It never raises and does nothing outside a traced call.
+
+To record why a call failed, call
+`add_trace_attributes({"failure_reason": "workspace_not_selected"})` before
+raising, from the tool or from a middleware registered after tracing. The value
+is the server's own text, bounded like every other attribute.
 
 `tracing=` and `TraceArg` markers apply on the app the tool is registered on.
 A tool that reaches a traced app through `mount()` or a proxy is traced with
@@ -868,6 +902,9 @@ app = mcp_server(
     user_facing_error_formatter=lambda error: f"Invalid request: {error}",
 )
 ```
+
+Telemetry and tracing report the original exception type in either middleware
+order.
 
 ## Poe Tasks for MCP Servers
 

@@ -36,6 +36,7 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
 from opentelemetry.trace import SpanContext, Status, StatusCode
 
 from fastmcp_extensions.otel._arg_digests import is_arg_key
+from fastmcp_extensions.otel._extras import _MAX_CHAIN, ERROR_FAULTS, is_type_name
 from fastmcp_extensions.otel.middleware import (
     _INSTALLS,
     _KEY,
@@ -207,6 +208,11 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     ):
         out[p + "caller_hash"], out[p + "caller_id_type"] = caller, kind
 
+    # The error group is closed: a tool can write these keys past the package
+    # API, so only known keys with valid values are put back, on a failure.
+    group = (p + "error.", p + "upstream.")
+    found = {key: out.pop(key) for key in [k for k in out if k.startswith(group)]}
+
     outcome = out.get(p + "outcome")
     if outcome not in OUTCOMES:
         if p + "tools.count" not in out:
@@ -223,6 +229,19 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     if tool is not None:
         out["gen_ai.tool.name"] = tool
     out.update(install.args.revalidate(tool, a))
+    if outcome != "success":
+        category = found.get(p + "error.category")
+        if isinstance(category, str) and category in ERROR_FAULTS:
+            out[p + "error.category"] = category
+            out[p + "error.fault"] = ERROR_FAULTS[category]
+        code = found.get(p + "upstream.status_code")
+        if type(code) is int and 100 <= code <= 599:
+            out[p + "upstream.status_code"] = code
+        causes = found.get(p + "error.cause_types")
+        if isinstance(causes, tuple):
+            causes = tuple(c for c in causes[: _MAX_CHAIN - 1] if is_type_name(c))
+            if causes:
+                out[p + "error.cause_types"] = causes
     # A client's trace context is not trusted: root spans export no parent.
     root = out.get(p + "root") is True
     for key, pattern in (

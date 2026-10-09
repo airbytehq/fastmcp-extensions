@@ -24,6 +24,7 @@ from fastmcp_extensions.otel._extras import (
     validation_attributes,
 )
 from fastmcp_extensions.otel.middleware import OWNED_NAMESPACES
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 
 
 def _owned(attrs: dict[str, object]) -> dict[str, object]:
@@ -44,6 +45,22 @@ class ReadTimeout(Exception):  # noqa: N818  # Named like an HTTP client's timeo
     pass
 
 
+class CloudConnectionError(Exception):
+    """A domain error named like a network failure."""
+
+
+class ConnectionSyncError(CloudConnectionError):
+    pass
+
+
+class SyncTimeoutError(Exception):
+    """A domain error named like a timeout."""
+
+
+class ConnectError(Exception):
+    """Named like an HTTP client's connect failure."""
+
+
 def _caused_by(cause: BaseException) -> RuntimeError:
     error = RuntimeError()
     error.__cause__ = cause
@@ -55,31 +72,55 @@ def _cancels(_: BaseException) -> str:
 
 
 USER_FACING = {"user_facing_errors": (KeyError,)}
-# (cause, keyword arguments, (category, fault[, upstream status]))
+# (cause, keyword arguments, (category, fault[, upstream status[, cause types]]));
+# `None` means omitted.
 ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] = [
     (None, {}, ("tool_error", "unknown")),
     (asyncio.CancelledError(), {}, ("cancelled", "unknown")),
     (NotFoundError(), {"unknown_tool": True}, ("unknown_tool", "caller")),
-    (NotFoundError(), {}, ("internal", "server")),
+    (NotFoundError(), {}, ("unclassified", "unknown")),
     (ValidationError(), {}, ("invalid_arguments", "caller")),
     (KeyError(), USER_FACING, ("user_error", "caller")),
-    (_caused_by(KeyError()), USER_FACING, ("internal", "server")),
+    (
+        _caused_by(KeyError()),
+        USER_FACING,
+        ("unclassified", "unknown", None, ("KeyError",)),
+    ),
     (_StatusError(401), {}, ("auth", "caller", 401)),
     (_StatusError(403, on_response=True), {}, ("auth", "caller", 403)),
     (_StatusError(404), {}, ("not_found", "caller", 404)),
     (_StatusError(429, on_response=True), {}, ("rate_limited", "upstream", 429)),
     (_StatusError(500), {}, ("upstream_error", "upstream", 500)),
-    (_caused_by(_StatusError(503)), {}, ("upstream_error", "upstream", 503)),
-    (_StatusError(True), {}, ("internal", "server")),
+    (
+        _caused_by(_StatusError(503)),
+        {},
+        ("upstream_error", "upstream", 503, ("_StatusError",)),
+    ),
+    (_StatusError(True), {}, ("unclassified", "unknown")),
     (ReadTimeout(), {}, ("upstream_timeout", "upstream")),
     (TimeoutError(), {}, ("timeout", "unknown")),
     (ConnectionRefusedError(), {}, ("upstream_unreachable", "upstream")),
     (ToolError(), {}, ("tool_error", "unknown")),
-    (RuntimeError(), {}, ("internal", "server")),
+    (RuntimeError(), {}, ("unclassified", "unknown")),
     (RuntimeError(), {"classifier": lambda _: "auth"}, ("auth", "caller")),
-    (RuntimeError(), {"classifier": lambda _: "nonsense"}, ("internal", "server")),
-    (RuntimeError(), {"classifier": lambda _: 1 / 0}, ("internal", "server")),
-    (RuntimeError(), {"classifier": _cancels}, ("internal", "server")),
+    (RuntimeError(), {"classifier": lambda _: "nonsense"}, ("unclassified", "unknown")),
+    (RuntimeError(), {"classifier": lambda _: 1 / 0}, ("unclassified", "unknown")),
+    (RuntimeError(), {"classifier": _cancels}, ("unclassified", "unknown")),
+    (ToolUnavailableError(), {}, ("tool_unavailable", "caller")),
+    # The filter rule outranks the user-facing rule.
+    (
+        ToolUnavailableError(),
+        {"user_facing_errors": (ValueError,)},
+        ("tool_unavailable", "caller"),
+    ),
+    # A domain name ending in `ConnectionError` is not a network failure.
+    (ConnectionSyncError(), {}, ("unclassified", "unknown")),
+    # A domain name containing `Timeout` is not an upstream timeout.
+    (SyncTimeoutError(), {}, ("unclassified", "unknown")),
+    # Exact HTTP-client names still match.
+    (ConnectError(), {}, ("upstream_unreachable", "upstream")),
+    # Only a classifier asserts a server fault.
+    (RuntimeError(), {"classifier": lambda _: "internal"}, ("internal", "server")),
 ]
 
 
@@ -87,8 +128,28 @@ ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] 
 def test_error_attributes(
     cause: BaseException | None, kwargs: dict[str, Any], expected: tuple[Any, ...]
 ) -> None:
-    keys = ("error.category", "error.fault", "upstream.status_code")
-    assert _owned(error_attributes(cause, **kwargs)) == dict(zip(keys, expected))
+    keys = (
+        "error.category",
+        "error.fault",
+        "upstream.status_code",
+        "error.cause_types",
+    )
+    assert _owned(error_attributes(cause, **kwargs)) == {
+        key: value for key, value in zip(keys, expected) if value is not None
+    }
+
+
+def test_error_cause_types_are_bounded() -> None:
+    error: BaseException = KeyError()
+    for _ in range(5):
+        error = _caused_by(error)
+    assert error_attributes(error)["error.cause_types"] == ("RuntimeError",) * 4
+
+
+def test_error_cause_types_are_identifiers() -> None:
+    odd = type("not an identifier", (Exception,), {})
+    error = _caused_by(_caused_by(odd()))
+    assert error_attributes(error)["error.cause_types"] == ("RuntimeError",)
 
 
 def _app() -> FastMCP:

@@ -40,6 +40,7 @@ from fastmcp_extensions import (
     TelemetryConfig,
     ToolTracingConfig,
     TraceArg,
+    UserFacingErrorMiddleware,
     add_trace_attributes,
     capture_tool_spans,
     mcp_server,
@@ -184,9 +185,13 @@ def _attrs(span: ReadableSpan) -> dict[str, Any]:
 # The last span is the requested call; the ones before it are nested calls.
 OUTCOME_CASES: dict[str, tuple[str, dict[str, Any], list[str]]] = {
     "success": ("add", ADD, ["add success"]),
-    "raise": ("boom", {}, ["boom exception ValueError internal"]),
+    "raise": ("boom", {}, ["boom exception ValueError unclassified"]),
     "returned": ("soft_fail", {}, ["soft_fail tool_error ToolError tool_error"]),
-    "filtered": ("hidden", {}, ["hidden exception ValueError internal"]),
+    "filtered": (
+        "hidden",
+        {},
+        ["hidden exception ToolUnavailableError tool_unavailable"],
+    ),
     "unknown": ("nope", {}, ["? unknown_tool NotFoundError unknown_tool"]),
     "invalid": (
         "add",
@@ -197,7 +202,7 @@ OUTCOME_CASES: dict[str, tuple[str, dict[str, Any], list[str]]] = {
     "nested": (
         "outer",
         {},
-        ["add success", "boom exception ValueError internal", "outer success"],
+        ["add success", "boom exception ValueError unclassified", "outer success"],
     ),
     "direct": ("add", ADD, ["add success"]),
     # `top` calls the opted-out `private`, which calls `add`.
@@ -590,6 +595,20 @@ async def test_hashed_name_tool_keeps_its_own_intent() -> None:
     assert await _spans(app, name, {"intent": "x"}) == []
 
 
+class _StatusError(Exception):
+    status_code = 503
+
+
+# event field -> span attribute suffix
+ERROR_FACTS = {
+    "outcome": "outcome",
+    "error_category": "error.category",
+    "error_fault": "error.fault",
+    "upstream_status_code": "upstream.status_code",
+    "error_cause_types": "error.cause_types",
+}
+
+
 @pytest.mark.asyncio
 async def test_event_and_span_describe_the_same_call(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -621,12 +640,20 @@ async def test_event_and_span_describe_the_same_call(
     async def slow() -> None:
         await asyncio.sleep(5)
 
+    @app.tool
+    def upstream() -> None:
+        raise RuntimeError from _StatusError()
+
     with caplog.at_level(logging.INFO, logger="fastmcp_extensions._telemetry"):
         (ok,) = await _spans(app, "add", ADD)
         (cancelled,) = await _spans(app, "slow", how="cancel")
+        (failed,) = await _spans(app, "upstream")
     events = [r.telemetry for r in caplog.records if hasattr(r, "telemetry")]
-    for span, event in zip((ok, cancelled), events, strict=True):
+    for span, event in zip((ok, cancelled, failed), events, strict=True):
         attrs = _attrs(span)
+        # One source: the error facts on the event are the span's.
+        for key, attribute in ERROR_FACTS.items():
+            assert event.get(key) == attrs.get(f"{P}.{attribute}")
         # The event carries its span's identifiers, caller, and outcome.
         assert event["trace_id"] == format(span.context.trace_id, "032x")
         assert event["span_id"] == format(span.context.span_id, "016x")
@@ -638,11 +665,20 @@ async def test_event_and_span_describe_the_same_call(
         assert (event["workspace_id"], attrs[f"{P}.workspace_id"]) == ("w1", "w1")
         assert event["id"] == CANARY
         assert f"{P}.id" not in attrs
-    assert [event["success"] for event in events] == [True, False]
+    assert [event["success"] for event in events] == [True, False, False]
+    assert [events[2][key] for key in ERROR_FACTS] == [
+        "exception",
+        "upstream_error",
+        "upstream",
+        503,
+        ("_StatusError",),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_failure_wiring_from_config_to_span() -> None:
+async def test_failure_wiring_from_config_to_span(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     config = ToolTracingConfig(
         error_classifier=lambda exc: (
             "rate_limited" if isinstance(exc, KeyError) else None
@@ -660,10 +696,114 @@ async def test_failure_wiring_from_config_to_span() -> None:
         raise {"ValueError": ValueError, "KeyError": KeyError}[error]
 
     for error, category in (("ValueError", "user_error"), ("KeyError", "rate_limited")):
-        (span,) = await _spans(app, "fail", {"error": error})
+        with caplog.at_level(logging.INFO, logger="fastmcp_extensions._telemetry"):
+            (span,) = await _spans(app, "fail", {"error": error})
         attrs = _attrs(span)
         assert attrs[f"{P}.error.category"] == category
         assert (attrs["error.type"], attrs[f"{P}.late"]) == (error, "yes")
+    # The classifier reaches the event too.
+    assert caplog.records[-1].telemetry["error_category"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_classifier_reaches_the_event_of_an_untraced_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _app(error_classifier=lambda _: "rate_limited")
+
+    @app.tool
+    def quiet() -> None:
+        raise KeyError
+
+    set_tool_traits(app, "quiet", ToolTraits(tracing=False))
+    with caplog.at_level(logging.INFO, logger="fastmcp_extensions._telemetry"):
+        assert await _spans(app, "quiet") == []
+    assert caplog.records[-1].telemetry["error_category"] == "rate_limited"
+
+
+class _UserError(Exception):
+    pass
+
+
+def _traced_inside_telemetry() -> FastMCP:
+    return _app()
+
+
+def _traced_only() -> FastMCP:
+    app = FastMCP("plain")
+    register_tool_call_tracing(app, ToolTracingConfig())
+    return app
+
+
+def _traced_with_intent() -> FastMCP:
+    return _app(capture_intent=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("build", "arguments"),
+    [
+        (_traced_inside_telemetry, {}),
+        (_traced_only, {}),
+        (_traced_with_intent, {"intent": "why"}),
+    ],
+    ids=["telemetry-and-tracing", "tracing-only", "intent"],
+)
+async def test_user_facing_middleware_inside_tracing_keeps_the_cause(
+    build: Any, arguments: dict[str, Any]
+) -> None:
+    app = build()
+    app.add_middleware(UserFacingErrorMiddleware((_UserError,)))
+
+    @app.tool
+    def fail() -> None:
+        raise _UserError
+
+    (span,) = await _spans(app, "fail", arguments)
+    attrs = _attrs(span)
+    assert attrs[f"{P}.error_type"] == "_UserError"
+    assert attrs[f"{P}.error.category"] == "user_error"
+
+
+@pytest.mark.asyncio
+async def test_error_group_is_closed_at_the_boundary() -> None:
+    app = _app()
+    group = (f"{P}.error.", f"{P}.upstream.")
+
+    @app.tool
+    def forges_on_success() -> None:
+        trace.get_current_span().set_attributes(
+            {
+                f"{P}.error.category": "auth",
+                f"{P}.error.fault": "caller",
+                f"{P}.upstream.status_code": 418,
+                f"{P}.error.reason": "free text",
+            }
+        )
+
+    @app.tool
+    def forges_on_failure() -> None:
+        trace.get_current_span().set_attributes(
+            {
+                f"{P}.error.reason": "free text",
+                f"{P}.upstream.status_code": 99999,
+                f"{P}.error.fault": "nobody",
+                f"{P}.error.cause_types": ("ok", "not ok"),
+            }
+        )
+        raise RuntimeError
+
+    # Nothing in the group leaves on a success.
+    (span,) = await _spans(app, "forges_on_success")
+    assert [key for key in _attrs(span) if key.startswith(group)] == []
+
+    # On a failure, unknown keys and invalid values are dropped.
+    (span,) = await _spans(app, "forges_on_failure")
+    assert {k: v for k, v in _attrs(span).items() if k.startswith(group)} == {
+        f"{P}.error.category": "unclassified",
+        f"{P}.error.fault": "unknown",
+        f"{P}.error.cause_types": ("ok",),
+    }
 
 
 @pytest.mark.asyncio

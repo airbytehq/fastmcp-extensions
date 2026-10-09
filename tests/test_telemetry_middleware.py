@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools.base import ToolResult
 
@@ -208,8 +209,65 @@ async def test_extra_properties_failure_does_not_break_tool_call(
     assert emit.call_args.args[0].extra == {
         "tool_group": None,
         "mutation_class": "unknown",
+        "outcome": "success",
     }
     assert "Failed to resolve telemetry extra properties" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_event_tells_a_returned_error_from_a_raised_one() -> None:
+    mw = ToolCallTelemetryMiddleware()
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def returns_error(c: MiddlewareContext) -> ToolResult:
+        return ToolResult(content="no", is_error=True)
+
+    async def raises_error(c: MiddlewareContext) -> ToolResult:
+        raise ToolError("no")
+
+    await mw.on_call_tool(_make_context(), returns_error)
+    with pytest.raises(ToolError):
+        await mw.on_call_tool(_make_context(), raises_error)
+
+    assert [call.args[0].extra["outcome"] for call in emit.call_args_list] == [
+        "tool_error",
+        "exception",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failure_is_classified_without_an_app() -> None:
+    mw = ToolCallTelemetryMiddleware()
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        raise RuntimeError("boom")
+
+    # The mocked context has no app to read the user-facing types from.
+    with pytest.raises(RuntimeError):
+        await mw.on_call_tool(_make_context(), call_next)
+
+    assert emit.call_args.args[0].extra["error_category"] == "unclassified"
+
+
+@pytest.mark.asyncio
+async def test_extra_properties_cannot_override_the_error_facts() -> None:
+    mw = ToolCallTelemetryMiddleware(
+        extra_properties={"outcome": "forged", "error_category": "forged"}
+    )
+    emit = MagicMock()
+    mw._sinks.emit = emit
+
+    async def call_next(c: MiddlewareContext) -> ToolResult:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        await mw.on_call_tool(_make_context(), call_next)
+
+    extra = emit.call_args.args[0].extra
+    assert (extra["outcome"], extra["error_category"]) == ("exception", "unclassified")
 
 
 def test_register_tool_call_telemetry_is_idempotent() -> None:
