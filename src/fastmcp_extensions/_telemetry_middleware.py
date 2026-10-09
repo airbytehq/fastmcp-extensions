@@ -92,7 +92,8 @@ def unwrap_tool_error(exc: BaseException) -> BaseException:
     if isinstance(exc, ToolError):
         cause = exc.__cause__
         if cause is None:
-            cause = getattr(exc, "user_facing_cause", None)
+            # `vars`, not `getattr`: a tool's subclass property must not run here.
+            cause = vars(exc).get("user_facing_cause")
         if isinstance(cause, BaseException):
             return cause
     return exc

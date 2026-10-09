@@ -147,9 +147,10 @@ def test_error_cause_types_are_bounded() -> None:
 
 
 def test_error_cause_types_are_identifiers() -> None:
-    odd = type("not an identifier", (Exception,), {})
-    error = _caused_by(_caused_by(odd()))
-    assert error_attributes(error)["error.cause_types"] == ("RuntimeError",)
+    for name in ("not an identifier", "患者张三", "x" * 65):
+        odd = type(name, (Exception,), {})
+        error = _caused_by(_caused_by(odd()))
+        assert error_attributes(error)["error.cause_types"] == ("RuntimeError",)
 
 
 def _app() -> FastMCP:

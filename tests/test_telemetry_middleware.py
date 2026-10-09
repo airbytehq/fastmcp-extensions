@@ -19,6 +19,7 @@ from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
     ToolCallTelemetryRecord,
     register_tool_call_telemetry,
+    unwrap_tool_error,
 )
 
 # ---------------------------------------------------------------------------
@@ -415,3 +416,13 @@ async def test_two_telemetry_middlewares_report_their_own_properties(
         await outer.on_call_tool(ctx, lambda c: inner.on_call_tool(c, tool))
     events = [r.telemetry for r in caplog.records if hasattr(r, "telemetry")]
     assert [event["who"] for event in events] == ["inner", "outer"]
+
+
+def test_unwrap_tool_error_runs_no_code_of_the_exception() -> None:
+    class HostileError(ToolError):
+        @property
+        def user_facing_cause(self) -> BaseException:
+            raise RuntimeError
+
+    error = HostileError("x")
+    assert unwrap_tool_error(error) is error

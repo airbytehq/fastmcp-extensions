@@ -52,7 +52,7 @@ MAX_LIST_ITEMS = 16
 OTHER = "<other>"
 _MAX_CHAIN = 5
 _MAX_INVALID = 5
-_MAX_TYPE_NAME = 64
+_TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
@@ -127,11 +127,9 @@ def _network_category(exc: BaseException) -> str | None:
 
 def is_type_name(value: object) -> bool:
     """Return whether `value` is safe to export as an exception class name."""
-    return (
-        isinstance(value, str)
-        and str.isidentifier(value)
-        and len(value) <= _MAX_TYPE_NAME
-    )
+    # ASCII only: `str.isidentifier` accepts any Unicode letters, so a
+    # dynamically named class could carry free text.
+    return isinstance(value, str) and _TYPE_NAME.fullmatch(value) is not None
 
 
 def error_attributes(

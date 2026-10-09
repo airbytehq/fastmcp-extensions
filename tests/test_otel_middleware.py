@@ -786,9 +786,9 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
         trace.get_current_span().set_attributes(
             {
                 f"{P}.error.reason": "free text",
-                f"{P}.upstream.status_code": 99999,
+                f"{P}.upstream.status_code": 418,
                 f"{P}.error.fault": "nobody",
-                f"{P}.error.cause_types": ("ok", "not ok"),
+                f"{P}.error.cause_types": ("Forged",),
             }
         )
         raise RuntimeError
@@ -797,12 +797,11 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
     (span,) = await _spans(app, "forges_on_success")
     assert [key for key in _attrs(span) if key.startswith(group)] == []
 
-    # On a failure, unknown keys and invalid values are dropped.
+    # On a failure, only what the layer itself wrote is kept.
     (span,) = await _spans(app, "forges_on_failure")
     assert {k: v for k, v in _attrs(span).items() if k.startswith(group)} == {
         f"{P}.error.category": "unclassified",
         f"{P}.error.fault": "unknown",
-        f"{P}.error.cause_types": ("ok",),
     }
 
 

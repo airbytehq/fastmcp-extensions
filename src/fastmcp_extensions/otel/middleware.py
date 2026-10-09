@@ -681,6 +681,11 @@ class ToolCallOtelMiddleware(Middleware):
             outcome, cause = facts.outcome, facts.cause
             if facts.error_type is not None:
                 attrs[f"{p}.error_type"] = facts.error_type
+            if outcome != "success":
+                # Always written, so a tool's own write of these keys never
+                # survives; the boundary drops the empty values.
+                attrs[f"{p}.upstream.status_code"] = 0
+                attrs[f"{p}.error.cause_types"] = ()
             attrs.update(
                 {f"{p}.{key}": value for key, value in facts.error_facts().items()}
             )

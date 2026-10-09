@@ -256,7 +256,7 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     if (
         outcome != "success"
         and isinstance(error_type, str)
-        and error_type.isidentifier()
+        and is_type_name(error_type)
     ):
         out[p + "error_type"] = out["error.type"] = error_type
         stamps = [event.timestamp for event in span.events if event.name == "exception"]
