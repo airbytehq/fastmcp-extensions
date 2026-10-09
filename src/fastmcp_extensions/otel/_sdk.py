@@ -36,7 +36,12 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
 from opentelemetry.trace import SpanContext, Status, StatusCode
 
 from fastmcp_extensions.otel._arg_digests import is_arg_key
-from fastmcp_extensions.otel._extras import _MAX_CHAIN, ERROR_FAULTS, is_type_name
+from fastmcp_extensions.otel._extras import (
+    _MAX_CHAIN,
+    ERROR_FAULTS,
+    is_reason,
+    is_type_name,
+)
 from fastmcp_extensions.otel.middleware import (
     _INSTALLS,
     _KEY,
@@ -242,6 +247,9 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
             causes = tuple(c for c in causes[: _MAX_CHAIN - 1] if is_type_name(c))
             if causes:
                 out[p + "error.cause_types"] = causes
+        reason = found.get(p + "error.reason")
+        if is_reason(reason):
+            out[p + "error.reason"] = reason
     # A client's trace context is not trusted: root spans export no parent.
     root = out.get(p + "root") is True
     for key, pattern in (

@@ -53,6 +53,7 @@ OTHER = "<other>"
 _MAX_CHAIN = 5
 _MAX_INVALID = 5
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+_REASON = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
@@ -132,12 +133,18 @@ def is_type_name(value: object) -> bool:
     return isinstance(value, str) and _TYPE_NAME.fullmatch(value) is not None
 
 
+def is_reason(value: object) -> bool:
+    """Return whether `value` is safe to export as a failure reason slug."""
+    return isinstance(value, str) and _REASON.fullmatch(value) is not None
+
+
 def error_attributes(
     cause: BaseException | None,
     *,
     unknown_tool: bool = False,
     user_facing_errors: tuple[type[BaseException], ...] = (),
     classifier: Callable[[BaseException], str | None] | None = None,
+    reason: Callable[[BaseException], str | None] | None = None,
 ) -> dict[str, object]:
     """Classify a failed call.
 
@@ -149,7 +156,8 @@ def error_attributes(
     chain. A tool-filter rejection is `tool_unavailable`. A failure no rule
     recognises is `unclassified` with fault `unknown`; only a `classifier`
     returns `internal`. `error.cause_types` lists the class names chained
-    behind `cause`.
+    behind `cause`. `error.reason` is the `reason` hook's result when it is a
+    slug.
     """
     if cause is None:
         return {
@@ -196,6 +204,14 @@ def error_attributes(
     )
     if causes:
         attrs["error.cause_types"] = causes
+    if reason is not None:
+        try:
+            slug = reason(cause)
+        except (Exception, asyncio.CancelledError):
+            # A faulty hook contributes nothing.
+            slug = None
+        if is_reason(slug):
+            attrs["error.reason"] = slug
     return attrs
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -137,6 +138,24 @@ def test_error_attributes(
     assert _owned(error_attributes(cause, **kwargs)) == {
         key: value for key, value in zip(keys, expected) if value is not None
     }
+
+
+@pytest.mark.parametrize(
+    ("reason", "exported"),
+    [
+        (lambda _: "error:connection-conflict", "error:connection-conflict"),
+        (lambda _: "Free text, not a slug", None),
+        (lambda _: "x" * 101, None),
+        (lambda _: None, None),
+        (lambda _: 1 / 0, None),
+        (_cancels, None),
+    ],
+)
+def test_error_reason_is_a_slug_or_absent(
+    reason: Callable[[BaseException], str | None], exported: str | None
+) -> None:
+    attrs = error_attributes(RuntimeError("secret"), reason=reason)
+    assert attrs.get("error.reason") == exported
 
 
 def test_error_cause_types_are_bounded() -> None:

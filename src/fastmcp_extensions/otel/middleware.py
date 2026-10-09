@@ -445,6 +445,7 @@ class ToolCallOtelMiddleware(Middleware):
         inside = outer is not None and outer.inside_traced
         facts = tool_call_facts(context)
         facts.classifier = self.config.error_classifier
+        facts.reason = self.config.error_reason
         option = facts.traits.tracing
         if option is False or not self._active():
             span = trace.get_current_span()
@@ -686,6 +687,7 @@ class ToolCallOtelMiddleware(Middleware):
                 # survives; the boundary drops the empty values.
                 attrs[f"{p}.upstream.status_code"] = 0
                 attrs[f"{p}.error.cause_types"] = ()
+                attrs[f"{p}.error.reason"] = ""
             attrs.update(
                 {f"{p}.{key}": value for key, value in facts.error_facts().items()}
             )

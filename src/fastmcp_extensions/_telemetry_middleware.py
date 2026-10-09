@@ -5,7 +5,7 @@ Intercepts every `tools/call` invocation and records structured telemetry:
 
 - `tool_name`, `timestamp`, `duration_ms`, `success`/`failure`, `error_type`
 - `outcome`, and for a failure `error_category`, `error_fault`,
-  `upstream_status_code`, and `error_cause_types`
+  `upstream_status_code`, `error_cause_types`, and `error_reason`
 - `tool_group` (the tool's `mcp_module`) and `mutation_class`
   (`read` / `mutate` / `destructive` / `unknown`)
 - `package_version` (when a `package_name` is provided)
@@ -139,6 +139,8 @@ class ToolCallFacts:
     """Whether a telemetry middleware has put its properties on these facts."""
     classifier: Callable[[BaseException], str | None] | None = None
     """The tracing config's `error_classifier`, set by the tracing middleware."""
+    reason: Callable[[BaseException], str | None] | None = None
+    """The tracing config's `error_reason`, set by the tracing middleware."""
     _extra: Mapping[str, object] | None = None
     _error: dict[str, object] | None = None
     _tool: Tool | None = None
@@ -231,6 +233,7 @@ class ToolCallFacts:
                         unknown_tool=self.outcome == "unknown_tool",
                         user_facing_errors=user_facing,
                         classifier=self.classifier,
+                        reason=self.reason,
                     )
                 except (Exception, asyncio.CancelledError):
                     logger.debug(
@@ -285,6 +288,8 @@ class ToolCallTelemetryMiddleware(Middleware):
     - `upstream_status_code` - the HTTP status a failure carries, when it has one
     - `error_cause_types` - class names of the exceptions chained behind the
       failure, at most four
+    - `error_reason` - the slug the tracing config's `error_reason` hook
+      returned for the failure, when it returned one
     - `tool_group` - the tool's `mcp_module` (`None` when not registered
       through fastmcp-extensions)
     - `mutation_class` - `read`, `mutate`, `destructive`, or `unknown`,

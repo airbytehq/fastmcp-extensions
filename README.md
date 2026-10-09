@@ -644,6 +644,7 @@ dashboards that already exist:
 | `error_category`, `error_fault` | `<p>.error.category`, `<p>.error.fault` |
 | `upstream_status_code` | `<p>.upstream.status_code` |
 | `error_cause_types` | `<p>.error.cause_types` |
+| `error_reason` | `<p>.error.reason` |
 | `tool_group` | `<p>.tool_module` |
 | `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
 | `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
@@ -663,6 +664,7 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.error_type`, `error.type` | Class name of the real cause, with FastMCP's `ToolError` wrapper removed |
 | `<p>.error.category`, `<p>.error.fault` | A closed category such as `invalid_arguments`, `auth`, or `upstream_timeout`, and who is at fault: `caller`, `upstream`, `server`, or `unknown` |
 | `<p>.error.cause_types` | Class names of the exceptions chained behind the cause (`raise ... from`), at most four |
+| `<p>.error.reason` | With `error_reason`: the slug the hook returned for the failure, such as an upstream API's error code |
 | `<p>.upstream.status_code` | The HTTP status the failure carries, if any (100 to 599) |
 | `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
 | `<p>.client_name`, `<p>.client_version` | The MCP client |
@@ -749,6 +751,7 @@ app = mcp_server(
 | `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
 | `error_classifier` | `None` | `(exception) -> category` override for the span and the event; ignored unless it returns a known category. |
+| `error_reason` | `None` | `(exception) -> slug` naming why the call failed, for the span and the event. Exported only when it is lowercase letters, digits, and `:._-`, at most 100 characters. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
@@ -797,10 +800,12 @@ def delete_order(order_id: str, dry_run: bool = False) -> str:
 `add_trace_attributes()` targets the span of the tool call it runs in, also for
 nested calls. It never raises and does nothing outside a traced call.
 
-To record why a call failed, call
+To record why a call failed, set `error_reason` to map the exception to a slug
+(for example an upstream API's error code); it is exported as `<p>.error.reason`
+and as the event's `error_reason`. For a reason only the tool knows, call
 `add_trace_attributes({"failure_reason": "workspace_not_selected"})` before
-raising, from the tool or from a middleware registered after tracing. The value
-is the server's own text, bounded like every other attribute.
+raising. That value is the server's own text, bounded like every other
+attribute, and reaches the span only.
 
 `tracing=` and `TraceArg` markers apply on the app the tool is registered on.
 A tool that reaches a traced app through `mount()` or a proxy is traced with

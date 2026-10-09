@@ -683,6 +683,7 @@ async def test_failure_wiring_from_config_to_span(
         error_classifier=lambda exc: (
             "rate_limited" if isinstance(exc, KeyError) else None
         ),
+        error_reason=lambda exc: "quota" if isinstance(exc, KeyError) else None,
         attributes=lambda: {"late": "yes"},
     )
     app = mcp_server(
@@ -701,8 +702,12 @@ async def test_failure_wiring_from_config_to_span(
         attrs = _attrs(span)
         assert attrs[f"{P}.error.category"] == category
         assert (attrs["error.type"], attrs[f"{P}.late"]) == (error, "yes")
-    # The classifier reaches the event too.
-    assert caplog.records[-1].telemetry["error_category"] == "rate_limited"
+        assert attrs.get(f"{P}.error.reason") == (
+            "quota" if error == "KeyError" else None
+        )
+    # The classifier and the reason reach the event too.
+    event = caplog.records[-1].telemetry
+    assert (event["error_category"], event["error_reason"]) == ("rate_limited", "quota")
 
 
 @pytest.mark.asyncio
@@ -785,7 +790,8 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
     def forges_on_failure() -> None:
         trace.get_current_span().set_attributes(
             {
-                f"{P}.error.reason": "free text",
+                f"{P}.error.reason": "forged",
+                f"{P}.error.detail": "free text",
                 f"{P}.upstream.status_code": 418,
                 f"{P}.error.fault": "nobody",
                 f"{P}.error.cause_types": ("Forged",),
