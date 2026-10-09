@@ -751,7 +751,7 @@ app = mcp_server(
 | `shared_properties` | `()` | Names of `TelemetryConfig.extra_properties` keys to write to the span as well. Only named keys are copied. |
 | `capture_intent` | `False` | Adds an optional `intent` string argument to every tool schema and one sentence to the server instructions, records the argument, and strips it before the tool runs. A tool that declares its own `intent` parameter keeps it, and it is not recorded. |
 | `error_classifier` | `None` | `(exception) -> category` override for the span and the event; ignored unless it returns a known category. |
-| `error_reason` | `None` | `(exception) -> slug` naming why the call failed, for the span and the event. Exported only when it is lowercase letters, digits, and `:._-`, at most 100 characters. |
+| `error_reason` | `None` | `(exception) -> slug` naming why the call failed, for the span and the event. Exported only when it is lowercase letters, digits, and `:._-`, at most 100 characters. An ID fits that pattern, so return values from a fixed vocabulary only. |
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
