@@ -621,9 +621,9 @@ is idempotent.
 Telemetry emits one event per tool call (log line, Sentry breadcrumb, Segment)
 and tracing exports one span. Both are derived from the same facts about the
 call, so they agree on the tool, the outcome, the error type, and the error
-category, and they can be joined: This holds for the order `mcp_server()` and
+category. This holds for the order `mcp_server()` and
 `register_tool_call_telemetry()` set up; a telemetry middleware added by hand
-after tracing does not share the span's facts.
+after tracing does not share the span's facts. The two can be joined:
 
 - The event carries `trace_id` and `span_id` of the span that traced the call.
   An untraced call has neither.
