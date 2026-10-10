@@ -19,7 +19,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
 12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
-14. 🔭 **Tracing behind an allowlist** - `TelemetryConfig(tool_tracing=True)` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](docs/TELEMETRY.md).
+14. 🔭 **Tracing behind an allowlist** - `TelemetryConfig(tool_tracing=True)` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md).
 15. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
 
 ## Upgrading to 0.x (FastMCP 4)
@@ -582,7 +582,7 @@ capability unavailable; exceptions are logged by type without their message.
 
 ## Telemetry and Tracing
 
-Every tool call can be recorded as one telemetry event (a structured log line, a Sentry breadcrumb, and a Segment event) and, with the `otel` extra and `TelemetryConfig(tool_tracing=True)`, as one OpenTelemetry span. Each span is rebuilt from an allowlist before export, so results and exception messages stay in the process. See [docs/TELEMETRY.md](docs/TELEMETRY.md) for setup, what a span carries, sampling, options, per-tool and per-argument declarations, and testing.
+Every tool call can be recorded as one telemetry event (a structured log line, a Sentry breadcrumb, and a Segment event) and, with the `otel` extra and `TelemetryConfig(tool_tracing=True)`, as one OpenTelemetry span. Each span is rebuilt from an allowlist before export, so results and exception messages stay in the process. See [docs/TELEMETRY.md](https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md) for setup, what a span carries, sampling, options, per-tool and per-argument declarations, and testing.
 
 ## User-Facing Errors
 
@@ -708,7 +708,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Telemetry
 
-See [docs/TELEMETRY.md](docs/TELEMETRY.md) for usage.
+See [docs/TELEMETRY.md](https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md) for usage.
 
 - `TelemetryConfig` / `register_tool_call_telemetry` - Configure tool-call telemetry, including `tool_tracing`, and register it on a plain FastMCP app; `mcp_server(telemetry=...)` does both.
 - `ToolCallTelemetryMiddleware` - Record MCP tool-call timing, success, and error type.
@@ -716,7 +716,7 @@ See [docs/TELEMETRY.md](docs/TELEMETRY.md) for usage.
 
 ### Tracing
 
-These live in `fastmcp_extensions.otel` and are re-exported from `fastmcp_extensions`. See [docs/TELEMETRY.md](docs/TELEMETRY.md) for usage.
+These live in `fastmcp_extensions.otel` and are re-exported from `fastmcp_extensions`. See [docs/TELEMETRY.md](https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md) for usage.
 
 - `ToolCallOtelMiddleware` / `register_tool_call_tracing` - The middleware that enriches each tool call's span, and the function that registers it on a plain FastMCP app.
 - `ToolTracingConfig` - Options for OpenTelemetry tool-call tracing, passed as `TelemetryConfig(tool_tracing=...)`.
