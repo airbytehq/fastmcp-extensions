@@ -63,13 +63,12 @@ from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     declared_parameters,
-    error_attributes,
+    error_stack,
     eval_attributes,
     result_attributes,
     safe_name,
     tool_contract,
     tool_list_attributes,
-    user_facing_error_types,
     validation_attributes,
 )
 from fastmcp_extensions.otel.models import ToolTracingConfig
@@ -443,11 +442,11 @@ class ToolCallOtelMiddleware(Middleware):
     ) -> ToolResult:
         """Trace one tool call. Tracing never changes the call's outcome."""
         name = context.message.name
-        ctx = context.fastmcp_context
-        app = ctx.fastmcp if ctx is not None else None
         outer = _CURRENT.get()
         inside = outer is not None and outer.inside_traced
         facts = tool_call_facts(context)
+        facts.classifier = self.config.error_classifier
+        facts.reason = self.config.error_reason
         option = facts.traits.tracing
         if option is False or not self._active():
             span = trace.get_current_span()
@@ -562,7 +561,7 @@ class ToolCallOtelMiddleware(Middleware):
                         raise
                     finally:
                         facts.settle(result, error)
-                        self._after(span, result, facts, tool, app, late, keep)
+                        self._after(span, result, facts, tool, late, keep)
 
     async def _strip_intent(
         self,
@@ -668,15 +667,14 @@ class ToolCallOtelMiddleware(Middleware):
         result: ToolResult | None,
         facts: ToolCallFacts,
         tool: Tool | None,
-        app: FastMCP | None,
         late: Mapping[str, object],
         keep: Mapping[str, object],
     ) -> None:
         """Write `late`, the outcome, and `keep` again, while the span is open.
 
-        FastMCP writes its own `error.type` and exception event after the
-        middleware unwinds; the privacy boundary ignores those and derives
-        the exported keys from the ones written here.
+        FastMCP also writes its own `error.type` and exception event on this
+        span; the privacy boundary ignores those and derives the exported
+        keys from the ones written here.
         """
         try:
             p = self.prefix
@@ -685,23 +683,28 @@ class ToolCallOtelMiddleware(Middleware):
             outcome, cause = facts.outcome, facts.cause
             if facts.error_type is not None:
                 attrs[f"{p}.error_type"] = facts.error_type
+            if outcome != "success":
+                # Always written, so a tool's own write of these keys never
+                # survives; the boundary drops the empty values.
+                attrs[f"{p}.upstream.status_code"] = 0
+                attrs[f"{p}.error.cause_types"] = ()
+                attrs[f"{p}.error.reason"] = ""
+                attrs[f"{p}.error.stack"] = ""
+            attrs.update(
+                {f"{p}.{key}": value for key, value in facts.error_facts().items()}
+            )
             if cause is not None:
+                attrs.update(_safe(lambda: validation_attributes(cause, tool), p + "."))
                 attrs.update(
                     _safe(
-                        lambda: error_attributes(
-                            cause,
-                            unknown_tool=outcome == "unknown_tool",
-                            user_facing_errors=(
-                                user_facing_error_types(app) if app is not None else ()
-                            ),
-                            classifier=self.config.error_classifier,
+                        lambda: (
+                            {"error.stack": stack}
+                            if (stack := error_stack(cause)) is not None
+                            else {}
                         ),
                         p + ".",
                     )
                 )
-                attrs.update(_safe(lambda: validation_attributes(cause, tool), p + "."))
-            elif outcome == "tool_error":
-                attrs.update(_safe(lambda: error_attributes(None), p + "."))
             if result is not None:
                 attrs.update(_safe(lambda: result_attributes(result), p + "."))
             attrs[f"{p}.outcome"] = outcome

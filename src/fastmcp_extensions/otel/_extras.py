@@ -2,8 +2,8 @@
 """Derived span attributes for tool-call tracing.
 
 Pure functions that describe a tool call without recording its content: the
-error category, argument names, validation failures, result shape, the tool's
-contract fingerprint, and eval tags.
+error category and frames-only error stack, argument names, validation
+failures, result shape, the tool's contract fingerprint, and eval tags.
 
 Every function returns attribute *suffixes* (for example `error.category`);
 `middleware` adds the attribute prefix. An attribute with nothing to say is
@@ -18,11 +18,13 @@ import asyncio
 import hashlib
 import json
 import re
+import traceback
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from fastmcp.exceptions import ToolError, ValidationError
 
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 from fastmcp_extensions.user_facing_errors import UserFacingErrorMiddleware
 
 if TYPE_CHECKING:
@@ -44,16 +46,65 @@ ERROR_FAULTS: Mapping[str, str] = {
     "cancelled": "unknown",
     "tool_error": "unknown",
     "internal": "server",
+    "tool_unavailable": "caller",
+    "unclassified": "unknown",
 }
 MAX_LIST_ITEMS = 16
 OTHER = "<other>"
 _MAX_CHAIN = 5
 _MAX_INVALID = 5
+_TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+_REASON = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
+_STACK_MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,199}")
+_STACK_QUALNAME = re.compile(r"[A-Za-z_<][A-Za-z0-9_.<>]{0,199}")
+_STACK_NAME_LINE = r"(?:\?|[A-Za-z_][A-Za-z0-9_]{0,63})"
+_STACK_HEADER = re.compile(rf"(?:{_STACK_NAME_LINE}|caused by {_STACK_NAME_LINE})")
+_STACK_FRAME = re.compile(
+    r"  (?:\?|[A-Za-z_][A-Za-z0-9_.]{0,199}):"
+    r"(?:\?|[A-Za-z_<][A-Za-z0-9_.<>]{0,199}):[0-9]+"
+)
+_STACK_LINE = re.compile(
+    rf"(?:  \.\.\.|{_STACK_HEADER.pattern}|{_STACK_FRAME.pattern})"
+)
+_MAX_ERROR_STACK = 8192
+_MAX_ERROR_STACK_FRAMES = 20
+_FRAMEWORK_MODULES = (
+    "fastmcp",
+    "mcp",
+    "anyio",
+    "starlette",
+    "sse_starlette",
+    "uvicorn",
+    "asyncio",
+    "concurrent",
+    "contextlib",
+    "functools",
+    "threading",
+    "pydantic",
+    "pydantic_core",
+)
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
 _EVAL_VALUE = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 _EVAL_HEADERS = {"eval.run_id": "x-mcp-eval-run", "eval.case_id": "x-mcp-eval-case"}
+# Exact class names only; a library not covered is handled by `error_classifier`.
+_TIMEOUT_NAMES = frozenset(
+    {
+        "Timeout",
+        "TimeoutException",
+        "ReadTimeout",
+        "ConnectTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ReadTimeoutError",
+        "ConnectTimeoutError",
+        "ServerTimeoutError",
+    }
+)
+_UNREACHABLE_NAMES = frozenset(
+    {"ConnectionError", "ConnectError", "ClientConnectionError", "NewConnectionError"}
+)
 
 ContractCache = dict[str, tuple[Any, str, int]]
 
@@ -93,14 +144,147 @@ def _status_code(exc: BaseException) -> int | None:
 
 
 def _network_category(exc: BaseException) -> str | None:
-    names = [cls.__name__ for cls in type(exc).__mro__]
-    timeouts = [name for name in names if "Timeout" in name]
-    if timeouts:
-        # Only the builtin / asyncio `TimeoutError`: a local deadline, not an HTTP client.
-        return "timeout" if set(timeouts) == {"TimeoutError"} else "upstream_timeout"
-    if any("ConnectionError" in name or "ConnectError" in name for name in names):
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    if names & _TIMEOUT_NAMES:
+        return "upstream_timeout"
+    if "TimeoutError" in names:
+        # The builtin / asyncio `TimeoutError`: a local deadline, not an HTTP client.
+        return "timeout"
+    if names & _UNREACHABLE_NAMES:
         return "upstream_unreachable"
     return None
+
+
+def is_type_name(value: object) -> bool:
+    """Return whether `value` is safe to export as an exception class name."""
+    # ASCII only: `str.isidentifier` accepts any Unicode letters, so a
+    # dynamically named class could carry free text.
+    return isinstance(value, str) and _TYPE_NAME.fullmatch(value) is not None
+
+
+def is_reason(value: object) -> bool:
+    """Return whether `value` is safe to export as a failure reason slug."""
+    return isinstance(value, str) and _REASON.fullmatch(value) is not None
+
+
+def _dedupe_stack_ellipsis(frames: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for frame in frames:
+        if frame == "  ..." and deduped and deduped[-1] == "  ...":
+            continue
+        deduped.append(frame)
+    return deduped
+
+
+def error_stack(cause: BaseException) -> str | None:
+    """Return validated module/function/line frames without exception messages."""
+    try:
+        blocks: list[tuple[str, bool]] = []
+        for index, exc in enumerate(_chain(cause)):
+            name = type(exc).__name__
+            if not is_type_name(name):
+                name = "?"
+            header = name if index == 0 else f"caused by {name}"
+            frames: list[tuple[str, bool]] = []
+            for frame, lineno in traceback.walk_tb(exc.__traceback__):
+                module = frame.f_globals.get("__name__")
+                if (
+                    not isinstance(module, str)
+                    or _STACK_MODULE.fullmatch(module) is None
+                ):
+                    module = "?"
+                qualname = getattr(frame.f_code, "co_qualname", frame.f_code.co_name)
+                if (
+                    not isinstance(qualname, str)
+                    or _STACK_QUALNAME.fullmatch(qualname) is None
+                ):
+                    qualname = "?"
+                framework = module != "?" and any(
+                    module == package or module.startswith(package + ".")
+                    for package in _FRAMEWORK_MODULES
+                )
+                frames.append((f"  {module}:{qualname}:{lineno}", framework))
+
+            compacted: list[str] = []
+            frame_index = 0
+            while frame_index < len(frames):
+                _, framework = frames[frame_index]
+                if not framework:
+                    compacted.append(frames[frame_index][0])
+                    frame_index += 1
+                    continue
+                run_end = frame_index + 1
+                while run_end < len(frames) and frames[run_end][1]:
+                    run_end += 1
+                if run_end - frame_index >= 3 and run_end < len(frames):
+                    compacted.extend(
+                        (frames[frame_index][0], "  ...", frames[run_end - 1][0])
+                    )
+                else:
+                    compacted.extend(line for line, _ in frames[frame_index:run_end])
+                frame_index = run_end
+
+            frame_count = sum(line != "  ..." for line in compacted)
+            if frame_count > _MAX_ERROR_STACK_FRAMES:
+                kept_frames = 0
+                first_kept = len(compacted)
+                for position in range(len(compacted) - 1, -1, -1):
+                    if compacted[position] != "  ...":
+                        kept_frames += 1
+                        if kept_frames == _MAX_ERROR_STACK_FRAMES:
+                            first_kept = position
+                            break
+                compacted = compacted[first_kept:]
+                if not compacted or compacted[0] != "  ...":
+                    compacted.insert(0, "  ...")
+                compacted = _dedupe_stack_ellipsis(compacted)
+
+            lines = [header, *compacted]
+            while len("\n".join(lines)) > _MAX_ERROR_STACK:
+                first_frame = next(
+                    (
+                        position
+                        for position, line in enumerate(compacted)
+                        if line != "  ..."
+                    ),
+                    None,
+                )
+                if first_frame is None:
+                    break
+                compacted.pop(first_frame)
+                if not compacted or compacted[0] != "  ...":
+                    compacted.insert(0, "  ...")
+                compacted = _dedupe_stack_ellipsis(compacted)
+                lines = [header, *compacted]
+            blocks.append(
+                ("\n".join(lines), any(line != "  ..." for line in compacted))
+            )
+
+        if not any(has_frames for _, has_frames in blocks):
+            return None
+        while (
+            blocks and len("\n".join(block for block, _ in blocks)) > _MAX_ERROR_STACK
+        ):
+            blocks.pop()
+        if not any(has_frames for _, has_frames in blocks):
+            return None
+        return "\n".join(block for block, _ in blocks)
+    except BaseException:
+        return None
+
+
+def is_error_stack(value: object) -> bool:
+    """Return whether `value` contains only validated stack lines."""
+    try:
+        return (
+            type(value) is str
+            and 0 < len(value) <= _MAX_ERROR_STACK
+            and all(
+                _STACK_LINE.fullmatch(line) is not None for line in value.split("\n")
+            )
+        )
+    except BaseException:
+        return False
 
 
 def error_attributes(
@@ -109,6 +293,7 @@ def error_attributes(
     unknown_tool: bool = False,
     user_facing_errors: tuple[type[BaseException], ...] = (),
     classifier: Callable[[BaseException], str | None] | None = None,
+    reason: Callable[[BaseException], str | None] | None = None,
 ) -> dict[str, object]:
     """Classify a failed call.
 
@@ -117,7 +302,12 @@ def error_attributes(
 
     A `classifier` result wins when it is a known category. The type rules
     look at `cause` only; the status-code and class-name rules also walk its
-    chain. A tool-filter rejection is a bare `ValueError`, so it is `internal`.
+    chain. A tool-filter rejection is `tool_unavailable`. A failure no rule
+    recognises is `unclassified` with fault `unknown`; only a `classifier`
+    returns `internal`. `error.cause_types` lists the class names chained
+    behind `cause`. `error.reason` is the `reason` hook's result when it is a
+    slug. `error.stack` contains module/function/line frames only, without
+    messages, and is derived separately rather than returned here.
     """
     if cause is None:
         return {
@@ -142,6 +332,8 @@ def error_attributes(
             category = "unknown_tool"
         elif isinstance(cause, ValidationError):
             category = "invalid_arguments"
+        elif isinstance(cause, ToolUnavailableError):
+            category = "tool_unavailable"
         elif user_facing_errors and isinstance(cause, user_facing_errors):
             category = "user_error"
         elif status is not None:
@@ -149,7 +341,7 @@ def error_attributes(
         else:
             category = next(
                 (c for c in map(_network_category, chain) if c is not None),
-                "tool_error" if isinstance(cause, ToolError) else "internal",
+                "tool_error" if isinstance(cause, ToolError) else "unclassified",
             )
     attrs: dict[str, object] = {
         "error.category": category,
@@ -157,6 +349,19 @@ def error_attributes(
     }
     if status is not None:
         attrs["upstream.status_code"] = status
+    causes = tuple(
+        name for name in (type(e).__name__ for e in chain[1:]) if is_type_name(name)
+    )
+    if causes:
+        attrs["error.cause_types"] = causes
+    if reason is not None:
+        try:
+            slug = reason(cause)
+        except (Exception, asyncio.CancelledError):
+            # A faulty hook contributes nothing.
+            slug = None
+        if is_reason(slug):
+            attrs["error.reason"] = slug
     return attrs
 
 

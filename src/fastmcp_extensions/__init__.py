@@ -112,6 +112,7 @@ from fastmcp_extensions.session_state import (
 )
 from fastmcp_extensions.tool_filters import (
     ToolFilterFn,
+    ToolUnavailableError,
     assert_http_trusted_execution_disabled,
     capability_filter,
     extension_tool_filter,
@@ -173,6 +174,7 @@ __all__ = [
     "ToolStateBase",
     "ToolTracingConfig",
     "ToolTraits",
+    "ToolUnavailableError",
     "TraceArg",
     "UserFacingErrorFormatter",
     "UserFacingErrorMiddleware",

@@ -9,6 +9,8 @@ from fastmcp_extensions import UserFacingErrorMiddleware
 
 app.add_middleware(UserFacingErrorMiddleware((ValueError,)))
 ```
+
+Telemetry and tracing report the original exception type in either middleware order.
 """
 
 from __future__ import annotations
@@ -64,7 +66,11 @@ class UserFacingErrorMiddleware(Middleware):
             user_error = self._match(error)
             if user_error is None:
                 raise
-            raise ToolError(self._formatter(user_error)) from None
+            converted = ToolError(self._formatter(user_error))
+            # Telemetry and tracing added outside this middleware read the
+            # original from here.
+            converted.user_facing_cause = user_error  # ty: ignore[unresolved-attribute]  # ToolError does not declare the marker.
+            raise converted from None
 
     def _match(self, error: BaseException) -> BaseException | None:
         """Return the configured exception behind `error`, if any.

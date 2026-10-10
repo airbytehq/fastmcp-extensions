@@ -36,6 +36,13 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
 from opentelemetry.trace import SpanContext, Status, StatusCode
 
 from fastmcp_extensions.otel._arg_digests import is_arg_key
+from fastmcp_extensions.otel._extras import (
+    _MAX_CHAIN,
+    ERROR_FAULTS,
+    is_error_stack,
+    is_reason,
+    is_type_name,
+)
 from fastmcp_extensions.otel.middleware import (
     _INSTALLS,
     _KEY,
@@ -169,9 +176,15 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
         return None
 
     out: dict[str, object] = {}
+    stack = a.get(p + "error.stack")
     for key, value in a.items():
         # Argument records have their own bounds; `revalidate` below re-adds them.
-        if key == MARK or not key.startswith(p) or is_arg_key(install.prefix, key):
+        if (
+            key == MARK
+            or not key.startswith(p)
+            or is_arg_key(install.prefix, key)
+            or key == p + "error.stack"
+        ):
             continue
         # A tool can write past the package API, so the key rule is re-applied.
         if not _KEY.fullmatch(key[len(p) :]):
@@ -207,6 +220,11 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     ):
         out[p + "caller_hash"], out[p + "caller_id_type"] = caller, kind
 
+    # The error group is closed: a tool can write these keys past the package
+    # API, so only known keys with valid values are put back, on a failure.
+    group = (p + "error.", p + "upstream.")
+    found = {key: out.pop(key) for key in [k for k in out if k.startswith(group)]}
+
     outcome = out.get(p + "outcome")
     if outcome not in OUTCOMES:
         if p + "tools.count" not in out:
@@ -223,6 +241,24 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     if tool is not None:
         out["gen_ai.tool.name"] = tool
     out.update(install.args.revalidate(tool, a))
+    if outcome != "success":
+        category = found.get(p + "error.category")
+        if isinstance(category, str) and category in ERROR_FAULTS:
+            out[p + "error.category"] = category
+            out[p + "error.fault"] = ERROR_FAULTS[category]
+        code = found.get(p + "upstream.status_code")
+        if type(code) is int and 100 <= code <= 599:
+            out[p + "upstream.status_code"] = code
+        causes = found.get(p + "error.cause_types")
+        if isinstance(causes, tuple):
+            causes = tuple(c for c in causes[: _MAX_CHAIN - 1] if is_type_name(c))
+            if causes:
+                out[p + "error.cause_types"] = causes
+        reason = found.get(p + "error.reason")
+        if is_reason(reason):
+            out[p + "error.reason"] = reason
+        if is_error_stack(stack):
+            out[p + "error.stack"] = stack
     # A client's trace context is not trusted: root spans export no parent.
     root = out.get(p + "root") is True
     for key, pattern in (
@@ -237,12 +273,16 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
     if (
         outcome != "success"
         and isinstance(error_type, str)
-        and error_type.isidentifier()
+        and is_type_name(error_type)
     ):
         out[p + "error_type"] = out["error.type"] = error_type
         stamps = [event.timestamp for event in span.events if event.name == "exception"]
         if stamps:
-            events = (Event("exception", {"exception.type": error_type}, stamps[0]),)
+            event_attributes: dict[str, str] = {"exception.type": error_type}
+            stack = out.get(p + "error.stack")
+            if isinstance(stack, str) and is_error_stack(stack):
+                event_attributes["exception.stacktrace"] = stack
+            events = (Event("exception", event_attributes, stamps[0]),)
     name = f"tools/call {tool}" if tool else "tools/call"
     status = StatusCode.UNSET if outcome == "success" else StatusCode.ERROR
     return _rebuild(

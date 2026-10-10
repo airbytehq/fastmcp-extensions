@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastmcp import FastMCP
@@ -18,12 +19,15 @@ from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     error_attributes,
+    error_stack,
+    is_error_stack,
     result_attributes,
     tool_contract,
     tool_list_attributes,
     validation_attributes,
 )
 from fastmcp_extensions.otel.middleware import OWNED_NAMESPACES
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 
 
 def _owned(attrs: dict[str, object]) -> dict[str, object]:
@@ -44,6 +48,22 @@ class ReadTimeout(Exception):  # noqa: N818  # Named like an HTTP client's timeo
     pass
 
 
+class CloudConnectionError(Exception):
+    """A domain error named like a network failure."""
+
+
+class ConnectionSyncError(CloudConnectionError):
+    pass
+
+
+class SyncTimeoutError(Exception):
+    """A domain error named like a timeout."""
+
+
+class ConnectError(Exception):
+    """Named like an HTTP client's connect failure."""
+
+
 def _caused_by(cause: BaseException) -> RuntimeError:
     error = RuntimeError()
     error.__cause__ = cause
@@ -55,31 +75,55 @@ def _cancels(_: BaseException) -> str:
 
 
 USER_FACING = {"user_facing_errors": (KeyError,)}
-# (cause, keyword arguments, (category, fault[, upstream status]))
+# (cause, keyword arguments, (category, fault[, upstream status[, cause types]]));
+# `None` means omitted.
 ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] = [
     (None, {}, ("tool_error", "unknown")),
     (asyncio.CancelledError(), {}, ("cancelled", "unknown")),
     (NotFoundError(), {"unknown_tool": True}, ("unknown_tool", "caller")),
-    (NotFoundError(), {}, ("internal", "server")),
+    (NotFoundError(), {}, ("unclassified", "unknown")),
     (ValidationError(), {}, ("invalid_arguments", "caller")),
     (KeyError(), USER_FACING, ("user_error", "caller")),
-    (_caused_by(KeyError()), USER_FACING, ("internal", "server")),
+    (
+        _caused_by(KeyError()),
+        USER_FACING,
+        ("unclassified", "unknown", None, ("KeyError",)),
+    ),
     (_StatusError(401), {}, ("auth", "caller", 401)),
     (_StatusError(403, on_response=True), {}, ("auth", "caller", 403)),
     (_StatusError(404), {}, ("not_found", "caller", 404)),
     (_StatusError(429, on_response=True), {}, ("rate_limited", "upstream", 429)),
     (_StatusError(500), {}, ("upstream_error", "upstream", 500)),
-    (_caused_by(_StatusError(503)), {}, ("upstream_error", "upstream", 503)),
-    (_StatusError(True), {}, ("internal", "server")),
+    (
+        _caused_by(_StatusError(503)),
+        {},
+        ("upstream_error", "upstream", 503, ("_StatusError",)),
+    ),
+    (_StatusError(True), {}, ("unclassified", "unknown")),
     (ReadTimeout(), {}, ("upstream_timeout", "upstream")),
     (TimeoutError(), {}, ("timeout", "unknown")),
     (ConnectionRefusedError(), {}, ("upstream_unreachable", "upstream")),
     (ToolError(), {}, ("tool_error", "unknown")),
-    (RuntimeError(), {}, ("internal", "server")),
+    (RuntimeError(), {}, ("unclassified", "unknown")),
     (RuntimeError(), {"classifier": lambda _: "auth"}, ("auth", "caller")),
-    (RuntimeError(), {"classifier": lambda _: "nonsense"}, ("internal", "server")),
-    (RuntimeError(), {"classifier": lambda _: 1 / 0}, ("internal", "server")),
-    (RuntimeError(), {"classifier": _cancels}, ("internal", "server")),
+    (RuntimeError(), {"classifier": lambda _: "nonsense"}, ("unclassified", "unknown")),
+    (RuntimeError(), {"classifier": lambda _: 1 / 0}, ("unclassified", "unknown")),
+    (RuntimeError(), {"classifier": _cancels}, ("unclassified", "unknown")),
+    (ToolUnavailableError(), {}, ("tool_unavailable", "caller")),
+    # The filter rule outranks the user-facing rule.
+    (
+        ToolUnavailableError(),
+        {"user_facing_errors": (ValueError,)},
+        ("tool_unavailable", "caller"),
+    ),
+    # A domain name ending in `ConnectionError` is not a network failure.
+    (ConnectionSyncError(), {}, ("unclassified", "unknown")),
+    # A domain name containing `Timeout` is not an upstream timeout.
+    (SyncTimeoutError(), {}, ("unclassified", "unknown")),
+    # Exact HTTP-client names still match.
+    (ConnectError(), {}, ("upstream_unreachable", "upstream")),
+    # Only a classifier asserts a server fault.
+    (RuntimeError(), {"classifier": lambda _: "internal"}, ("internal", "server")),
 ]
 
 
@@ -87,8 +131,294 @@ ERROR_CASES: list[tuple[BaseException | None, dict[str, Any], tuple[Any, ...]]] 
 def test_error_attributes(
     cause: BaseException | None, kwargs: dict[str, Any], expected: tuple[Any, ...]
 ) -> None:
-    keys = ("error.category", "error.fault", "upstream.status_code")
-    assert _owned(error_attributes(cause, **kwargs)) == dict(zip(keys, expected))
+    keys = (
+        "error.category",
+        "error.fault",
+        "upstream.status_code",
+        "error.cause_types",
+    )
+    assert _owned(error_attributes(cause, **kwargs)) == {
+        key: value for key, value in zip(keys, expected) if value is not None
+    }
+
+
+@pytest.mark.parametrize(
+    ("reason", "exported"),
+    [
+        (lambda _: "error:connection-conflict", "error:connection-conflict"),
+        (lambda _: "Free text, not a slug", None),
+        (lambda _: "x" * 101, None),
+        (lambda _: None, None),
+        (lambda _: 1 / 0, None),
+        (_cancels, None),
+    ],
+)
+def test_error_reason_is_a_slug_or_absent(
+    reason: Callable[[BaseException], str | None], exported: str | None
+) -> None:
+    attrs = error_attributes(RuntimeError("secret"), reason=reason)
+    assert attrs.get("error.reason") == exported
+
+
+def test_error_cause_types_are_bounded() -> None:
+    error: BaseException = KeyError()
+    for _ in range(5):
+        error = _caused_by(error)
+    assert error_attributes(error)["error.cause_types"] == ("RuntimeError",) * 4
+
+
+def test_error_cause_types_are_identifiers() -> None:
+    for name in ("not an identifier", "患者张三", "x" * 65):
+        odd = type(name, (Exception,), {})
+        error = _caused_by(_caused_by(odd()))
+        assert error_attributes(error)["error.cause_types"] == ("RuntimeError",)
+
+
+def test_error_stack_contains_only_chained_frames() -> None:
+    def raise_chained() -> None:
+        try:
+            raise ValueError("SENTINEL-MSG")
+        except ValueError as cause:
+            raise RuntimeError("SENTINEL-MSG") from cause
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_chained()
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert stack.startswith("RuntimeError\n  ")
+    assert "\ncaused by ValueError\n  " in stack
+    assert "SENTINEL" not in stack
+    assert is_error_stack(stack)
+
+
+def _synthetic_framework_chain(
+    count: int = 3, *, raises_inside: bool = False
+) -> Callable[[Callable[[], Any]], Any]:
+    namespace: dict[str, Any] = {"__name__": "fastmcp.synthetic"}
+    source: list[str] = []
+    for index in range(count):
+        source.append(f"def frame_{index}(callback):")
+        if index + 1 < count:
+            source.append(f"    return frame_{index + 1}(callback)")
+        elif raises_inside:
+            source.append("    raise RuntimeError('SENTINEL-MSG')")
+        else:
+            source.append("    return callback()")
+    exec("\n".join(source), namespace)
+    return cast(Callable[[Callable[[], Any]], Any], namespace["frame_0"])
+
+
+def _framework_frame_names(stack: str) -> list[str]:
+    return [
+        line.split(":")[1]
+        for line in stack.splitlines()
+        if line.startswith("  fastmcp.synthetic:")
+    ]
+
+
+def test_error_stack_collapses_interior_framework_runs() -> None:
+    def raise_error() -> None:
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(raise_error)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert _framework_frame_names(stack) == ["frame_0", "frame_2"]
+    assert any(
+        lines[index].startswith("  fastmcp.synthetic:frame_0:")
+        and lines[index + 1] == "  ..."
+        and lines[index + 2].startswith("  fastmcp.synthetic:frame_2:")
+        for index in range(len(lines) - 2)
+    )
+    assert is_error_stack(stack)
+
+
+def test_error_stack_keeps_trailing_framework_runs() -> None:
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain(raises_inside=True)(lambda: None)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert _framework_frame_names(stack) == ["frame_0", "frame_1", "frame_2"]
+    assert "  ..." not in stack.splitlines()
+    assert is_error_stack(stack)
+
+
+def test_error_stack_does_not_collapse_two_framework_frames() -> None:
+    def raise_error() -> None:
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain(count=2)(raise_error)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert _framework_frame_names(stack) == ["frame_0", "frame_1"]
+    assert "  ..." not in stack.splitlines()
+    assert is_error_stack(stack)
+
+
+def test_error_stack_collapses_chained_framework_runs_per_block() -> None:
+    framework = _synthetic_framework_chain()
+
+    def raise_cause() -> None:
+        raise ValueError("SENTINEL-MSG")
+
+    with pytest.raises(ValueError) as cause:
+        framework(raise_cause)
+
+    def raise_outer() -> None:
+        raise RuntimeError("SENTINEL-MSG") from cause.value
+
+    with pytest.raises(RuntimeError) as raised:
+        framework(raise_outer)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    blocks = stack.split("\ncaused by ValueError\n")
+    assert len(blocks) == 2
+    for block in blocks:
+        assert _framework_frame_names(block) == ["frame_0", "frame_2"]
+        assert "  fastmcp.synthetic:frame_0:" in block
+        assert "  ...\n  fastmcp.synthetic:frame_2:" in block
+    assert is_error_stack(stack)
+
+
+def test_error_stack_frame_limit_does_not_duplicate_collapse_markers() -> None:
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(lambda: raise_deep(16))
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert lines[1] == "  ..."
+    assert lines[2].startswith("  fastmcp.synthetic:frame_0:")
+    assert lines[3] == "  ..."
+    assert lines[4].startswith("  fastmcp.synthetic:frame_2:")
+    assert all(
+        lines[index] != "  ..." or lines[index + 1] != "  ..."
+        for index in range(len(lines) - 1)
+    )
+    assert is_error_stack(stack)
+
+
+def test_error_stack_character_limit_does_not_duplicate_collapse_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.otel._extras._MAX_ERROR_STACK", 200)
+
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(lambda: raise_deep(16))
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert len(stack) <= 200
+    assert any(line == "  ..." for line in lines)
+    assert all(
+        lines[index] != "  ..." or lines[index + 1] != "  ..."
+        for index in range(len(lines) - 1)
+    )
+    assert is_error_stack(stack)
+
+
+def test_error_stack_truncates_to_innermost_frames() -> None:
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_deep(25)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert lines[0] == "RuntimeError"
+    assert lines[1] == "  ..."
+    assert len(lines) == 22
+    assert "SENTINEL" not in stack
+
+
+def test_error_stack_drops_trailing_blocks_at_total_limit() -> None:
+    name = "f" * 200
+    namespace = {"__name__": "m" * 200, "RuntimeError": RuntimeError}
+    exec(
+        f"def {name}(depth):\n"
+        f"    if depth:\n"
+        f"        return {name}(depth - 1)\n"
+        "    raise RuntimeError('SENTINEL-MSG')",
+        namespace,
+    )
+
+    def raised_deeply(cause: BaseException | None) -> RuntimeError:
+        try:
+            cast(Callable[[int], Any], namespace[name])(25)
+        except RuntimeError as error:
+            if cause is not None:
+                error.__cause__ = cause
+            return error
+        raise AssertionError("dynamic function did not raise")
+
+    error = raised_deeply(None)
+    for _ in range(4):
+        error = raised_deeply(error)
+
+    stack = error_stack(error)
+
+    assert stack is not None
+    assert len(stack) <= 8192
+    assert is_error_stack(stack)
+    assert "\ncaused by RuntimeError" not in stack
+    assert "SENTINEL" not in stack
+
+
+def test_error_stack_without_traceback_is_absent() -> None:
+    assert error_stack(RuntimeError("SENTINEL-MSG")) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(
+            "RuntimeError\n  package.module:run:42\ncaused by ValueError\n"
+            "  package.module:<locals>:10",
+            id="module-function-line",
+        ),
+        pytest.param("?\n  ?:<lambda>:9\n  ...", id="unknown-parts"),
+        pytest.param("", id="empty"),
+        pytest.param("RuntimeError: SENTINEL-MSG", id="message"),
+        pytest.param("RuntimeError\n  /var/lib/secret.py:run:42", id="file-path"),
+        pytest.param("RuntimeError\n\n  package:run:42", id="blank-line"),
+        pytest.param("RuntimeError\n", id="trailing-blank-line"),
+        pytest.param("RuntimeError\n" + ("x" * 8192), id="too-long"),
+    ],
+)
+def test_is_error_stack_validates_each_line(value: str) -> None:
+    expected = value.startswith(("RuntimeError\n  package", "?\n  ?:"))
+    assert is_error_stack(value) is expected
 
 
 def _app() -> FastMCP:

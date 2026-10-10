@@ -404,6 +404,7 @@ async def test_extra_properties_override_attribution_and_can_disable_it(
         "tool_group": None,
         "mutation_class": "unknown",
         "is_hosted_mcp": True,
+        "outcome": "success",
     }
 
 

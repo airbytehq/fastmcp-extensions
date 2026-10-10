@@ -83,8 +83,15 @@ class ToolTracingConfig:
             records the argument, and strips it before the tool runs. A tool
             that declares its own `intent` parameter keeps it, and it is not
             recorded.
-        error_classifier: Server override for the error category. Ignored
-            unless it returns a known category.
+        error_classifier: Server override for the error category, for the
+            span and the telemetry event. Ignored unless it returns a known
+            category. The only source of `internal`: without it, a failure no
+            rule recognises is `unclassified`.
+        error_reason: Server hook naming why a call failed, for the span and
+            the telemetry event: `(exception) -> slug`. Exported only when it
+            is a slug of lowercase letters, digits, and `:._-`, at most 100
+            characters, so it cannot carry a message. An ID fits that
+            pattern, so return values from a fixed vocabulary only.
         other_spans: Decides what survives of spans the layer did not stamp,
             such as HTTP client spans. Returns the complete attribute set to
             keep, or `None` to drop the span. By default all are dropped. A
@@ -109,6 +116,7 @@ class ToolTracingConfig:
     shared_properties: Sequence[str] = ()
     capture_intent: bool = False
     error_classifier: Callable[[BaseException], str | None] | None = None
+    error_reason: Callable[[BaseException], str | None] | None = None
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
     arg_key: bytes | Callable[[], bytes | None] | None = field(default=None, repr=False)
     arg_default: TraceArg = TraceArg.HASH
