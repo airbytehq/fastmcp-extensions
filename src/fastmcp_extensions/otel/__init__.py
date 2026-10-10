@@ -2,7 +2,8 @@
 """OpenTelemetry tracing for MCP tool calls (requires the `[otel]` extra).
 
 Turn it on with `TelemetryConfig(tool_tracing=True)` or a `ToolTracingConfig`.
-See the README section "Tool-Call Tracing" for the exported attributes.
+See the tool-call tracing docs for the exported attributes:
+<https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md>
 """
 
 from fastmcp_extensions.otel.middleware import (
