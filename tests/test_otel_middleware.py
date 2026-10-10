@@ -54,6 +54,7 @@ from fastmcp_extensions._telemetry_middleware import ToolCallTelemetryMiddleware
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 from fastmcp_extensions.otel import middleware as _tracing
 from fastmcp_extensions.otel._arg_digests import is_arg_key
+from fastmcp_extensions.otel._extras import is_error_stack
 from fastmcp_extensions.otel._sdk import BoundaryExporter
 from fastmcp_extensions.otel.middleware import (
     INTENT_SENTENCE,
@@ -78,6 +79,7 @@ RESULT_KEYS = {
 # Exported only for a failed call.
 ERROR_KEYS = {
     *(f"{P}.{key}" for key in ("error_type", "error.category", "error.fault")),
+    f"{P}.error.stack",
     "error.type",
 }
 # The exact attribute keys exported for a successful call. A new upstream
@@ -112,18 +114,25 @@ def _app(**config: Any) -> FastMCP:
     @app.tool(annotations={"readOnlyHint": True})
     def add(a: int, b: int) -> int:
         # Written past the package API; none of it may be exported.
-        rogue = {"leaky": CANARY, "gen_ai.tool.name": CANARY, f"{P}.x {CANARY}": 1}
+        rogue = {
+            "leaky": CANARY,
+            "gen_ai.tool.name": CANARY,
+            f"{P}.x {CANARY}": 1,
+            f"{P}.error.stack": "SENTINEL-FORGED",
+        }
         trace.get_current_span().set_attributes(rogue)
         return a + b
 
     @app.tool(annotations={"readOnlyHint": False, "destructiveHint": True})
     def boom(note: str = "") -> int:
         trace.get_current_span().set_attribute(f"{P}.intent", CANARY)
+        trace.get_current_span().set_attribute(f"{P}.error.stack", "SENTINEL-FORGED")
         raise ValueError(CANARY)
 
     @app.tool
     def soft_fail() -> ToolResult:
         trace.get_current_span().set_attribute("gen_ai.tool.call.id", CANARY)
+        trace.get_current_span().set_attribute(f"{P}.error.stack", "SENTINEL-FORGED")
         return ToolResult(content=CANARY, is_error=True)
 
     @app.tool
@@ -283,12 +292,36 @@ async def test_canary_is_never_exported() -> None:
         for span in spans
     ]
     assert CANARY not in repr(exported)
+    assert "SENTINEL" not in repr(exported)
     assert _attrs(spans[3])[f"{P}.tool_requested_name"] == "<other>"
     (event,) = spans[1].events
-    assert (event.name, event.attributes) == (
-        "exception",
-        {"exception.type": "ValueError"},
+    assert event.name == "exception"
+    assert event.attributes["exception.type"] == "ValueError"
+    assert (
+        event.attributes["exception.stacktrace"] == _attrs(spans[1])[f"{P}.error.stack"]
     )
+
+
+@pytest.mark.asyncio
+async def test_stack_is_exported_only_for_failed_calls_with_a_cause() -> None:
+    app = _app()
+
+    (success,) = await _spans(app, "add", ADD)
+    assert f"{P}.error.stack" not in _attrs(success)
+    assert all(
+        "exception.stacktrace" not in event.attributes for event in success.events
+    )
+
+    (failed,) = await _spans(app, "boom")
+    stack = _attrs(failed)[f"{P}.error.stack"]
+    assert is_error_stack(stack)
+    assert "SENTINEL" not in stack
+    (event,) = failed.events
+    assert event.attributes["exception.stacktrace"] == stack
+    assert "SENTINEL" not in event.attributes["exception.stacktrace"]
+
+    (returned_error,) = await _spans(app, "soft_fail")
+    assert f"{P}.error.stack" not in _attrs(returned_error)
 
 
 @pytest.mark.asyncio
@@ -783,6 +816,7 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
                 f"{P}.error.fault": "caller",
                 f"{P}.upstream.status_code": 418,
                 f"{P}.error.reason": "free text",
+                f"{P}.error.stack": "SENTINEL-FORGED",
             }
         )
 
@@ -795,6 +829,7 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
                 f"{P}.upstream.status_code": 418,
                 f"{P}.error.fault": "nobody",
                 f"{P}.error.cause_types": ("Forged",),
+                f"{P}.error.stack": "SENTINEL-FORGED",
             }
         )
         raise RuntimeError
@@ -805,10 +840,16 @@ async def test_error_group_is_closed_at_the_boundary() -> None:
 
     # On a failure, only what the layer itself wrote is kept.
     (span,) = await _spans(app, "forges_on_failure")
-    assert {k: v for k, v in _attrs(span).items() if k.startswith(group)} == {
-        f"{P}.error.category": "unclassified",
-        f"{P}.error.fault": "unknown",
+    failed = {k: v for k, v in _attrs(span).items() if k.startswith(group)}
+    assert set(failed) == {
+        f"{P}.error.category",
+        f"{P}.error.fault",
+        f"{P}.error.stack",
     }
+    assert failed[f"{P}.error.category"] == "unclassified"
+    assert failed[f"{P}.error.fault"] == "unknown"
+    assert is_error_stack(failed[f"{P}.error.stack"])
+    assert "SENTINEL" not in failed[f"{P}.error.stack"]
 
 
 @pytest.mark.asyncio

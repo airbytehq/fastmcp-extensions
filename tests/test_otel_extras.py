@@ -7,7 +7,7 @@ import asyncio
 import re
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastmcp import FastMCP
@@ -19,6 +19,8 @@ from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     error_attributes,
+    error_stack,
+    is_error_stack,
     result_attributes,
     tool_contract,
     tool_list_attributes,
@@ -170,6 +172,103 @@ def test_error_cause_types_are_identifiers() -> None:
         odd = type(name, (Exception,), {})
         error = _caused_by(_caused_by(odd()))
         assert error_attributes(error)["error.cause_types"] == ("RuntimeError",)
+
+
+def test_error_stack_contains_only_chained_frames() -> None:
+    def raise_chained() -> None:
+        try:
+            raise ValueError("SENTINEL-MSG")
+        except ValueError as cause:
+            raise RuntimeError("SENTINEL-MSG") from cause
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_chained()
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert stack.startswith("RuntimeError\n  ")
+    assert "\ncaused by ValueError\n  " in stack
+    assert "SENTINEL" not in stack
+    assert is_error_stack(stack)
+
+
+def test_error_stack_truncates_to_innermost_frames() -> None:
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_deep(25)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert lines[0] == "RuntimeError"
+    assert lines[1] == "  ..."
+    assert len(lines) == 22
+    assert "SENTINEL" not in stack
+
+
+def test_error_stack_drops_trailing_blocks_at_total_limit() -> None:
+    name = "f" * 200
+    namespace = {"__name__": "m" * 200, "RuntimeError": RuntimeError}
+    exec(
+        f"def {name}(depth):\n"
+        f"    if depth:\n"
+        f"        return {name}(depth - 1)\n"
+        "    raise RuntimeError('SENTINEL-MSG')",
+        namespace,
+    )
+
+    def raised_deeply(cause: BaseException | None) -> RuntimeError:
+        try:
+            cast(Callable[[int], Any], namespace[name])(25)
+        except RuntimeError as error:
+            if cause is not None:
+                error.__cause__ = cause
+            return error
+        raise AssertionError("dynamic function did not raise")
+
+    error = raised_deeply(None)
+    for _ in range(4):
+        error = raised_deeply(error)
+
+    stack = error_stack(error)
+
+    assert stack is not None
+    assert len(stack) <= 8192
+    assert is_error_stack(stack)
+    assert "\ncaused by RuntimeError" not in stack
+    assert "SENTINEL" not in stack
+
+
+def test_error_stack_without_traceback_is_absent() -> None:
+    assert error_stack(RuntimeError("SENTINEL-MSG")) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(
+            "RuntimeError\n  package.module:run:42\ncaused by ValueError\n"
+            "  package.module:<locals>:10",
+            id="module-function-line",
+        ),
+        pytest.param("?\n  ?:<lambda>:9\n  ...", id="unknown-parts"),
+        pytest.param("", id="empty"),
+        pytest.param("RuntimeError: SENTINEL-MSG", id="message"),
+        pytest.param("RuntimeError\n  /var/lib/secret.py:run:42", id="file-path"),
+        pytest.param("RuntimeError\n\n  package:run:42", id="blank-line"),
+        pytest.param("RuntimeError\n", id="trailing-blank-line"),
+        pytest.param("RuntimeError\n" + ("x" * 8192), id="too-long"),
+    ],
+)
+def test_is_error_stack_validates_each_line(value: str) -> None:
+    expected = value.startswith(("RuntimeError\n  package", "?\n  ?:"))
+    assert is_error_stack(value) is expected
 
 
 def _app() -> FastMCP:

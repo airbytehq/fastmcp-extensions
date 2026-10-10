@@ -39,6 +39,7 @@ from fastmcp_extensions.otel._arg_digests import is_arg_key
 from fastmcp_extensions.otel._extras import (
     _MAX_CHAIN,
     ERROR_FAULTS,
+    is_error_stack,
     is_reason,
     is_type_name,
 )
@@ -175,9 +176,15 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
         return None
 
     out: dict[str, object] = {}
+    stack = a.get(p + "error.stack")
     for key, value in a.items():
         # Argument records have their own bounds; `revalidate` below re-adds them.
-        if key == MARK or not key.startswith(p) or is_arg_key(install.prefix, key):
+        if (
+            key == MARK
+            or not key.startswith(p)
+            or is_arg_key(install.prefix, key)
+            or key == p + "error.stack"
+        ):
             continue
         # A tool can write past the package API, so the key rule is re-applied.
         if not _KEY.fullmatch(key[len(p) :]):
@@ -250,6 +257,8 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
         reason = found.get(p + "error.reason")
         if is_reason(reason):
             out[p + "error.reason"] = reason
+        if is_error_stack(stack):
+            out[p + "error.stack"] = stack
     # A client's trace context is not trusted: root spans export no parent.
     root = out.get(p + "root") is True
     for key, pattern in (
@@ -269,7 +278,11 @@ def _clean(span: ReadableSpan, install: ToolCallOtelMiddleware) -> ReadableSpan 
         out[p + "error_type"] = out["error.type"] = error_type
         stamps = [event.timestamp for event in span.events if event.name == "exception"]
         if stamps:
-            events = (Event("exception", {"exception.type": error_type}, stamps[0]),)
+            event_attributes: dict[str, str] = {"exception.type": error_type}
+            stack = out.get(p + "error.stack")
+            if isinstance(stack, str) and is_error_stack(stack):
+                event_attributes["exception.stacktrace"] = stack
+            events = (Event("exception", event_attributes, stamps[0]),)
     name = f"tools/call {tool}" if tool else "tools/call"
     status = StatusCode.UNSET if outcome == "success" else StatusCode.ERROR
     return _rebuild(

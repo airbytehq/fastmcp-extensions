@@ -2,8 +2,8 @@
 """Derived span attributes for tool-call tracing.
 
 Pure functions that describe a tool call without recording its content: the
-error category, argument names, validation failures, result shape, the tool's
-contract fingerprint, and eval tags.
+error category and frames-only error stack, argument names, validation
+failures, result shape, the tool's contract fingerprint, and eval tags.
 
 Every function returns attribute *suffixes* (for example `error.category`);
 `middleware` adds the attribute prefix. An attribute with nothing to say is
@@ -18,6 +18,8 @@ import asyncio
 import hashlib
 import json
 import re
+import traceback
+from collections import deque
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -54,6 +56,19 @@ _MAX_CHAIN = 5
 _MAX_INVALID = 5
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _REASON = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
+_STACK_MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,199}")
+_STACK_QUALNAME = re.compile(r"[A-Za-z_<][A-Za-z0-9_.<>]{0,199}")
+_STACK_NAME_LINE = r"(?:\?|[A-Za-z_][A-Za-z0-9_]{0,63})"
+_STACK_HEADER = re.compile(rf"(?:{_STACK_NAME_LINE}|caused by {_STACK_NAME_LINE})")
+_STACK_FRAME = re.compile(
+    r"  (?:\?|[A-Za-z_][A-Za-z0-9_.]{0,199}):"
+    r"(?:\?|[A-Za-z_<][A-Za-z0-9_.<>]{0,199}):[0-9]+"
+)
+_STACK_LINE = re.compile(
+    rf"(?:  \.\.\.|{_STACK_HEADER.pattern}|{_STACK_FRAME.pattern})"
+)
+_MAX_ERROR_STACK = 8192
+_MAX_ERROR_STACK_FRAMES = 20
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
@@ -138,6 +153,72 @@ def is_reason(value: object) -> bool:
     return isinstance(value, str) and _REASON.fullmatch(value) is not None
 
 
+def error_stack(cause: BaseException) -> str | None:
+    """Return validated module/function/line frames without exception messages."""
+    try:
+        blocks: list[tuple[str, bool]] = []
+        for index, exc in enumerate(_chain(cause)):
+            name = type(exc).__name__
+            if not is_type_name(name):
+                name = "?"
+            header = name if index == 0 else f"caused by {name}"
+            frames: deque[str] = deque()
+            dropped = False
+            for frame, lineno in traceback.walk_tb(exc.__traceback__):
+                module = frame.f_globals.get("__name__")
+                if (
+                    not isinstance(module, str)
+                    or _STACK_MODULE.fullmatch(module) is None
+                ):
+                    module = "?"
+                qualname = getattr(frame.f_code, "co_qualname", frame.f_code.co_name)
+                if (
+                    not isinstance(qualname, str)
+                    or _STACK_QUALNAME.fullmatch(qualname) is None
+                ):
+                    qualname = "?"
+                if len(frames) == _MAX_ERROR_STACK_FRAMES:
+                    frames.popleft()
+                    dropped = True
+                frames.append(f"  {module}:{qualname}:{lineno}")
+
+            lines = [header]
+            if dropped:
+                lines.append("  ...")
+            lines.extend(frames)
+            while len("\n".join(lines)) > _MAX_ERROR_STACK and frames:
+                frames.popleft()
+                dropped = True
+                lines = [header, "  ...", *frames]
+            blocks.append(("\n".join(lines), bool(frames)))
+
+        if not any(has_frames for _, has_frames in blocks):
+            return None
+        while (
+            blocks and len("\n".join(block for block, _ in blocks)) > _MAX_ERROR_STACK
+        ):
+            blocks.pop()
+        if not any(has_frames for _, has_frames in blocks):
+            return None
+        return "\n".join(block for block, _ in blocks)
+    except BaseException:
+        return None
+
+
+def is_error_stack(value: object) -> bool:
+    """Return whether `value` contains only validated stack lines."""
+    try:
+        return (
+            type(value) is str
+            and 0 < len(value) <= _MAX_ERROR_STACK
+            and all(
+                _STACK_LINE.fullmatch(line) is not None for line in value.split("\n")
+            )
+        )
+    except BaseException:
+        return False
+
+
 def error_attributes(
     cause: BaseException | None,
     *,
@@ -157,7 +238,8 @@ def error_attributes(
     recognises is `unclassified` with fault `unknown`; only a `classifier`
     returns `internal`. `error.cause_types` lists the class names chained
     behind `cause`. `error.reason` is the `reason` hook's result when it is a
-    slug.
+    slug. `error.stack` contains module/function/line frames only, without
+    messages, and is derived separately rather than returned here.
     """
     if cause is None:
         return {

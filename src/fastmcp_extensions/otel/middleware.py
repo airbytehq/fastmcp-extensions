@@ -63,6 +63,7 @@ from fastmcp_extensions.otel._extras import (
     ContractCache,
     argument_name_attributes,
     declared_parameters,
+    error_stack,
     eval_attributes,
     result_attributes,
     safe_name,
@@ -688,11 +689,22 @@ class ToolCallOtelMiddleware(Middleware):
                 attrs[f"{p}.upstream.status_code"] = 0
                 attrs[f"{p}.error.cause_types"] = ()
                 attrs[f"{p}.error.reason"] = ""
+                attrs[f"{p}.error.stack"] = ""
             attrs.update(
                 {f"{p}.{key}": value for key, value in facts.error_facts().items()}
             )
             if cause is not None:
                 attrs.update(_safe(lambda: validation_attributes(cause, tool), p + "."))
+                attrs.update(
+                    _safe(
+                        lambda: (
+                            {"error.stack": stack}
+                            if (stack := error_stack(cause)) is not None
+                            else {}
+                        ),
+                        p + ".",
+                    )
+                )
             if result is not None:
                 attrs.update(_safe(lambda: result_attributes(result), p + "."))
             attrs[f"{p}.outcome"] = outcome

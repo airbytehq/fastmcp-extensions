@@ -645,6 +645,7 @@ dashboards that already exist:
 | `upstream_status_code` | `<p>.upstream.status_code` |
 | `error_cause_types` | `<p>.error.cause_types` |
 | `error_reason` | `<p>.error.reason` |
+| — | `<p>.error.stack` |
 | `tool_group` | `<p>.tool_module` |
 | `mutation_class` | `<p>.tool_mutating`, `<p>.tool_destructive` |
 | `mcp_client_name`, `mcp_client_version` | `<p>.client_name`, `<p>.client_version` |
@@ -665,6 +666,7 @@ Each tool call exports one SERVER span named `tools/call <tool>`. `<p>` is the
 | `<p>.error.category`, `<p>.error.fault` | A closed category such as `invalid_arguments`, `auth`, or `upstream_timeout`, and who is at fault: `caller`, `upstream`, `server`, or `unknown` |
 | `<p>.error.cause_types` | Class names of the exceptions chained behind the cause (`raise ... from`), at most four |
 | `<p>.error.reason` | With `error_reason`: the slug the hook returned for the failure, such as an upstream API's error code |
+| `<p>.error.stack` | Module/function/line frames only; no exception messages. Also attached to the exception event as `exception.stacktrace` |
 | `<p>.upstream.status_code` | The HTTP status the failure carries, if any (100 to 599) |
 | `<p>.tool_requested_name` | For an unknown tool: the requested name if it is well formed, else `<other>` |
 | `<p>.client_name`, `<p>.client_version` | The MCP client |
