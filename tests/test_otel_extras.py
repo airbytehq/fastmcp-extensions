@@ -193,6 +193,156 @@ def test_error_stack_contains_only_chained_frames() -> None:
     assert is_error_stack(stack)
 
 
+def _synthetic_framework_chain(
+    count: int = 3, *, raises_inside: bool = False
+) -> Callable[[Callable[[], Any]], Any]:
+    namespace: dict[str, Any] = {"__name__": "fastmcp.synthetic"}
+    source: list[str] = []
+    for index in range(count):
+        source.append(f"def frame_{index}(callback):")
+        if index + 1 < count:
+            source.append(f"    return frame_{index + 1}(callback)")
+        elif raises_inside:
+            source.append("    raise RuntimeError('SENTINEL-MSG')")
+        else:
+            source.append("    return callback()")
+    exec("\n".join(source), namespace)
+    return cast(Callable[[Callable[[], Any]], Any], namespace["frame_0"])
+
+
+def _framework_frame_names(stack: str) -> list[str]:
+    return [
+        line.split(":")[1]
+        for line in stack.splitlines()
+        if line.startswith("  fastmcp.synthetic:")
+    ]
+
+
+def test_error_stack_collapses_interior_framework_runs() -> None:
+    def raise_error() -> None:
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(raise_error)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert _framework_frame_names(stack) == ["frame_0", "frame_2"]
+    assert any(
+        lines[index].startswith("  fastmcp.synthetic:frame_0:")
+        and lines[index + 1] == "  ..."
+        and lines[index + 2].startswith("  fastmcp.synthetic:frame_2:")
+        for index in range(len(lines) - 2)
+    )
+    assert is_error_stack(stack)
+
+
+def test_error_stack_keeps_trailing_framework_runs() -> None:
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain(raises_inside=True)(lambda: None)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert _framework_frame_names(stack) == ["frame_0", "frame_1", "frame_2"]
+    assert "  ..." not in stack.splitlines()
+    assert is_error_stack(stack)
+
+
+def test_error_stack_does_not_collapse_two_framework_frames() -> None:
+    def raise_error() -> None:
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain(count=2)(raise_error)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    assert _framework_frame_names(stack) == ["frame_0", "frame_1"]
+    assert "  ..." not in stack.splitlines()
+    assert is_error_stack(stack)
+
+
+def test_error_stack_collapses_chained_framework_runs_per_block() -> None:
+    framework = _synthetic_framework_chain()
+
+    def raise_cause() -> None:
+        raise ValueError("SENTINEL-MSG")
+
+    with pytest.raises(ValueError) as cause:
+        framework(raise_cause)
+
+    def raise_outer() -> None:
+        raise RuntimeError("SENTINEL-MSG") from cause.value
+
+    with pytest.raises(RuntimeError) as raised:
+        framework(raise_outer)
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    blocks = stack.split("\ncaused by ValueError\n")
+    assert len(blocks) == 2
+    for block in blocks:
+        assert _framework_frame_names(block) == ["frame_0", "frame_2"]
+        assert "  fastmcp.synthetic:frame_0:" in block
+        assert "  ...\n  fastmcp.synthetic:frame_2:" in block
+    assert is_error_stack(stack)
+
+
+def test_error_stack_frame_limit_does_not_duplicate_collapse_markers() -> None:
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(lambda: raise_deep(16))
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert lines[1] == "  ..."
+    assert lines[2].startswith("  fastmcp.synthetic:frame_0:")
+    assert lines[3] == "  ..."
+    assert lines[4].startswith("  fastmcp.synthetic:frame_2:")
+    assert all(
+        lines[index] != "  ..." or lines[index + 1] != "  ..."
+        for index in range(len(lines) - 1)
+    )
+    assert is_error_stack(stack)
+
+
+def test_error_stack_character_limit_does_not_duplicate_collapse_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fastmcp_extensions.otel._extras._MAX_ERROR_STACK", 200)
+
+    def raise_deep(depth: int) -> None:
+        if depth:
+            raise_deep(depth - 1)
+        raise RuntimeError("SENTINEL-MSG")
+
+    with pytest.raises(RuntimeError) as raised:
+        _synthetic_framework_chain()(lambda: raise_deep(16))
+
+    stack = error_stack(raised.value)
+
+    assert stack is not None
+    lines = stack.splitlines()
+    assert len(stack) <= 200
+    assert any(line == "  ..." for line in lines)
+    assert all(
+        lines[index] != "  ..." or lines[index + 1] != "  ..."
+        for index in range(len(lines) - 1)
+    )
+    assert is_error_stack(stack)
+
+
 def test_error_stack_truncates_to_innermost_frames() -> None:
     def raise_deep(depth: int) -> None:
         if depth:

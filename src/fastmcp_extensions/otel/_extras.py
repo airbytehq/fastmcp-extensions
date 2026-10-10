@@ -19,7 +19,6 @@ import hashlib
 import json
 import re
 import traceback
-from collections import deque
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -69,6 +68,21 @@ _STACK_LINE = re.compile(
 )
 _MAX_ERROR_STACK = 8192
 _MAX_ERROR_STACK_FRAMES = 20
+_FRAMEWORK_MODULES = (
+    "fastmcp",
+    "mcp",
+    "anyio",
+    "starlette",
+    "sse_starlette",
+    "uvicorn",
+    "asyncio",
+    "concurrent",
+    "contextlib",
+    "functools",
+    "threading",
+    "pydantic",
+    "pydantic_core",
+)
 _STATUS_CATEGORIES = {401: "auth", 403: "auth", 404: "not_found", 429: "rate_limited"}
 _SAFE_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _SAFE_TYPE = re.compile(r"[a-z_]{1,64}")
@@ -153,6 +167,15 @@ def is_reason(value: object) -> bool:
     return isinstance(value, str) and _REASON.fullmatch(value) is not None
 
 
+def _dedupe_stack_ellipsis(frames: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for frame in frames:
+        if frame == "  ..." and deduped and deduped[-1] == "  ...":
+            continue
+        deduped.append(frame)
+    return deduped
+
+
 def error_stack(cause: BaseException) -> str | None:
     """Return validated module/function/line frames without exception messages."""
     try:
@@ -162,8 +185,7 @@ def error_stack(cause: BaseException) -> str | None:
             if not is_type_name(name):
                 name = "?"
             header = name if index == 0 else f"caused by {name}"
-            frames: deque[str] = deque()
-            dropped = False
+            frames: list[tuple[str, bool]] = []
             for frame, lineno in traceback.walk_tb(exc.__traceback__):
                 module = frame.f_globals.get("__name__")
                 if (
@@ -177,20 +199,66 @@ def error_stack(cause: BaseException) -> str | None:
                     or _STACK_QUALNAME.fullmatch(qualname) is None
                 ):
                     qualname = "?"
-                if len(frames) == _MAX_ERROR_STACK_FRAMES:
-                    frames.popleft()
-                    dropped = True
-                frames.append(f"  {module}:{qualname}:{lineno}")
+                framework = module != "?" and any(
+                    module == package or module.startswith(package + ".")
+                    for package in _FRAMEWORK_MODULES
+                )
+                frames.append((f"  {module}:{qualname}:{lineno}", framework))
 
-            lines = [header]
-            if dropped:
-                lines.append("  ...")
-            lines.extend(frames)
-            while len("\n".join(lines)) > _MAX_ERROR_STACK and frames:
-                frames.popleft()
-                dropped = True
-                lines = [header, "  ...", *frames]
-            blocks.append(("\n".join(lines), bool(frames)))
+            compacted: list[str] = []
+            frame_index = 0
+            while frame_index < len(frames):
+                _, framework = frames[frame_index]
+                if not framework:
+                    compacted.append(frames[frame_index][0])
+                    frame_index += 1
+                    continue
+                run_end = frame_index + 1
+                while run_end < len(frames) and frames[run_end][1]:
+                    run_end += 1
+                if run_end - frame_index >= 3 and run_end < len(frames):
+                    compacted.extend(
+                        (frames[frame_index][0], "  ...", frames[run_end - 1][0])
+                    )
+                else:
+                    compacted.extend(line for line, _ in frames[frame_index:run_end])
+                frame_index = run_end
+
+            frame_count = sum(line != "  ..." for line in compacted)
+            if frame_count > _MAX_ERROR_STACK_FRAMES:
+                kept_frames = 0
+                first_kept = len(compacted)
+                for position in range(len(compacted) - 1, -1, -1):
+                    if compacted[position] != "  ...":
+                        kept_frames += 1
+                        if kept_frames == _MAX_ERROR_STACK_FRAMES:
+                            first_kept = position
+                            break
+                compacted = compacted[first_kept:]
+                if not compacted or compacted[0] != "  ...":
+                    compacted.insert(0, "  ...")
+                compacted = _dedupe_stack_ellipsis(compacted)
+
+            lines = [header, *compacted]
+            while len("\n".join(lines)) > _MAX_ERROR_STACK:
+                first_frame = next(
+                    (
+                        position
+                        for position, line in enumerate(compacted)
+                        if line != "  ..."
+                    ),
+                    None,
+                )
+                if first_frame is None:
+                    break
+                compacted.pop(first_frame)
+                if not compacted or compacted[0] != "  ...":
+                    compacted.insert(0, "  ...")
+                compacted = _dedupe_stack_ellipsis(compacted)
+                lines = [header, *compacted]
+            blocks.append(
+                ("\n".join(lines), any(line != "  ..." for line in compacted))
+            )
 
         if not any(has_frames for _, has_frames in blocks):
             return None
