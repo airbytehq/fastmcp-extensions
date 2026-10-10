@@ -412,6 +412,7 @@ def build_mcp_auth(
     *,
     oidc: OIDCAuthConfig | None = None,
     jwt: JWTAuthConfig | Sequence[JWTAuthConfig] | None = None,
+    token_verifiers: Sequence[TokenVerifier] | None = None,
     introspection: IntrospectionAuthConfig | None = None,
     static_tokens: Mapping[str, dict[str, Any]] | None = None,
     base_url: str | None = None,
@@ -425,6 +426,8 @@ def build_mcp_auth(
     - `jwt`: headless JWT bearer verification (`JWTVerifier`); pass a
       sequence to trust several issuers/realms, e.g. an application-token
       realm plus a user-token realm pinned via `allowed_client_ids`.
+    - `token_verifiers`: custom headless token verifiers that do not fit the
+      built-in configuration types.
     - `introspection`: headless opaque-token verification (RFC 7662).
     - `static_tokens`: fixed tokens for local dev / CI (`StaticTokenVerifier`).
 
@@ -444,6 +447,13 @@ def build_mcp_auth(
                 "disable JWT verification."
             )
         verifiers.extend(_build_jwt_verifier(config) for config in jwt_configs)
+    if token_verifiers is not None:
+        if not token_verifiers:
+            raise ValueError(
+                "build_mcp_auth 'token_verifiers' sequence must not be empty; "
+                "pass None to disable custom token verification."
+            )
+        verifiers.extend(token_verifiers)
     if introspection is not None:
         verifiers.append(_build_introspection_verifier(introspection))
     if static_tokens:
