@@ -24,6 +24,7 @@ from mcp.types import ToolAnnotations
 from fastmcp_extensions.annotations import (
     ANNOTATION_MCP_MODULE,
     TOOL_APP_KEY,
+    TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     TOOL_TRACING_KEY,
@@ -103,6 +104,20 @@ def _constant(value: Any) -> Callable[[], Any]:
         return value
 
     return _factory
+
+
+def _with_extra_help(
+    callable_fn: Callable[..., Any],
+    text: str,
+) -> Callable[..., Any]:
+    """Wrap a tool with registration-specific help text."""
+
+    @functools.wraps(callable_fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return callable_fn(*args, **kwargs)
+
+    wrapper.__doc__ = ((callable_fn.__doc__ or "") + "\n\n" + text).rstrip()
+    return wrapper
 
 
 def _exclude_parameters(
@@ -322,6 +337,7 @@ def register_mcp_tools(
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
+        extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
         required_capabilities: frozenset[str] = frozenset(
             registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
         )
@@ -330,6 +346,10 @@ def register_mcp_tools(
             required_capabilities=required_capabilities,
             tracing=registration_annotations.pop(TOOL_TRACING_KEY, True),
         )
+        if extra_help_factory is not None:
+            extra_help_text = extra_help_factory()
+            if extra_help_text:
+                callable_fn = _with_extra_help(callable_fn, extra_help_text)
         if state_type is not None:
             state_types.add(state_type)
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
