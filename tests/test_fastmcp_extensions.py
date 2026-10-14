@@ -2,6 +2,7 @@
 """Unit tests for the fastmcp_extensions module."""
 
 import warnings
+from typing import Any, cast
 
 import pytest
 from fastmcp import FastMCP
@@ -76,7 +77,7 @@ def test_mcp_tool_decorator() -> None:
     """Test that mcp_tool decorator registers tools with auto-inferred mcp_module."""
     _clear_registrations()
 
-    @mcp_tool(read_only=True)
+    @mcp_tool(read_only=True, extra_help_text="Additional help.")
     def my_test_tool() -> str:
         """A test tool."""
         return "test"
@@ -84,6 +85,7 @@ def test_mcp_tool_decorator() -> None:
     assert len(_REGISTERED_TOOLS) == 1
     func, annotations = _REGISTERED_TOOLS[0]
     assert func.__name__ == "my_test_tool"
+    assert func.__doc__ == "A test tool.\n\nAdditional help."
     # mcp_module is auto-inferred from module name (test_fastmcp_extensions)
     assert annotations["mcp_module"] == "test_fastmcp_extensions"
     assert annotations[READ_ONLY_HINT] is True
@@ -298,6 +300,134 @@ async def test_register_mcp_tools_exclude_args_hides_param_and_injects_default()
     result = await tool.run({"prefix": "p"})
     assert result.structured_content == {"result": "p:ws-default"}
 
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_callable_extra_help_text_is_resolved_per_registration() -> None:
+    """Call a tool's help-text factory separately for each app registration."""
+    _clear_registrations()
+    feature_enabled = True
+    resolution_count = 0
+
+    def resolve_help_text() -> str | None:
+        nonlocal resolution_count
+        resolution_count += 1
+        return "Feature-specific help" if feature_enabled else None
+
+    @mcp_tool(extra_help_text=resolve_help_text)
+    def callable_help_tool() -> str:
+        """Base description."""
+        return "ok"
+
+    original_doc = callable_help_tool.__doc__
+    assert original_doc == "Base description."
+    assert resolution_count == 0
+
+    app_a = FastMCP("help-enabled")
+    register_mcp_tools(app_a)
+    assert resolution_count == 1
+    tool_a = await app_a.get_tool("callable_help_tool")
+    assert tool_a is not None
+    assert "Feature-specific help" in (tool_a.description or "")
+    assert callable_help_tool.__doc__ == original_doc
+
+    feature_enabled = False
+    app_b = FastMCP("help-disabled")
+    register_mcp_tools(app_b)
+    assert resolution_count == 2
+    tool_b = await app_b.get_tool("callable_help_tool")
+    assert tool_b is not None
+    assert tool_b.description == original_doc
+    assert callable_help_tool.__doc__ == original_doc
+
+    _clear_registrations()
+
+
+@pytest.mark.parametrize(
+    "help_text",
+    [pytest.param(None, id="none"), pytest.param("", id="empty")],
+)
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_callable_extra_help_text_omits_empty_results(
+    help_text: str | None,
+) -> None:
+    """A callable with no text leaves the tool description unchanged."""
+    _clear_registrations()
+
+    @mcp_tool(extra_help_text=lambda: help_text)
+    def empty_help_tool() -> str:
+        """Plain description."""
+        return "ok"
+
+    app = FastMCP("empty-help")
+    register_mcp_tools(app)
+    tool = await app.get_tool("empty_help_tool")
+    assert tool is not None
+    assert tool.description == "Plain description."
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_async_tool_with_callable_extra_help_text() -> None:
+    """A sync wrapper preserves async invocation and the resolved description."""
+    _clear_registrations()
+
+    @mcp_tool(extra_help_text=lambda: "Async extra help")
+    async def async_help_tool() -> str:
+        """Async description."""
+        return "async result"
+
+    original_doc = async_help_tool.__doc__
+    app = FastMCP("async-help")
+    register_mcp_tools(app)
+    tool = await app.get_tool("async_help_tool")
+    assert tool is not None
+    assert tool.description == "Async description.\n\nAsync extra help"
+    result = await tool.run({})
+    assert result.structured_content == {"result": "async result"}
+    assert async_help_tool.__doc__ == original_doc
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_rejects_invalid_extra_help_text() -> None:
+    """Only strings, zero-argument callables, and None are accepted."""
+    with pytest.raises(
+        TypeError,
+        match="extra_help_text must be a str or a zero-arg callable",
+    ):
+        mcp_tool(extra_help_text=cast(Any, 123))
+
+
+@pytest.mark.unit
+def test_mcp_tool_rejects_required_args_in_extra_help_callable() -> None:
+    """A help-text callable must be invokable without arguments."""
+    with pytest.raises(
+        TypeError,
+        match="extra_help_text must be a str or a zero-arg callable",
+    ):
+
+        @mcp_tool(extra_help_text=cast(Any, lambda x: "t"))
+        def required_arg_help_tool() -> str:
+            return "ok"
+
+
+@pytest.mark.unit
+def test_mcp_tool_accepts_defaulted_args_in_extra_help_callable() -> None:
+    """A help-text callable with only defaulted parameters can be invoked with no args."""
+    _clear_registrations()
+
+    @mcp_tool(extra_help_text=cast(Any, lambda x=1: "t"))
+    def defaulted_arg_help_tool() -> str:
+        return "ok"
+
+    assert _REGISTERED_TOOLS[-1][0] is defaulted_arg_help_tool
     _clear_registrations()
 
 

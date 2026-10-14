@@ -119,6 +119,13 @@ Set by `@mcp_tool(tracing=...)` and popped at registration time into
 `ToolTraits.tracing` — it is never sent on the wire.
 """
 
+TOOL_EXTRA_HELP_KEY = "_fastmcp_extensions_extra_help"
+"""Internal registration-time key carrying a tool's extra help text factory.
+
+Set by `@mcp_tool(extra_help_text=...)` when callable and popped at registration
+time — it is never sent on the wire.
+"""
+
 
 def standard_annotation_field_names() -> dict[str, str]:
     """Map every accepted standard annotation key to its `ToolAnnotations` field.

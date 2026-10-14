@@ -26,6 +26,7 @@ from fastmcp_extensions.annotations import (
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
     TOOL_APP_KEY,
+    TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     TOOL_TRACING_KEY,
@@ -136,7 +137,7 @@ def mcp_tool(
     app: AppConfig | None = None,
     annotations: Mapping[str, object] | None = None,
     required_capabilities: Iterable[Capability | str] | None = None,
-    extra_help_text: str | None = None,
+    extra_help_text: str | Callable[[], str | None] | None = None,
     tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -170,8 +171,9 @@ def mcp_tool(
             satisfy for the tool to be visible. The
             `requires_client_filesystem` and `app=`/`interactive_ui` sugar
             add `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
-        extra_help_text: Optional text to append to the function's docstring
-            with a newline delimiter
+        extra_help_text: Optional text to append to the function's docstring,
+            or a zero-argument callable resolved once per `register_mcp_tools`
+            call. A callable returning `None` or an empty string appends nothing.
         tracing: Tool-call tracing for this tool, when the server enables it.
             False opts the tool out. A callable receives the call's arguments
             and returns extra span attributes. It applies on the app the
@@ -225,9 +227,24 @@ def mcp_tool(
         if tracing is not False and not callable(tracing):
             raise TypeError("tracing must be a bool or a callable")
         annotations[TOOL_TRACING_KEY] = tracing
+    if extra_help_text is not None and not isinstance(extra_help_text, str):
+        if not callable(extra_help_text):
+            raise TypeError("extra_help_text must be a str or a zero-arg callable")
+        try:
+            extra_help_signature = inspect.signature(extra_help_text)
+        except (ValueError, TypeError):
+            pass
+        else:
+            try:
+                extra_help_signature.bind()
+            except TypeError as exc:
+                raise TypeError(
+                    "extra_help_text must be a str or a zero-arg callable"
+                ) from exc
+        annotations[TOOL_EXTRA_HELP_KEY] = extra_help_text
 
     def decorator(func: F) -> F:
-        if extra_help_text:
+        if isinstance(extra_help_text, str) and extra_help_text:
             func.__doc__ = ((func.__doc__ or "") + "\n\n" + extra_help_text).rstrip()
 
         _REGISTERED_TOOLS.append((func, annotations))
