@@ -406,6 +406,32 @@ def test_mcp_tool_rejects_invalid_extra_help_text() -> None:
 
 
 @pytest.mark.unit
+def test_mcp_tool_rejects_required_args_in_extra_help_callable() -> None:
+    """A help-text callable must be invokable without arguments."""
+    with pytest.raises(
+        TypeError,
+        match="extra_help_text must be a str or a zero-arg callable",
+    ):
+
+        @mcp_tool(extra_help_text=cast(Any, lambda x: "t"))
+        def required_arg_help_tool() -> str:
+            return "ok"
+
+
+@pytest.mark.unit
+def test_mcp_tool_accepts_defaulted_args_in_extra_help_callable() -> None:
+    """A help-text callable with only defaulted parameters can be invoked with no args."""
+    _clear_registrations()
+
+    @mcp_tool(extra_help_text=cast(Any, lambda x=1: "t"))
+    def defaulted_arg_help_tool() -> str:
+        return "ok"
+
+    assert _REGISTERED_TOOLS[-1][0] is defaulted_arg_help_tool
+    _clear_registrations()
+
+
+@pytest.mark.unit
 def test_register_mcp_tools_exclude_args_requires_default() -> None:
     """Excluding a parameter without a default raises a clear ValueError."""
     _clear_registrations()

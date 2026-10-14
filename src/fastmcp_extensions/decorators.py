@@ -230,6 +230,17 @@ def mcp_tool(
     if extra_help_text is not None and not isinstance(extra_help_text, str):
         if not callable(extra_help_text):
             raise TypeError("extra_help_text must be a str or a zero-arg callable")
+        try:
+            extra_help_signature = inspect.signature(extra_help_text)
+        except (ValueError, TypeError):
+            pass
+        else:
+            try:
+                extra_help_signature.bind()
+            except TypeError as exc:
+                raise TypeError(
+                    "extra_help_text must be a str or a zero-arg callable"
+                ) from exc
         annotations[TOOL_EXTRA_HELP_KEY] = extra_help_text
 
     def decorator(func: F) -> F:
