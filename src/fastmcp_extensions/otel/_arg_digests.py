@@ -161,6 +161,7 @@ def classify_tool(
                 tool,
                 type(exc).__name__,
             )
+            return {name: replace(_PRESENT, source="error") for name in names}
     result: dict[str, ArgClass] = {}
     ordered_rules = tuple(rules)
     for name in sorted(names):

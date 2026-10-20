@@ -167,6 +167,15 @@ def _rule_source_tool(
 ) -> None: ...
 
 
+def _unresolvable_return_tool(
+    x: Annotated[str, TraceArg.OMIT],
+    y: int,
+) -> None: ...
+
+
+_unresolvable_return_tool.__annotations__["return"] = "NotDefinedAnywhere"
+
+
 def test_argument_rules_match_globs_and_first_match_wins() -> None:
     """Rules match arg globs globally or scoped by tool name, in insertion order."""
     scoped = ArgTracer(P, rules={"rule_*:te*": "fingerprint"})
@@ -246,6 +255,32 @@ def test_argument_rule_precedence_and_sources() -> None:
         "presence",
         "error",
     )
+
+
+def test_unresolvable_type_hints_ignore_argument_rules() -> None:
+    """Arguments stay presence-only when type-hint resolution fails."""
+    classes = ArgTracer(P, rules={"x": "fingerprint"}).classes(
+        "unresolvable_return",
+        _unresolvable_return_tool,
+        ["x", "y"],
+    )
+
+    assert (classes["x"].describe(), classes["x"].source) == ("presence", "error")
+    assert classes["x"].mode is not TraceArg.FINGERPRINT
+
+
+def test_unresolvable_type_hints_without_rules_are_presence_only() -> None:
+    """Every argument gets the error fallback when hints cannot be resolved."""
+    classes = ArgTracer(P).classes(
+        "unresolvable_return",
+        _unresolvable_return_tool,
+        ["x", "y"],
+    )
+
+    assert {name: (cls.describe(), cls.source) for name, cls in classes.items()} == {
+        "x": ("presence", "error"),
+        "y": ("presence", "error"),
+    }
 
 
 def test_invalid_argument_rule_is_dropped_with_warning(
