@@ -193,19 +193,15 @@ def _get_capability_gated_args(
     """Collect `RequiresCapability` markers from a callable's annotations."""
     try:
         annotations = get_type_hints(callable_fn, include_extras=True)
-    except (NameError, TypeError):
-        annotations = dict(getattr(callable_fn, "__annotations__", {}))
+    except (NameError, SyntaxError, TypeError):
+        annotations = {}
     for name, parameter in inspect.signature(callable_fn).parameters.items():
         annotations.setdefault(name, parameter.annotation)
 
     gated_args: dict[str, frozenset[str]] = {}
-    globalns = getattr(callable_fn, "__globals__", {})
     for name, annotation in annotations.items():
         if isinstance(annotation, str):
-            try:
-                annotation = eval(annotation, globalns)
-            except (NameError, SyntaxError, TypeError):
-                continue
+            continue
         if get_origin(annotation) is not Annotated:
             continue
         requirements = frozenset(

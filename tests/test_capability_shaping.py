@@ -26,6 +26,7 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,
     _clear_registrations,
 )
+from fastmcp_extensions.registration import _get_capability_gated_args
 from fastmcp_extensions.tool_traits import ToolTraits, set_tool_traits
 
 MODULE = "test_capability_shaping"
@@ -43,6 +44,21 @@ def test_requires_capability_normalizes_capabilities_and_requires_one() -> None:
 
     with pytest.raises(ValueError, match="at least one capability"):
         RequiresCapability()
+
+
+@pytest.mark.unit
+def test_capability_gated_annotation_fallback_skips_strings() -> None:
+    """Unresolved annotations remain strings and are not evaluated as markers."""
+
+    def tool(show_results: bool = False, unresolved: object = None) -> bool:
+        return show_results
+
+    tool.__annotations__["show_results"] = (
+        "Annotated[bool, RequiresCapability(Capability.UI)]"
+    )
+    tool.__annotations__["unresolved"] = "UnresolvedAnnotation"
+
+    assert _get_capability_gated_args(tool) == {}
 
 
 @pytest.fixture(autouse=True)
