@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar, cast, get_type_hints
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast, get_type_hints
 
 from fastmcp.server.providers import Provider
 from pydantic import Field, create_model
@@ -133,8 +133,7 @@ def mcp_tool(
     idempotent: bool = False,
     open_world: bool = False,
     requires_client_filesystem: bool = False,
-    interactive_ui: bool = False,
-    ui_optional: bool = False,
+    interactive_ui: bool | Literal["optional"] = False,
     capability_gated_args: Mapping[str, Iterable[Capability | str]] | None = None,
     with_state: type[ToolStateBase] | None = None,
     meta: Mapping[str, object] | None = None,
@@ -160,14 +159,12 @@ def mcp_tool(
         requires_client_filesystem: If True, tool requires the client to have a
             local filesystem available (default: False)
         interactive_ui: If True, tool requires MCP Apps UI rendering support.
-            Requires `app=` so the tool is linked to a UI resource via the
-            standard `_meta.ui` marker (default: False)
-        ui_optional: If True, keep the tool visible to clients without MCP Apps
-            UI and omit its `_meta.ui` marker for those clients. The tool body
-            should check `client_supports_extension(UI_EXTENSION_ID)` and omit
-            `structured_content` when it is False. This is a rendering-capability
-            gate, not a privilege boundary. Requires `app=` and cannot be combined
-            with `interactive_ui=True` (default: False).
+            If "optional", keep the tool visible to clients without UI and omit
+            its `_meta.ui` marker for those clients. Requires `app=` in either
+            case so the tool is linked to a UI resource. For "optional", the tool
+            body should check `client_supports_extension(UI_EXTENSION_ID)` and
+            omit `structured_content` when it is False. This is a
+            rendering-capability gate, not a privilege boundary (default: False).
         capability_gated_args: Optional mapping from argument names to the
             capabilities required for those arguments to appear in the client's
             tool schema. When a capability is unavailable, the argument is
@@ -185,8 +182,9 @@ def mcp_tool(
         required_capabilities: Optional iterable of built-in `Capability`
             values or deployment-defined capability IDs the client must
             satisfy for the tool to be visible. The
-            `requires_client_filesystem` and `app=`/`interactive_ui` sugar
-            add `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
+            `requires_client_filesystem`, `app=` (unless
+            `interactive_ui="optional"`), and `interactive_ui=True` sugar add
+            `Capability.CLIENT_FILESYSTEM` / `Capability.UI` respectively.
         extra_help_text: Optional text to append to the function's docstring,
             or a zero-argument callable resolved once per `register_mcp_tools`
             call. A callable returning `None` or an empty string appends nothing.
@@ -219,18 +217,21 @@ def mcp_tool(
         {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
     )
     annotations = annotations_dict
-    if ui_optional and interactive_ui:
-        raise ValueError("ui_optional=True cannot be combined with interactive_ui=True")
-    if (interactive_ui or ui_optional) and app is None:
-        option_name = "ui_optional" if ui_optional else "interactive_ui"
+    if isinstance(interactive_ui, str) and interactive_ui != "optional":
         raise ValueError(
-            f"{option_name}=True requires app=AppConfig(...) so the tool is "
+            f"interactive_ui must be a bool or 'optional', got {interactive_ui!r}"
+        )
+    ui_optional = interactive_ui == "optional"
+    if interactive_ui and app is None:
+        option_value = "'optional'" if ui_optional else "True"
+        raise ValueError(
+            f"interactive_ui={option_value} requires app=AppConfig(...) so the tool is "
             "linked to a UI resource via _meta.ui"
         )
     capabilities = set(required_capabilities or ())
     if requires_client_filesystem:
         capabilities.add(Capability.CLIENT_FILESYSTEM)
-    if (app is not None and not ui_optional) or interactive_ui:
+    if (app is not None and not ui_optional) or interactive_ui is True:
         capabilities.add(Capability.UI)
     if capabilities:
         annotations[TOOL_REQUIRES_KEY] = frozenset(capabilities)

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any, cast
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -49,7 +50,7 @@ def _optional_ui_app() -> FastMCP:
     @mcp_tool(
         read_only=True,
         app=AppConfig(resource_uri="ui://test/view"),
-        ui_optional=True,
+        interactive_ui="optional",
         capability_gated_args={"show_results": [Capability.UI]},
     )
     def optional_ui_tool(show_results: bool = False) -> bool:
@@ -165,27 +166,35 @@ async def test_traits_on_directly_added_tool_shape_ui_per_client() -> None:
 
 
 @pytest.mark.unit
-def test_ui_optional_requires_app() -> None:
-    """ui_optional requires an AppConfig."""
-    with pytest.raises(ValueError, match="ui_optional=True requires app="):
+def test_optional_interactive_ui_requires_app() -> None:
+    """Optional interactive UI requires an AppConfig."""
+    with pytest.raises(ValueError, match=r"interactive_ui='optional' requires app="):
 
-        @mcp_tool(ui_optional=True)
+        @mcp_tool(interactive_ui="optional")
         def missing_app() -> str:
             return "no app"
 
 
 @pytest.mark.unit
-def test_ui_optional_cannot_be_combined_with_interactive_ui() -> None:
-    """ui_optional and interactive_ui describe incompatible UI requirements."""
-    with pytest.raises(ValueError, match="cannot be combined"):
+def test_interactive_ui_true_requires_app() -> None:
+    """Required interactive UI requires an AppConfig."""
+    with pytest.raises(ValueError, match=r"interactive_ui=True requires app="):
 
-        @mcp_tool(
-            ui_optional=True,
-            interactive_ui=True,
-            app=AppConfig(resource_uri="ui://test/view"),
-        )
-        def conflicting_ui_tool() -> str:
-            return "conflict"
+        @mcp_tool(interactive_ui=True)
+        def missing_app() -> str:
+            return "no app"
+
+
+@pytest.mark.unit
+def test_interactive_ui_rejects_unknown_string() -> None:
+    """Interactive UI only accepts bools or the optional value."""
+    with pytest.raises(
+        ValueError, match=r"interactive_ui must be a bool or 'optional'"
+    ):
+
+        @mcp_tool(interactive_ui=cast(Any, "sometimes"))
+        def unknown_interactive_ui() -> str:
+            return "unknown"
 
 
 @pytest.mark.unit
