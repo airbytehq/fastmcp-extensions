@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import functools
 import inspect
+import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated, Any, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
@@ -195,24 +196,46 @@ def _get_capability_gated_args(
         annotations = get_type_hints(callable_fn, include_extras=True)
     except (NameError, SyntaxError, TypeError):
         annotations = {}
-    for name, parameter in inspect.signature(callable_fn).parameters.items():
-        annotations.setdefault(name, parameter.annotation)
-
+    parameters = inspect.signature(callable_fn).parameters
+    annotations_to_check = [
+        (name, annotation)
+        for name, annotation in annotations.items()
+        if name != "return"
+    ]
+    annotations_to_check.extend(
+        (name, parameter.annotation)
+        for name, parameter in parameters.items()
+        if name not in annotations
+    )
     gated_args: dict[str, frozenset[str]] = {}
-    for name, annotation in annotations.items():
-        if isinstance(annotation, str):
-            continue
-        if get_origin(annotation) is not Annotated:
-            continue
-        requirements = frozenset(
-            capability
-            for marker in get_args(annotation)[1:]
-            if isinstance(marker, RequiresCapability)
-            for capability in marker.capabilities
-        )
+    for name, annotation in annotations_to_check:
+        requirements = _capabilities_from_annotation(annotation)
         if requirements:
             gated_args[name] = requirements
     return gated_args
+
+
+def _capabilities_from_annotation(annotation: Any) -> frozenset[str]:
+    if isinstance(annotation, str):
+        return frozenset()
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin is Annotated and arguments:
+        requirements = {
+            capability
+            for marker in arguments[1:]
+            if isinstance(marker, RequiresCapability)
+            for capability in marker.capabilities
+        }
+        requirements.update(_capabilities_from_annotation(arguments[0]))
+        return frozenset(requirements)
+    if origin in (Union, types.UnionType):
+        return frozenset(
+            capability
+            for argument in arguments
+            for capability in _capabilities_from_annotation(argument)
+        )
+    return frozenset()
 
 
 class _ProviderToolAnnotations(Transform):
@@ -396,6 +419,13 @@ def register_mcp_tools(
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
         ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
         capability_gated_args = _get_capability_gated_args(callable_fn)
+        if exclude_args:
+            excluded = set(exclude_args)
+            capability_gated_args = {
+                name: capabilities
+                for name, capabilities in capability_gated_args.items()
+                if name not in excluded
+            }
         _validate_capability_gated_args(callable_fn, capability_gated_args)
         required_capabilities: frozenset[str] = frozenset(
             registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()

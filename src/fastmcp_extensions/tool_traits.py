@@ -47,7 +47,13 @@ class Capability(str, Enum):
 
 @dataclass(frozen=True)
 class RequiresCapability:
-    """Mark a tool argument as available only to clients with these capabilities."""
+    """Mark a tool argument for clients with every listed capability.
+
+    Pass one or more capabilities; all are required (AND semantics), and passing
+    none raises `ValueError`. For example:
+
+        `Annotated[bool, RequiresCapability(Capability.UI, "io.example/foo")] = False`
+    """
 
     capabilities: frozenset[str]
 

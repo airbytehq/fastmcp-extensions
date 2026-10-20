@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Iterator
 from typing import Annotated, Any, cast
 
@@ -59,6 +60,29 @@ def test_capability_gated_annotation_fallback_skips_strings() -> None:
     tool.__annotations__["unresolved"] = "UnresolvedAnnotation"
 
     assert _get_capability_gated_args(tool) == {}
+
+
+@pytest.mark.unit
+def test_capability_gated_annotation_finds_markers_inside_unions() -> None:
+    """Markers inside PEP 604 and Optional unions are collected."""
+
+    def pep604(
+        value: Annotated[str, RequiresCapability(Capability.UI)] | None = None,
+    ) -> str | None:
+        return value
+
+    def optional(
+        value: str | None = None,
+    ) -> str | None:
+        return value
+
+    optional.__annotations__["value"] = typing.Optional[
+        Annotated[str, RequiresCapability(Capability.UI)]
+    ]
+
+    expected = {"value": frozenset({Capability.UI.value})}
+    assert _get_capability_gated_args(pep604) == expected
+    assert _get_capability_gated_args(optional) == expected
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +153,84 @@ async def test_ui_client_sees_ui_argument_and_metadata() -> None:
 
         result = await client.call_tool("optional_ui_tool", {"show_results": True})
         assert result.data is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_excluded_capability_gated_argument_is_absent_for_all_clients() -> None:
+    """Explicit exclusion takes precedence over capability gating."""
+
+    @mcp_tool(
+        read_only=True,
+        app=AppConfig(resource_uri="ui://test/excluded"),
+        interactive_ui="optional",
+    )
+    def excluded_argument_tool(
+        show_results: Annotated[bool, RequiresCapability(Capability.UI)] = False,
+    ) -> bool:
+        return show_results
+
+    app = mcp_server("test", include_standard_tool_filters=True, telemetry=False)
+    register_mcp_tools(app, mcp_module=MODULE, exclude_args=["show_results"])
+
+    async with Client(app) as non_ui_client:
+        tool = next(
+            tool
+            for tool in await non_ui_client.list_tools()
+            if tool.name == "excluded_argument_tool"
+        )
+        assert "show_results" not in tool.input_schema["properties"]
+
+    async with Client(app, extensions=[_UIClientExtension()]) as ui_client:
+        tool = next(
+            tool
+            for tool in await ui_client.list_tools()
+            if tool.name == "excluded_argument_tool"
+        )
+        assert "show_results" not in tool.input_schema["properties"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_union_gated_argument_requires_every_capability() -> None:
+    """A union-wrapped argument stays hidden unless every capability is present."""
+
+    @mcp_tool(
+        read_only=True,
+        app=AppConfig(resource_uri="ui://test/union"),
+        interactive_ui="optional",
+    )
+    def union_gated_tool(
+        value: Annotated[
+            str,
+            RequiresCapability(Capability.UI, "io.example/foo"),
+        ]
+        | None = None,
+    ) -> str:
+        return value or "default"
+
+    app = mcp_server("test", include_standard_tool_filters=True, telemetry=False)
+    register_mcp_tools(app, mcp_module=MODULE)
+
+    async with Client(app) as non_ui_client:
+        tool = next(
+            tool
+            for tool in await non_ui_client.list_tools()
+            if tool.name == "union_gated_tool"
+        )
+        assert "value" not in tool.input_schema["properties"]
+        result = await non_ui_client.call_tool("union_gated_tool", {"value": "hidden"})
+        assert result.data == "default"
+
+    async with Client(app, extensions=[_UIClientExtension()]) as ui_client:
+        tool = next(
+            tool
+            for tool in await ui_client.list_tools()
+            if tool.name == "union_gated_tool"
+        )
+        assert "value" not in tool.input_schema["properties"]
+        result = await ui_client.call_tool("union_gated_tool", {"value": "hidden"})
+        assert result.data == "default"
 
 
 @pytest.mark.asyncio
