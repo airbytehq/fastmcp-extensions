@@ -79,6 +79,8 @@ class ToolTraits:
 
     mcp_module: str | None = None
     required_capabilities: frozenset[str] = field(default_factory=frozenset)
+    ui_optional: bool = False
+    capability_gated_args: Mapping[str, frozenset[str]] = field(default_factory=dict)
     mutation_class: MutationClass | None = None
     tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True
 

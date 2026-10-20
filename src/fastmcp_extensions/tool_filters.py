@@ -422,8 +422,9 @@ def available_capabilities(app: FastMCP) -> set[str]:
 
 def _tool_required_capabilities(tool: Tool, app: FastMCP) -> set[str]:
     """Effective required capabilities: registered traits plus the `_meta.ui` marker."""
-    required = set(get_tool_traits(app, tool.name).required_capabilities)
-    if (tool.meta or {}).get(UI_META_KEY):
+    traits = get_tool_traits(app, tool.name)
+    required = set(traits.required_capabilities)
+    if (tool.meta or {}).get(UI_META_KEY) and not traits.ui_optional:
         required.add(Capability.UI)
     return required
 

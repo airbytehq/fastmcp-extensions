@@ -146,7 +146,10 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from fastmcp_extensions._middleware import ToolFilterMiddleware
+from fastmcp_extensions._middleware import (
+    CapabilityShapingMiddleware,
+    ToolFilterMiddleware,
+)
 from fastmcp_extensions._telemetry import TelemetryConfig
 from fastmcp_extensions._telemetry_middleware import (
     ToolCallTelemetryMiddleware,
@@ -548,6 +551,7 @@ def mcp_server(
         all_tool_filters.extend(STANDARD_TOOL_FILTERS)
 
     # Register tool filter middleware for each filter function
+    app.add_middleware(CapabilityShapingMiddleware(app))
     for filter_fn in all_tool_filters:
         app.add_middleware(ToolFilterMiddleware(app, tool_filter=filter_fn))
 

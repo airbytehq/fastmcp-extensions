@@ -14,6 +14,7 @@ with FastMCP 2.0, including:
 - Reusable CLI scaffolding with built-in telemetry (requires `[cli]` extra)
 """
 
+from fastmcp_extensions._middleware import CapabilityShapingMiddleware
 from fastmcp_extensions._telemetry import (
     DEFAULT_SEGMENT_USER_ID,
     TelemetryConfig,
@@ -143,6 +144,7 @@ __all__ = [
     "AuthorizationRedactionFilter",
     "Capability",
     "CapabilityResolver",
+    "CapabilityShapingMiddleware",
     "CapabilityTokenMiddleware",
     "ClientAllowlistJWTVerifier",
     "ClientCredentials",

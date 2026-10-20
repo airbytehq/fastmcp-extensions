@@ -24,10 +24,12 @@ from mcp.types import ToolAnnotations
 from fastmcp_extensions.annotations import (
     ANNOTATION_MCP_MODULE,
     TOOL_APP_KEY,
+    TOOL_CAPABILITY_GATED_ARGS_KEY,
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     TOOL_TRACING_KEY,
+    TOOL_UI_OPTIONAL_KEY,
     UI_META_KEY,
     WITH_STATE_ANNOTATION,
     _canonical_annotation_key,
@@ -51,6 +53,7 @@ from fastmcp_extensions.tool_traits import (
     Capability,
     MutationClass,
     ToolTraits,
+    get_tool_traits,
     set_tool_traits,
 )
 
@@ -161,6 +164,29 @@ def _exclude_parameters(
     return wrapper
 
 
+def _validate_capability_gated_args(
+    callable_fn: Callable[..., Any],
+    capability_gated_args: Mapping[str, frozenset[str]],
+) -> None:
+    """Validate that gated parameters exist and have defaults."""
+    signature = inspect.signature(callable_fn)
+    function_name = getattr(callable_fn, "__name__", callable_fn)
+    for name in capability_gated_args:
+        parameter = signature.parameters.get(name)
+        if parameter is None:
+            raise ValueError(
+                f"register_mcp_tools: cannot capability-gate parameter '{name}' "
+                f"of {function_name!r}: the parameter does not exist in the "
+                "tool signature."
+            )
+        if parameter.default is inspect.Parameter.empty:
+            raise ValueError(
+                f"register_mcp_tools: cannot capability-gate parameter '{name}' "
+                f"of {function_name!r}: capability-gated parameters must declare "
+                "a default value."
+            )
+
+
 class _ProviderToolAnnotations(Transform):
     """Transform that fills missing annotations on provider-sourced tools.
 
@@ -220,13 +246,15 @@ class _ProviderToolAnnotations(Transform):
             )
             if annotation_type is not type(None)
         )
+        existing_traits = get_tool_traits(self._app, tool.name)
         required_capabilities = self._traits.required_capabilities
-        if (tool.meta or {}).get(UI_META_KEY):
+        if (tool.meta or {}).get(UI_META_KEY) and not existing_traits.ui_optional:
             required_capabilities = required_capabilities | {Capability.UI}
         set_tool_traits(
             self._app,
             tool.name,
-            ToolTraits(
+            replace(
+                existing_traits,
                 mcp_module=self._traits.mcp_module,
                 required_capabilities=required_capabilities,
             ),
@@ -338,12 +366,19 @@ def register_mcp_tools(
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
+        ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
+        capability_gated_args: Mapping[str, frozenset[str]] = (
+            registration_annotations.pop(TOOL_CAPABILITY_GATED_ARGS_KEY, {}) or {}
+        )
+        _validate_capability_gated_args(callable_fn, capability_gated_args)
         required_capabilities: frozenset[str] = frozenset(
             registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
         )
         traits = ToolTraits(
             mcp_module=registration_annotations.pop(ANNOTATION_MCP_MODULE, None),
             required_capabilities=required_capabilities,
+            ui_optional=ui_optional,
+            capability_gated_args=capability_gated_args,
             tracing=registration_annotations.pop(TOOL_TRACING_KEY, True),
         )
         if extra_help_factory is not None:

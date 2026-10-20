@@ -26,10 +26,12 @@ from fastmcp_extensions.annotations import (
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
     TOOL_APP_KEY,
+    TOOL_CAPABILITY_GATED_ARGS_KEY,
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     TOOL_TRACING_KEY,
+    TOOL_UI_OPTIONAL_KEY,
     WITH_STATE_ANNOTATION,
     _canonical_annotation_key,
     standard_annotation_field_names,
@@ -132,6 +134,8 @@ def mcp_tool(
     open_world: bool = False,
     requires_client_filesystem: bool = False,
     interactive_ui: bool = False,
+    ui_optional: bool = False,
+    capability_gated_args: Mapping[str, Iterable[Capability | str]] | None = None,
     with_state: type[ToolStateBase] | None = None,
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
@@ -158,6 +162,18 @@ def mcp_tool(
         interactive_ui: If True, tool requires MCP Apps UI rendering support.
             Requires `app=` so the tool is linked to a UI resource via the
             standard `_meta.ui` marker (default: False)
+        ui_optional: If True, keep the tool visible to clients without MCP Apps
+            UI and omit its `_meta.ui` marker for those clients. The tool body
+            should check `client_supports_extension(UI_EXTENSION_ID)` and omit
+            `structured_content` when it is False. This is a rendering-capability
+            gate, not a privilege boundary. Requires `app=` and cannot be combined
+            with `interactive_ui=True` (default: False).
+        capability_gated_args: Optional mapping from argument names to the
+            capabilities required for those arguments to appear in the client's
+            tool schema. When a capability is unavailable, the argument is
+            removed from the schema and any supplied value is ignored so its
+            default applies. This is a rendering-capability gate, not a privilege
+            boundary.
         with_state: Optional `ToolStateBase` subclass for explicit state carried
             between calls.
         meta: Optional extra keys merged into the tool's wire `meta` field.
@@ -203,18 +219,31 @@ def mcp_tool(
         {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
     )
     annotations = annotations_dict
-    if interactive_ui and app is None:
+    if ui_optional and interactive_ui:
+        raise ValueError("ui_optional=True cannot be combined with interactive_ui=True")
+    if (interactive_ui or ui_optional) and app is None:
+        option_name = "ui_optional" if ui_optional else "interactive_ui"
         raise ValueError(
-            "interactive_ui=True requires app=AppConfig(...) so the tool is "
+            f"{option_name}=True requires app=AppConfig(...) so the tool is "
             "linked to a UI resource via _meta.ui"
         )
     capabilities = set(required_capabilities or ())
     if requires_client_filesystem:
         capabilities.add(Capability.CLIENT_FILESYSTEM)
-    if app is not None or interactive_ui:
+    if (app is not None and not ui_optional) or interactive_ui:
         capabilities.add(Capability.UI)
     if capabilities:
         annotations[TOOL_REQUIRES_KEY] = frozenset(capabilities)
+    if ui_optional:
+        annotations[TOOL_UI_OPTIONAL_KEY] = True
+    if capability_gated_args is not None:
+        annotations[TOOL_CAPABILITY_GATED_ARGS_KEY] = {
+            name: frozenset(
+                capability.value if isinstance(capability, Capability) else capability
+                for capability in required
+            )
+            for name, required in capability_gated_args.items()
+        }
     if meta:
         annotations[TOOL_META_KEY] = dict(meta)
     if app is not None:
