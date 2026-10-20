@@ -124,6 +124,7 @@ from fastmcp_extensions.tool_traits import (
     Capability,
     CapabilityResolver,
     MutationClass,
+    RequiresCapability,
     ToolTraits,
     get_tool_traits,
 )
@@ -164,6 +165,7 @@ __all__ = [
     "OIDCAuthConfig",
     "PromptDef",
     "RejectEventStreamGetMiddleware",
+    "RequiresCapability",
     "ResourceDef",
     "SessionToken",
     "TelemetryConfig",

@@ -12,7 +12,7 @@ import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, get_args
+from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
@@ -24,7 +24,6 @@ from mcp.types import ToolAnnotations
 from fastmcp_extensions.annotations import (
     ANNOTATION_MCP_MODULE,
     TOOL_APP_KEY,
-    TOOL_CAPABILITY_GATED_ARGS_KEY,
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
@@ -52,6 +51,7 @@ from fastmcp_extensions.session_state import (
 from fastmcp_extensions.tool_traits import (
     Capability,
     MutationClass,
+    RequiresCapability,
     ToolTraits,
     get_tool_traits,
     set_tool_traits,
@@ -185,6 +185,38 @@ def _validate_capability_gated_args(
                 f"of {function_name!r}: capability-gated parameters must declare "
                 "a default value."
             )
+
+
+def _get_capability_gated_args(
+    callable_fn: Callable[..., Any],
+) -> dict[str, frozenset[str]]:
+    """Collect `RequiresCapability` markers from a callable's annotations."""
+    try:
+        annotations = get_type_hints(callable_fn, include_extras=True)
+    except (NameError, TypeError):
+        annotations = dict(getattr(callable_fn, "__annotations__", {}))
+    for name, parameter in inspect.signature(callable_fn).parameters.items():
+        annotations.setdefault(name, parameter.annotation)
+
+    gated_args: dict[str, frozenset[str]] = {}
+    globalns = getattr(callable_fn, "__globals__", {})
+    for name, annotation in annotations.items():
+        if isinstance(annotation, str):
+            try:
+                annotation = eval(annotation, globalns)
+            except (NameError, SyntaxError, TypeError):
+                continue
+        if get_origin(annotation) is not Annotated:
+            continue
+        requirements = frozenset(
+            capability
+            for marker in get_args(annotation)[1:]
+            if isinstance(marker, RequiresCapability)
+            for capability in marker.capabilities
+        )
+        if requirements:
+            gated_args[name] = requirements
+    return gated_args
 
 
 class _ProviderToolAnnotations(Transform):
@@ -367,9 +399,7 @@ def register_mcp_tools(
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
         ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
-        capability_gated_args: Mapping[str, frozenset[str]] = (
-            registration_annotations.pop(TOOL_CAPABILITY_GATED_ARGS_KEY, {}) or {}
-        )
+        capability_gated_args = _get_capability_gated_args(callable_fn)
         _validate_capability_gated_args(callable_fn, capability_gated_args)
         required_capabilities: frozenset[str] = frozenset(
             registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()

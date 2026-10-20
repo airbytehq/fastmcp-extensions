@@ -45,6 +45,26 @@ class Capability(str, Enum):
     CLIENT_FILESYSTEM = "io.airbyte/client-filesystem"
 
 
+@dataclass(frozen=True)
+class RequiresCapability:
+    """Mark a tool argument as available only to clients with these capabilities."""
+
+    capabilities: frozenset[str]
+
+    def __init__(self, *capabilities: Capability | str) -> None:
+        """Normalize capabilities into a non-empty immutable set."""
+        if not capabilities:
+            raise ValueError("RequiresCapability requires at least one capability.")
+        object.__setattr__(
+            self,
+            "capabilities",
+            frozenset(
+                capability.value if isinstance(capability, Capability) else capability
+                for capability in capabilities
+            ),
+        )
+
+
 class MutationClass(str, Enum):
     """How a tool affects state, derived from its standard MCP hints."""
 

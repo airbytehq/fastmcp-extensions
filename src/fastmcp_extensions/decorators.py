@@ -26,7 +26,6 @@ from fastmcp_extensions.annotations import (
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
     TOOL_APP_KEY,
-    TOOL_CAPABILITY_GATED_ARGS_KEY,
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
@@ -134,7 +133,6 @@ def mcp_tool(
     open_world: bool = False,
     requires_client_filesystem: bool = False,
     interactive_ui: bool | Literal["optional"] = False,
-    capability_gated_args: Mapping[str, Iterable[Capability | str]] | None = None,
     with_state: type[ToolStateBase] | None = None,
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
@@ -165,12 +163,8 @@ def mcp_tool(
             body should check `client_supports_extension(UI_EXTENSION_ID)` and
             omit `structured_content` when it is False. This is a
             rendering-capability gate, not a privilege boundary (default: False).
-        capability_gated_args: Optional mapping from argument names to the
-            capabilities required for those arguments to appear in the client's
-            tool schema. When a capability is unavailable, the argument is
-            removed from the schema and any supplied value is ignored so its
-            default applies. This is a rendering-capability gate, not a privilege
-            boundary.
+            Use `RequiresCapability` in an `Annotated` parameter to gate an
+            individual argument on a capability.
         with_state: Optional `ToolStateBase` subclass for explicit state carried
             between calls.
         meta: Optional extra keys merged into the tool's wire `meta` field.
@@ -237,14 +231,6 @@ def mcp_tool(
         annotations[TOOL_REQUIRES_KEY] = frozenset(capabilities)
     if ui_optional:
         annotations[TOOL_UI_OPTIONAL_KEY] = True
-    if capability_gated_args is not None:
-        annotations[TOOL_CAPABILITY_GATED_ARGS_KEY] = {
-            name: frozenset(
-                capability.value if isinstance(capability, Capability) else capability
-                for capability in required
-            )
-            for name, required in capability_gated_args.items()
-        }
     if meta:
         annotations[TOOL_META_KEY] = dict(meta)
     if app is not None:

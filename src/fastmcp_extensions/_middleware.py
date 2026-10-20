@@ -38,6 +38,26 @@ def _to_mcp_tool(tool: FastMCPTool | Tool) -> Tool:
     return tool
 
 
+def _validate_capability_gated_args(
+    tool: FastMCPTool,
+    argument_names: Sequence[str],
+) -> None:
+    """Validate that capability-gated arguments are optional schema properties."""
+    properties = tool.parameters.get("properties")
+    required = tool.parameters.get("required") or []
+    for name in argument_names:
+        if (
+            not isinstance(properties, dict)
+            or name not in properties
+            or name in required
+        ):
+            raise ValueError(
+                "CapabilityShapingMiddleware: cannot capability-gate parameter "
+                f"'{name}' of tool {tool.name!r}: it must exist in the tool schema "
+                "and declare a default value."
+            )
+
+
 class CapabilityShapingMiddleware(Middleware):
     """Shape tool schemas and calls for the current client's capabilities."""
 
@@ -60,6 +80,13 @@ class CapabilityShapingMiddleware(Middleware):
         traits_by_name = {
             tool.name: get_tool_traits(self._app, tool.name) for tool in tools
         }
+        for tool in tools:
+            traits = traits_by_name[tool.name]
+            if traits.capability_gated_args:
+                _validate_capability_gated_args(
+                    tool,
+                    tuple(traits.capability_gated_args),
+                )
         needs_capabilities = any(
             traits.ui_optional
             or any(
@@ -109,9 +136,16 @@ class CapabilityShapingMiddleware(Middleware):
     ) -> ToolResult:
         """Ignore unavailable gated arguments so their declared defaults apply."""
         traits = get_tool_traits(self._app, context.message.name)
-        if not traits.capability_gated_args or not any(
-            traits.capability_gated_args.values()
-        ):
+        if not traits.capability_gated_args:
+            return await call_next(context)
+
+        tool = await self._app.get_tool(context.message.name)
+        if tool is not None:
+            _validate_capability_gated_args(
+                tool,
+                tuple(traits.capability_gated_args),
+            )
+        if not any(traits.capability_gated_args.values()):
             return await call_next(context)
 
         available = available_capabilities(self._app)

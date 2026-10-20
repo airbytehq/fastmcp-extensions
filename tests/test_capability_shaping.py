@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -12,7 +12,13 @@ from fastmcp.apps import UI_EXTENSION_ID, AppConfig
 from fastmcp.tools import Tool
 from mcp.client.extension import ClientExtension
 
-from fastmcp_extensions import Capability, mcp_server, mcp_tool, register_mcp_tools
+from fastmcp_extensions import (
+    Capability,
+    RequiresCapability,
+    mcp_server,
+    mcp_tool,
+    register_mcp_tools,
+)
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROMPTS,
     _REGISTERED_PROVIDERS,
@@ -27,6 +33,16 @@ MODULE = "test_capability_shaping"
 
 class _UIClientExtension(ClientExtension):
     identifier = UI_EXTENSION_ID
+
+
+@pytest.mark.unit
+def test_requires_capability_normalizes_capabilities_and_requires_one() -> None:
+    """RequiresCapability stores capability IDs as a non-empty string set."""
+    marker = RequiresCapability(Capability.UI, "custom/capability")
+    assert marker.capabilities == frozenset({Capability.UI.value, "custom/capability"})
+
+    with pytest.raises(ValueError, match="at least one capability"):
+        RequiresCapability()
 
 
 @pytest.fixture(autouse=True)
@@ -51,9 +67,10 @@ def _optional_ui_app() -> FastMCP:
         read_only=True,
         app=AppConfig(resource_uri="ui://test/view"),
         interactive_ui="optional",
-        capability_gated_args={"show_results": [Capability.UI]},
     )
-    def optional_ui_tool(show_results: bool = False) -> bool:
+    def optional_ui_tool(
+        show_results: Annotated[bool, RequiresCapability(Capability.UI)] = False,
+    ) -> bool:
         """Return whether results should be shown."""
         return show_results
 
@@ -89,6 +106,10 @@ async def test_ui_client_sees_ui_argument_and_metadata() -> None:
         tool = next(tool for tool in tools if tool.name == "optional_ui_tool")
         assert "show_results" in tool.input_schema["properties"]
         assert tool.meta["ui"]["resourceUri"] == "ui://test/view"
+        assert tool.input_schema["properties"]["show_results"] == {
+            "default": False,
+            "type": "boolean",
+        }
 
         result = await client.call_tool("optional_ui_tool", {"show_results": True})
         assert result.data is True
@@ -198,13 +219,17 @@ def test_interactive_ui_rejects_unknown_string() -> None:
 
 
 @pytest.mark.unit
-def test_capability_gated_argument_must_exist() -> None:
+def test_capability_gated_annotation_must_exist_in_signature() -> None:
     """Registration rejects capability-gated arguments absent from the signature."""
 
-    @mcp_tool(capability_gated_args={"missing": [Capability.UI]})
+    @mcp_tool()
     def missing_argument() -> str:
         return "missing"
 
+    missing_argument.__annotations__["missing"] = Annotated[
+        bool,
+        RequiresCapability(Capability.UI),
+    ]
     app = mcp_server("test", telemetry=False)
     with pytest.raises(ValueError, match=r"parameter 'missing'.*does not exist"):
         register_mcp_tools(app, mcp_module=MODULE)
@@ -214,10 +239,57 @@ def test_capability_gated_argument_must_exist() -> None:
 def test_capability_gated_argument_must_have_a_default() -> None:
     """Registration rejects capability-gated arguments without defaults."""
 
-    @mcp_tool(capability_gated_args={"required_argument": [Capability.UI]})
-    def argument_without_default(required_argument: bool) -> bool:
+    @mcp_tool()
+    def argument_without_default(
+        required_argument: Annotated[bool, RequiresCapability(Capability.UI)],
+    ) -> bool:
         return required_argument
 
     app = mcp_server("test", telemetry=False)
     with pytest.raises(ValueError, match=r"parameter 'required_argument'.*default"):
         register_mcp_tools(app, mcp_module=MODULE)
+
+
+@pytest.mark.parametrize("invalid_argument", ["required", "missing"])
+@pytest.mark.parametrize("operation", ["list", "call"])
+@pytest.mark.asyncio
+async def test_direct_added_tool_rejects_invalid_gated_arguments(
+    invalid_argument: str,
+    operation: str,
+) -> None:
+    """Middleware validates traits for tools registered outside register_mcp_tools."""
+    if invalid_argument == "required":
+
+        def direct_tool(show_results: bool) -> bool:
+            return show_results
+
+        argument_name = "show_results"
+        call_arguments = {"show_results": True}
+    else:
+
+        def direct_tool() -> bool:
+            return False
+
+        argument_name = "missing"
+        call_arguments = {}
+
+    app = mcp_server("test", telemetry=False)
+    app.add_tool(Tool.from_function(direct_tool, name="direct_tool"))
+    set_tool_traits(
+        app,
+        "direct_tool",
+        ToolTraits(
+            capability_gated_args={
+                argument_name: frozenset({Capability.UI.value}),
+            }
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"parameter '{argument_name}'.*tool 'direct_tool'",
+    ):
+        if operation == "list":
+            await app.list_tools()
+        else:
+            await app.call_tool("direct_tool", call_arguments)
