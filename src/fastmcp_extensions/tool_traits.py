@@ -45,6 +45,32 @@ class Capability(str, Enum):
     CLIENT_FILESYSTEM = "io.airbyte/client-filesystem"
 
 
+@dataclass(frozen=True)
+class RequiresCapability:
+    """Mark a tool argument for clients with every listed capability.
+
+    Pass one or more capabilities; all are required (AND semantics), and passing
+    none raises `ValueError`. For example:
+
+        `Annotated[bool, RequiresCapability(Capability.UI, "io.example/foo")] = False`
+    """
+
+    capabilities: frozenset[str]
+
+    def __init__(self, *capabilities: Capability | str) -> None:
+        """Normalize capabilities into a non-empty immutable set."""
+        if not capabilities:
+            raise ValueError("RequiresCapability requires at least one capability.")
+        object.__setattr__(
+            self,
+            "capabilities",
+            frozenset(
+                capability.value if isinstance(capability, Capability) else capability
+                for capability in capabilities
+            ),
+        )
+
+
 class MutationClass(str, Enum):
     """How a tool affects state, derived from its standard MCP hints."""
 
@@ -79,6 +105,8 @@ class ToolTraits:
 
     mcp_module: str | None = None
     required_capabilities: frozenset[str] = field(default_factory=frozenset)
+    ui_optional: bool = False
+    capability_gated_args: Mapping[str, frozenset[str]] = field(default_factory=dict)
     mutation_class: MutationClass | None = None
     tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True
 

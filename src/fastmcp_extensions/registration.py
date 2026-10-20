@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import functools
 import inspect
+import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, get_args
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
@@ -28,6 +29,7 @@ from fastmcp_extensions.annotations import (
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
     TOOL_TRACING_KEY,
+    TOOL_UI_OPTIONAL_KEY,
     UI_META_KEY,
     WITH_STATE_ANNOTATION,
     _canonical_annotation_key,
@@ -50,7 +52,9 @@ from fastmcp_extensions.session_state import (
 from fastmcp_extensions.tool_traits import (
     Capability,
     MutationClass,
+    RequiresCapability,
     ToolTraits,
+    get_tool_traits,
     set_tool_traits,
 )
 
@@ -161,6 +165,79 @@ def _exclude_parameters(
     return wrapper
 
 
+def _validate_capability_gated_args(
+    callable_fn: Callable[..., Any],
+    capability_gated_args: Mapping[str, frozenset[str]],
+) -> None:
+    """Validate that gated parameters exist and have defaults."""
+    signature = inspect.signature(callable_fn)
+    function_name = getattr(callable_fn, "__name__", callable_fn)
+    for name in capability_gated_args:
+        parameter = signature.parameters.get(name)
+        if parameter is None:
+            raise ValueError(
+                f"register_mcp_tools: cannot capability-gate parameter '{name}' "
+                f"of {function_name!r}: the parameter does not exist in the "
+                "tool signature."
+            )
+        if parameter.default is inspect.Parameter.empty:
+            raise ValueError(
+                f"register_mcp_tools: cannot capability-gate parameter '{name}' "
+                f"of {function_name!r}: capability-gated parameters must declare "
+                "a default value."
+            )
+
+
+def _get_capability_gated_args(
+    callable_fn: Callable[..., Any],
+) -> dict[str, frozenset[str]]:
+    """Collect `RequiresCapability` markers from a callable's annotations."""
+    try:
+        annotations = get_type_hints(callable_fn, include_extras=True)
+    except (NameError, SyntaxError, TypeError):
+        annotations = {}
+    parameters = inspect.signature(callable_fn).parameters
+    annotations_to_check = [
+        (name, annotation)
+        for name, annotation in annotations.items()
+        if name != "return"
+    ]
+    annotations_to_check.extend(
+        (name, parameter.annotation)
+        for name, parameter in parameters.items()
+        if name not in annotations
+    )
+    gated_args: dict[str, frozenset[str]] = {}
+    for name, annotation in annotations_to_check:
+        requirements = _capabilities_from_annotation(annotation)
+        if requirements:
+            gated_args[name] = requirements
+    return gated_args
+
+
+def _capabilities_from_annotation(annotation: Any) -> frozenset[str]:
+    if isinstance(annotation, str):
+        return frozenset()
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin is Annotated and arguments:
+        requirements = {
+            capability
+            for marker in arguments[1:]
+            if isinstance(marker, RequiresCapability)
+            for capability in marker.capabilities
+        }
+        requirements.update(_capabilities_from_annotation(arguments[0]))
+        return frozenset(requirements)
+    if origin in (Union, types.UnionType):
+        return frozenset(
+            capability
+            for argument in arguments
+            for capability in _capabilities_from_annotation(argument)
+        )
+    return frozenset()
+
+
 class _ProviderToolAnnotations(Transform):
     """Transform that fills missing annotations on provider-sourced tools.
 
@@ -220,13 +297,15 @@ class _ProviderToolAnnotations(Transform):
             )
             if annotation_type is not type(None)
         )
+        existing_traits = get_tool_traits(self._app, tool.name)
         required_capabilities = self._traits.required_capabilities
-        if (tool.meta or {}).get(UI_META_KEY):
+        if (tool.meta or {}).get(UI_META_KEY) and not existing_traits.ui_optional:
             required_capabilities = required_capabilities | {Capability.UI}
         set_tool_traits(
             self._app,
             tool.name,
-            ToolTraits(
+            replace(
+                existing_traits,
                 mcp_module=self._traits.mcp_module,
                 required_capabilities=required_capabilities,
             ),
@@ -338,12 +417,24 @@ def register_mcp_tools(
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
+        ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
+        capability_gated_args = _get_capability_gated_args(callable_fn)
+        if exclude_args:
+            excluded = set(exclude_args)
+            capability_gated_args = {
+                name: capabilities
+                for name, capabilities in capability_gated_args.items()
+                if name not in excluded
+            }
+        _validate_capability_gated_args(callable_fn, capability_gated_args)
         required_capabilities: frozenset[str] = frozenset(
             registration_annotations.pop(TOOL_REQUIRES_KEY, None) or ()
         )
         traits = ToolTraits(
             mcp_module=registration_annotations.pop(ANNOTATION_MCP_MODULE, None),
             required_capabilities=required_capabilities,
+            ui_optional=ui_optional,
+            capability_gated_args=capability_gated_args,
             tracing=registration_annotations.pop(TOOL_TRACING_KEY, True),
         )
         if extra_help_factory is not None:

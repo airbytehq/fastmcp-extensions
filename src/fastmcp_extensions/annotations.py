@@ -112,6 +112,9 @@ Set by `@mcp_tool(required_capabilities=...)` /
 time into `ToolTraits.required_capabilities` — it is never sent on the wire.
 """
 
+TOOL_UI_OPTIONAL_KEY = "_fastmcp_extensions_ui_optional"
+"""Internal registration-time key for an MCP Apps UI rendering capability."""
+
 TOOL_TRACING_KEY = "_fastmcp_extensions_tracing"
 """Internal registration-time key carrying the tool's tracing option.
 
