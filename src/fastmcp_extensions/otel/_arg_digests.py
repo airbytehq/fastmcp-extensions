@@ -33,8 +33,9 @@ import types
 import typing
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import Enum
+from fnmatch import fnmatchcase
 from typing import Annotated, Literal, Union, get_args, get_origin
 from uuid import UUID
 
@@ -95,6 +96,7 @@ class ArgClass:
     allowed: frozenset[str | int | bool] | None = None
     is_list: bool = False
     scalars: frozenset[type] = frozenset()
+    source: str = field(default="", compare=False)
 
     def describe(self) -> str:
         """Return a stable one-line summary for `trace_plan`."""
@@ -121,11 +123,26 @@ class _Unsupported(Exception):  # noqa: N818  # Internal control flow, never rai
 # ---------------------------------------------------------------- classification
 
 
+def _match_rule(
+    name: str, tool: str, rules: Iterable[tuple[str, TraceArg]]
+) -> tuple[str, TraceArg] | None:
+    """Return the first ordered rule matching this tool and argument."""
+    for key, mode in rules:
+        if ":" in key:
+            tool_pattern, arg_pattern = key.split(":", 1)
+            if fnmatchcase(tool, tool_pattern) and fnmatchcase(name, arg_pattern):
+                return key, mode
+        elif fnmatchcase(name, key):
+            return key, mode
+    return None
+
+
 def classify_tool(
     func: Callable[..., object] | None,
     names: Iterable[str],
     *,
     default: TraceArg = TraceArg.HASH,
+    rules: Iterable[tuple[str, TraceArg]] = (),
     tool: str = "",
 ) -> dict[str, ArgClass]:
     """Classify the client-supplied arguments `names` of a tool; never raises.
@@ -144,10 +161,17 @@ def classify_tool(
                 tool,
                 type(exc).__name__,
             )
+            return {name: replace(_PRESENT, source="error") for name in names}
     result: dict[str, ArgClass] = {}
+    ordered_rules = tuple(rules)
     for name in sorted(names):
         try:
-            result[name] = classify_arg(name, hints.get(name), default)
+            result[name] = classify_arg(
+                name,
+                hints.get(name),
+                default,
+                rule=_match_rule(name, tool, ordered_rules),
+            )
         except Exception as exc:
             logger.warning(
                 "Argument tracing: argument %r of tool %r is recorded as "
@@ -156,14 +180,18 @@ def classify_tool(
                 tool,
                 exc,
             )
-            result[name] = _PRESENT
+            result[name] = replace(_PRESENT, source="error")
     return result
 
 
 def classify_arg(
-    name: str, hint: object, default: TraceArg = TraceArg.HASH
+    name: str,
+    hint: object,
+    default: TraceArg = TraceArg.HASH,
+    *,
+    rule: tuple[str, TraceArg] | None = None,
 ) -> ArgClass:
-    """Apply the first matching rule: marker, secret type, secret name, type."""
+    """Classify an argument by marker, secret type, rule, name, or type."""
     markers = list(dict.fromkeys(_markers(hint)))
     if len(markers) > 1:
         raise ValueError("conflicting TraceArg markers")
@@ -173,32 +201,41 @@ def classify_arg(
     flat = name.lower().replace("_", "")
     if markers:
         mode = markers[0]
+        source = "marker"
     elif any(_is_secret_type(member) for member in members):
         mode = TraceArg.OMIT
+        source = "secret_type"
+    elif rule is not None:
+        mode = rule[1]
+        source = f"rule:{rule[0]}"
     elif any(part.replace("_", "") in flat for part in SECRET_NAME_PARTS):
         mode = TraceArg.PRESENCE
+        source = "secret_name"
     elif allowed is not None:
         mode = TraceArg.VALUE
+        source = "closed_set"
     elif simple:
         mode = TraceArg.HASH if default is TraceArg.VALUE else default
+        source = "default"
     else:
         mode = TraceArg.PRESENCE
+        source = "complex"
     if mode is TraceArg.OMIT:
-        return _OMIT
+        return replace(_OMIT, source=source)
     if mode is TraceArg.PRESENCE:
-        return _PRESENT
+        return replace(_PRESENT, source=source)
     if mode is not TraceArg.VALUE:
-        return ArgClass(mode, None, is_list)
+        return ArgClass(mode, is_list=is_list, source=source)
     if allowed is not None:
-        return ArgClass(mode, allowed, is_list)
+        return ArgClass(mode, allowed, is_list, source=source)
     # `VALUE` without a closed set: only values of the hinted scalar types are
     # exported, so a string sent where an `int` is declared never leaves raw.
     scalars = {kind for kind in _VALUE_TYPES if any(m is kind for m in members)}
     if float in scalars:
         scalars.add(int)
     if not scalars:
-        return ArgClass(TraceArg.HASH, None, is_list)
-    return ArgClass(mode, None, is_list, frozenset(scalars))
+        return ArgClass(TraceArg.HASH, is_list=is_list, source=source)
+    return ArgClass(mode, None, is_list, frozenset(scalars), source)
 
 
 def _markers(hint: object) -> list[TraceArg]:
@@ -715,6 +752,7 @@ class ArgTracer:
         prefix: str,
         *,
         default: TraceArg = TraceArg.HASH,
+        rules: Mapping[str, TraceArg | str] | None = None,
         key: bytes | Callable[[], bytes | None] | None = None,
         skip: Iterable[str] = (),
     ) -> None:
@@ -732,6 +770,19 @@ class ArgTracer:
                 "undeclared arguments are recorded as presence"
             )
             self._default = TraceArg.PRESENCE
+        normalized_rules: list[tuple[str, TraceArg]] = []
+        for rule_key, value in (rules or {}).items():
+            try:
+                mode = TraceArg(value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Argument tracing: `arg_rules` value for %r is not a "
+                    "`TraceArg`; ignoring that rule",
+                    rule_key,
+                )
+                continue
+            normalized_rules.append((rule_key, mode))
+        self._rules = tuple(normalized_rules)
         self._key = key
         self._key_resolved = False
         self._master: bytes | None = None
@@ -747,7 +798,13 @@ class ArgTracer:
         for known, classes in versions:
             if known is func and classes.keys() == wanted:
                 return classes
-        classes = classify_tool(func, wanted, default=self._default, tool=tool)
+        classes = classify_tool(
+            func,
+            wanted,
+            default=self._default,
+            rules=self._rules,
+            tool=tool,
+        )
         # The newest few are kept, not only the last: a span is re-validated
         # when it is exported, after another version of the tool may have run.
         versions.append((func, classes))
