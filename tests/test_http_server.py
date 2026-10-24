@@ -5,11 +5,13 @@ from typing import Any
 
 import pytest
 from fastmcp import FastMCP
+from starlette.testclient import TestClient
 
 import fastmcp_extensions.http_server as http_server
 from fastmcp_extensions import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
+    decode_session_token,
 )
 
 
@@ -77,7 +79,7 @@ def test_run_mcp_http_server_builds_and_serves_with_expected_config(
 
     monkeypatch.setattr(app, "http_app", build_http_app)
 
-    def wrapper(app: Any) -> object:
+    def wrapper(app: Any) -> Any:
         wrapper_calls.append(app)
         return wrapped_app
 
@@ -133,10 +135,16 @@ def test_run_mcp_http_server_default_capability_middleware(
     server = FastMCP("test")
     built_app = object()
     captured: dict[str, Any] = {}
+    wrapped_app = object()
+    wrapper_calls: list[Any] = []
 
     def build_http_app(**kwargs: Any) -> object:
         captured["http_app_kwargs"] = kwargs
         return built_app
+
+    def wrapper(app: Any) -> Any:
+        wrapper_calls.append(app)
+        return wrapped_app
 
     monkeypatch.setattr(server, "http_app", build_http_app)
     monkeypatch.setattr(
@@ -152,17 +160,86 @@ def test_run_mcp_http_server_default_capability_middleware(
         server,
         transport="streamable-http",
         stateless_http=stateless_http,
+        wrapper=wrapper,
         enable_stateless_capability_middleware=enable_middleware,
     )
 
+    assert len(wrapper_calls) == 1
+    assert captured["app"] is wrapped_app
     if wrapped:
-        assert isinstance(captured["app"], RejectEventStreamGetMiddleware)
-        capability_app = captured["app"].app
+        assert isinstance(wrapper_calls[0], RejectEventStreamGetMiddleware)
+        capability_app = wrapper_calls[0].app
         assert isinstance(capability_app, CapabilityTokenMiddleware)
         assert capability_app.app is built_app
-        assert captured["app"].path == "/mcp"
+        assert wrapper_calls[0].path == "/mcp"
     else:
-        assert captured["app"] is built_app
+        assert wrapper_calls[0] is built_app
+
+
+@pytest.mark.unit
+def test_run_mcp_http_server_wrapper_observes_minted_session_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The outer wrapper sees the session token added during initialize."""
+    server = FastMCP("test")
+    captured: dict[str, Any] = {}
+    response_headers: list[dict[bytes, bytes]] = []
+
+    def wrapper(app: Any) -> Any:
+        async def record_response_headers(
+            scope: Any,
+            receive: Any,
+            send: Any,
+        ) -> None:
+            async def record(message: Any) -> None:
+                if message["type"] == "http.response.start":
+                    response_headers.append(dict(message.get("headers", [])))
+                await send(message)
+
+            await app(scope, receive, record)
+
+        return record_response_headers
+
+    monkeypatch.setattr(
+        http_server.uvicorn,
+        "run",
+        lambda app, **kwargs: captured.update(app=app, **kwargs),
+    )
+
+    http_server.run_mcp_http_server(
+        server,
+        path="/mcp",
+        transport="streamable-http",
+        stateless_http=True,
+        wrapper=wrapper,
+    )
+
+    client_name = "wrapper-session-test"
+    with TestClient(captured["app"]) as client:
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": client_name, "version": "1.0.0"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert len(response_headers) == 1
+    session_id = response_headers[0][b"mcp-session-id"].decode()
+    session_token = decode_session_token(session_id)
+    assert session_token is not None
+    assert session_token.client_name == client_name
 
 
 @pytest.mark.unit

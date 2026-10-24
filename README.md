@@ -490,13 +490,14 @@ run_mcp_http_server(
 )
 ```
 
-When stateless HTTP is in effect, the composed layers are the caller's
-`wrapper=` innermost, then `CapabilityTokenMiddleware`, then the
-path-scoped `RejectEventStreamGetMiddleware` outermost. The latter returns
-`405` with `Allow: POST, DELETE` for an SSE-style `GET` to the MCP endpoint
-while allowing the browser landing page and unrelated routes through. Pass
-`enable_stateless_capability_middleware=False` to opt out. Stateful HTTP and
-SSE transport do not receive these stateless-only layers.
+When stateless HTTP is in effect, `CapabilityTokenMiddleware` and the
+path-scoped `RejectEventStreamGetMiddleware` wrap the FastMCP app, in that
+order. `wrapper=`, when provided, is always applied outermost and sees the
+final response headers, including the minted `Mcp-Session-Id`. The rejection
+layer returns `405` with `Allow: POST, DELETE` for an SSE-style `GET` to the
+MCP endpoint while allowing the browser landing page and unrelated routes
+through. Pass `enable_stateless_capability_middleware=False` to opt out.
+Stateful HTTP and SSE transport do not receive these stateless-only layers.
 
 ## Tool Filtering
 
