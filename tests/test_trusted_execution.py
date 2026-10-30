@@ -28,10 +28,6 @@ from fastmcp_extensions.tool_filters import (
     NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
     READONLY_MODE_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
-    URL_PARAM_EXCLUDE_MODULES,
-    URL_PARAM_EXCLUDE_TOOLS,
-    URL_PARAM_INCLUDE_MODULES,
-    URL_PARAM_NO_DESTRUCTIVE_TOOLS,
     URL_PARAM_READONLY_MODE,
     module_filter,
     trusted_execution_filter,
@@ -150,25 +146,25 @@ def test_footprint_config_args_have_no_http_header(
         pytest.param(
             NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
             HEADER_NO_DESTRUCTIVE_TOOLS,
-            URL_PARAM_NO_DESTRUCTIVE_TOOLS,
+            None,
             id="no_destructive",
         ),
         pytest.param(
             EXCLUDE_MODULES_CONFIG_ARG,
             HEADER_EXCLUDE_MODULES,
-            URL_PARAM_EXCLUDE_MODULES,
+            None,
             id="exclude_modules",
         ),
         pytest.param(
             INCLUDE_MODULES_CONFIG_ARG,
             HEADER_INCLUDE_MODULES,
-            URL_PARAM_INCLUDE_MODULES,
+            None,
             id="include_modules",
         ),
         pytest.param(
             EXCLUDE_TOOLS_CONFIG_ARG,
             HEADER_EXCLUDE_TOOLS,
-            URL_PARAM_EXCLUDE_TOOLS,
+            None,
             id="exclude_tools",
         ),
     ],
@@ -177,9 +173,9 @@ def test_footprint_config_args_have_no_http_header(
 def test_self_restriction_headers_preserved(
     config_arg: MCPServerConfigArg,
     expected_header: str,
-    expected_url_param: str,
+    expected_url_param: str | None,
 ) -> None:
-    """Caller self-restriction filters keep their header and URL param sources."""
+    """Only read-only mode adds a URL param to caller self-restriction filters."""
     assert config_arg.http_header_key == expected_header
     assert config_arg.url_param_key == expected_url_param
 

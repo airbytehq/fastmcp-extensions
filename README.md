@@ -521,16 +521,12 @@ def list_items() -> list[str]:
     return ["item1", "item2"]
 ```
 
-The five caller-restrictive filters accept an HTTP header or a case-insensitive
-URL query parameter, with headers taking precedence:
+Read-only mode accepts an HTTP header or a case-insensitive URL query parameter,
+with the header taking precedence:
 
 | Filter | Header | URL query parameter | Environment variable |
 | --- | --- | --- | --- |
 | Read-only | `X-MCP-Readonly-Mode` | `?read-only=true` | `MCP_READONLY_MODE` |
-| No destructive tools | `X-MCP-No-Destructive-Tools` | `?no-destructive-tools=true` | `MCP_NO_DESTRUCTIVE_TOOLS` |
-| Exclude modules | `X-MCP-Exclude-Modules` | `?exclude-modules=...` | `MCP_EXCLUDE_MODULES` |
-| Include modules | `X-MCP-Include-Modules` | `?include-modules=...` | `MCP_INCLUDE_MODULES` |
-| Exclude tools | `X-MCP-Exclude-Tools` | `?exclude-tools=...` | `MCP_EXCLUDE_TOOLS` |
 
 For clients that cannot send custom headers, use
 `https://host/mcp?read-only=true`.

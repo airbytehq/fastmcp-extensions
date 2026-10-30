@@ -185,26 +185,13 @@ HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 URL_PARAM_READONLY_MODE = "read-only"
 """URL query parameter for read-only mode."""
 
-URL_PARAM_NO_DESTRUCTIVE_TOOLS = "no-destructive-tools"
-"""URL query parameter for hiding destructive tools."""
-
-URL_PARAM_EXCLUDE_MODULES = "exclude-modules"
-"""URL query parameter for excluding tools by module name."""
-
-URL_PARAM_INCLUDE_MODULES = "include-modules"
-"""URL query parameter for including only specific modules."""
-
-URL_PARAM_EXCLUDE_TOOLS = "exclude-tools"
-"""URL query parameter for excluding specific tools by name."""
-
 # NOTE: `no_client_filesystem` and `trusted_execution` deliberately have no HTTP
 # header or URL query parameter. They govern the backend host's
 # filesystem/execution exposure profile, which must be server-determined and
 # never caller-controlled: either source would let a remote caller change the
 # security footprint of the deployment.
-# The self-restricting filters above (readonly, no-destructive, module/tool
-# exclusion) keep their headers and URL params because a caller can only narrow
-# their own surface with them, never widen the host's.
+# Only read-only mode also accepts a URL query parameter. The other
+# self-restricting filters remain header- and environment-controlled.
 
 # =============================================================================
 # Constants - Annotation Keys
@@ -238,7 +225,6 @@ param, or the MCP_READONLY_MODE env var.
 NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_NO_DESTRUCTIVE_TOOLS,
     http_header_key=HEADER_NO_DESTRUCTIVE_TOOLS,
-    url_param_key=URL_PARAM_NO_DESTRUCTIVE_TOOLS,
     env_var=ENV_NO_DESTRUCTIVE_TOOLS,
     default="0",
     required=False,
@@ -246,15 +232,13 @@ NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for hiding destructive tools.
 
 When set to "1" or "true", tools with destructiveHint=True annotation will be hidden.
-Can be set via the X-MCP-No-Destructive-Tools header, the
-`?no-destructive-tools=true` URL query param, or the MCP_NO_DESTRUCTIVE_TOOLS
-env var.
+Can be set via the X-MCP-No-Destructive-Tools header or the
+MCP_NO_DESTRUCTIVE_TOOLS env var.
 """
 
 EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_EXCLUDE_MODULES,
     http_header_key=HEADER_EXCLUDE_MODULES,
-    url_param_key=URL_PARAM_EXCLUDE_MODULES,
     env_var=ENV_EXCLUDE_MODULES,
     default="",
     required=False,
@@ -262,15 +246,13 @@ EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding tools by module name.
 
 Comma-separated list of module names to exclude. Tools from these modules will be hidden.
-Can be set via the X-MCP-Exclude-Modules header, the `?exclude-modules=...`
-URL query param, or the MCP_EXCLUDE_MODULES env var.
+Can be set via the X-MCP-Exclude-Modules header or the MCP_EXCLUDE_MODULES env var.
 Mutually exclusive with include_modules.
 """
 
 INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_INCLUDE_MODULES,
     http_header_key=HEADER_INCLUDE_MODULES,
-    url_param_key=URL_PARAM_INCLUDE_MODULES,
     env_var=ENV_INCLUDE_MODULES,
     default="",
     required=False,
@@ -278,15 +260,13 @@ INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for including only specific modules.
 
 Comma-separated list of module names to include. Only tools from these modules will be visible.
-Can be set via the X-MCP-Include-Modules header, the `?include-modules=...`
-URL query param, or the MCP_INCLUDE_MODULES env var.
+Can be set via the X-MCP-Include-Modules header or the MCP_INCLUDE_MODULES env var.
 Mutually exclusive with exclude_modules.
 """
 
 EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_EXCLUDE_TOOLS,
     http_header_key=HEADER_EXCLUDE_TOOLS,
-    url_param_key=URL_PARAM_EXCLUDE_TOOLS,
     env_var=ENV_EXCLUDE_TOOLS,
     default="",
     required=False,
@@ -294,8 +274,7 @@ EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding specific tools by name.
 
 Comma-separated list of tool names to exclude. These tools will be hidden.
-Can be set via the X-MCP-Exclude-Tools header, the `?exclude-tools=...` URL
-query param, or the MCP_EXCLUDE_TOOLS env var.
+Can be set via the X-MCP-Exclude-Tools header or the MCP_EXCLUDE_TOOLS env var.
 """
 
 NO_CLIENT_FILESYSTEM_CONFIG_ARG = MCPServerConfigArg(
