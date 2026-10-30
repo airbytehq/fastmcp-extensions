@@ -310,6 +310,14 @@ def test_mcp_server_config_arg_attributes(
 
 
 @pytest.mark.unit
+def test_mcp_server_config_arg_preserves_positional_env_var() -> None:
+    arg = MCPServerConfigArg("n", "X-H", "ENV_N")
+
+    assert arg.env_var == "ENV_N"
+    assert arg.url_param_key is None
+
+
+@pytest.mark.unit
 def test_get_mcp_config_from_env_var() -> None:
     """Test resolving config from environment variable."""
     config_args = [

@@ -34,8 +34,6 @@ class MCPServerConfigArg:
     Attributes:
         name: Unique name for this config argument (used for resolution).
         http_header_key: HTTP header name to check first (case-insensitive). Optional.
-        url_param_key: Query param name on the HTTP request URL, matched case-insensitively.
-            Checked after the header and before the env var. Optional.
         env_var: Environment variable name to check as fallback. Optional.
         default: Default value if not found. Can be a string or a callable returning a string.
         required: If True, resolution will raise an error if not found (after checking default).
@@ -47,16 +45,18 @@ class MCPServerConfigArg:
             The function may also raise an exception for invalid input validation.
             When raising exceptions, avoid including the raw value in error messages
             as it may contain sensitive credentials.
+        url_param_key: Query param name on the HTTP request URL, matched case-insensitively.
+            Checked after the header and before the env var. Optional.
     """
 
     name: str
     http_header_key: str | None = None
-    url_param_key: str | None = None
     env_var: str | None = None
     default: str | Callable[[], str] | None = None
     required: bool = True
     sensitive: bool = False
     normalize_fn: Callable[[str], str | None] | None = None
+    url_param_key: str | None = None
 
     def __post_init__(self) -> None:
         if self.sensitive and self.url_param_key:
