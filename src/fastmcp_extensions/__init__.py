@@ -112,6 +112,11 @@ from fastmcp_extensions.session_state import (
     encode_session_state,
 )
 from fastmcp_extensions.tool_filters import (
+    URL_PARAM_EXCLUDE_MODULES,
+    URL_PARAM_EXCLUDE_TOOLS,
+    URL_PARAM_INCLUDE_MODULES,
+    URL_PARAM_NO_DESTRUCTIVE_TOOLS,
+    URL_PARAM_READONLY_MODE,
     ToolFilterFn,
     ToolUnavailableError,
     assert_http_trusted_execution_disabled,
@@ -142,6 +147,11 @@ __all__ = [
     "DEFAULT_STATE_TTL",
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
+    "URL_PARAM_EXCLUDE_MODULES",
+    "URL_PARAM_EXCLUDE_TOOLS",
+    "URL_PARAM_INCLUDE_MODULES",
+    "URL_PARAM_NO_DESTRUCTIVE_TOOLS",
+    "URL_PARAM_READONLY_MODE",
     "AuthorizationRedactionFilter",
     "Capability",
     "CapabilityResolver",

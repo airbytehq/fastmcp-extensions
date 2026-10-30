@@ -9,7 +9,7 @@ tool filtering use cases. These can be used individually or together via the
 
 - **Config Args**: Pre-defined MCPServerConfigArg instances for standard filters
 - **Filter Functions**: Public filter functions that can be used individually
-- **Constants**: Config names, env vars, headers, and annotation keys
+- **Constants**: Config names, env vars, headers, URL query params, and annotation keys
 
 ## Basic Usage
 
@@ -80,8 +80,8 @@ A tool filter function takes a Tool object and the FastMCP app,
 and returns True if the tool should be visible, False to hide it.
 
 The FastMCP app is passed so the filter can call get_mcp_config()
-to access request-specific configuration values (from HTTP headers,
-env vars, or defaults).
+to access request-specific configuration values (from HTTP headers, URL query
+params, env vars, or defaults).
 
 Example:
     ```python
@@ -178,13 +178,33 @@ HEADER_INCLUDE_MODULES = "X-MCP-Include-Modules"
 HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 """HTTP header for excluding specific tools by name."""
 
+# =============================================================================
+# Constants - URL Query Parameters
+# =============================================================================
+
+URL_PARAM_READONLY_MODE = "read-only"
+"""URL query parameter for read-only mode."""
+
+URL_PARAM_NO_DESTRUCTIVE_TOOLS = "no-destructive-tools"
+"""URL query parameter for hiding destructive tools."""
+
+URL_PARAM_EXCLUDE_MODULES = "exclude-modules"
+"""URL query parameter for excluding tools by module name."""
+
+URL_PARAM_INCLUDE_MODULES = "include-modules"
+"""URL query parameter for including only specific modules."""
+
+URL_PARAM_EXCLUDE_TOOLS = "exclude-tools"
+"""URL query parameter for excluding specific tools by name."""
+
 # NOTE: `no_client_filesystem` and `trusted_execution` deliberately have no HTTP
-# header. They govern the backend host's filesystem/execution exposure profile,
-# which must be server-determined and never caller-controlled: a header source
-# would let a remote caller change the security footprint of the deployment.
+# header or URL query parameter. They govern the backend host's
+# filesystem/execution exposure profile, which must be server-determined and
+# never caller-controlled: either source would let a remote caller change the
+# security footprint of the deployment.
 # The self-restricting filters above (readonly, no-destructive, module/tool
-# exclusion) keep their headers because a caller can only narrow their own
-# surface with them, never widen the host's.
+# exclusion) keep their headers and URL params because a caller can only narrow
+# their own surface with them, never widen the host's.
 
 # =============================================================================
 # Constants - Annotation Keys
@@ -203,6 +223,7 @@ ANNOTATION_DESTRUCTIVE_HINT = DESTRUCTIVE_HINT
 READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_READONLY_MODE,
     http_header_key=HEADER_READONLY_MODE,
+    url_param_key=URL_PARAM_READONLY_MODE,
     env_var=ENV_READONLY_MODE,
     default="0",
     required=False,
@@ -210,12 +231,14 @@ READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for read-only mode.
 
 When set to "1", only tools with readOnlyHint=True annotation will be visible.
-Can be set via X-MCP-Readonly-Mode HTTP header or MCP_READONLY_MODE env var.
+Can be set via the X-MCP-Readonly-Mode header, the `?read-only=true` URL query
+param, or the MCP_READONLY_MODE env var.
 """
 
 NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_NO_DESTRUCTIVE_TOOLS,
     http_header_key=HEADER_NO_DESTRUCTIVE_TOOLS,
+    url_param_key=URL_PARAM_NO_DESTRUCTIVE_TOOLS,
     env_var=ENV_NO_DESTRUCTIVE_TOOLS,
     default="0",
     required=False,
@@ -223,12 +246,15 @@ NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for hiding destructive tools.
 
 When set to "1" or "true", tools with destructiveHint=True annotation will be hidden.
-Can be set via X-No-Destructive-Tools HTTP header or MCP_NO_DESTRUCTIVE_TOOLS env var.
+Can be set via the X-MCP-No-Destructive-Tools header, the
+`?no-destructive-tools=true` URL query param, or the MCP_NO_DESTRUCTIVE_TOOLS
+env var.
 """
 
 EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_EXCLUDE_MODULES,
     http_header_key=HEADER_EXCLUDE_MODULES,
+    url_param_key=URL_PARAM_EXCLUDE_MODULES,
     env_var=ENV_EXCLUDE_MODULES,
     default="",
     required=False,
@@ -236,13 +262,15 @@ EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding tools by module name.
 
 Comma-separated list of module names to exclude. Tools from these modules will be hidden.
-Can be set via X-MCP-Exclude-Modules HTTP header or MCP_EXCLUDE_MODULES env var.
+Can be set via the X-MCP-Exclude-Modules header, the `?exclude-modules=...`
+URL query param, or the MCP_EXCLUDE_MODULES env var.
 Mutually exclusive with include_modules.
 """
 
 INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_INCLUDE_MODULES,
     http_header_key=HEADER_INCLUDE_MODULES,
+    url_param_key=URL_PARAM_INCLUDE_MODULES,
     env_var=ENV_INCLUDE_MODULES,
     default="",
     required=False,
@@ -250,13 +278,15 @@ INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for including only specific modules.
 
 Comma-separated list of module names to include. Only tools from these modules will be visible.
-Can be set via X-MCP-Include-Modules HTTP header or MCP_INCLUDE_MODULES env var.
+Can be set via the X-MCP-Include-Modules header, the `?include-modules=...`
+URL query param, or the MCP_INCLUDE_MODULES env var.
 Mutually exclusive with exclude_modules.
 """
 
 EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_EXCLUDE_TOOLS,
     http_header_key=HEADER_EXCLUDE_TOOLS,
+    url_param_key=URL_PARAM_EXCLUDE_TOOLS,
     env_var=ENV_EXCLUDE_TOOLS,
     default="",
     required=False,
@@ -264,7 +294,8 @@ EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding specific tools by name.
 
 Comma-separated list of tool names to exclude. These tools will be hidden.
-Can be set via X-MCP-Exclude-Tools HTTP header or MCP_EXCLUDE_TOOLS env var.
+Can be set via the X-MCP-Exclude-Tools header, the `?exclude-tools=...` URL
+query param, or the MCP_EXCLUDE_TOOLS env var.
 """
 
 NO_CLIENT_FILESYSTEM_CONFIG_ARG = MCPServerConfigArg(
@@ -280,8 +311,8 @@ will be hidden. Use this in hosted/remote environments where the client has
 no local filesystem.
 
 Resolved from the `MCP_NO_CLIENT_FILESYSTEM` env var only. It has no HTTP header
-source on purpose: it governs the backend host's filesystem-exposure profile,
-which must not be caller-controllable.
+or URL query param source on purpose: it governs the backend host's
+filesystem-exposure profile, which must not be caller-controllable.
 """
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
@@ -294,8 +325,9 @@ TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
 
 Defaults to `0` (untrusted) on every transport, so a copied stdio registration
 grants no filesystem/execution capability until an operator explicitly opts in.
-Resolved from the `MCP_TRUSTED_EXECUTION` env var only, with no HTTP header
-source: the gate widens the tool surface, so it must never be caller-controlled.
+Resolved from the `MCP_TRUSTED_EXECUTION` env var only, with no HTTP header or
+URL query param source: the gate widens the tool surface, so it must never be
+caller-controlled.
 
 A host application may back this config with a different env var by supplying its
 own `MCPServerConfigArg(name="trusted_execution", env_var="...")` in
@@ -602,8 +634,8 @@ def is_trusted_execution_enabled(app: FastMCP) -> bool:
     """Return whether trusted execution is enabled via server configuration.
 
     Reads the `trusted_execution` config, which resolves from the server
-    environment only (there is deliberately no HTTP-header source: the gate
-    *widens* the tool surface, so it must never be caller-controlled). Defaults
+    environment only (there are deliberately no HTTP-header or URL query-param
+    sources: the gate *widens* the tool surface, so it must never be caller-controlled). Defaults
     to `False` when unset.
     """
     return _is_truthy(get_mcp_config(app, CONFIG_TRUSTED_EXECUTION))

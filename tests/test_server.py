@@ -7,10 +7,12 @@ import os
 from typing import Any
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ResourceError
 from mcp.types import Tool, ToolAnnotations
+from starlette.requests import Request
 
 from fastmcp_extensions import (
     MCPServerConfig,
@@ -32,6 +34,23 @@ from fastmcp_extensions.tool_traits import (
     ToolTraits,
     set_tool_traits,
 )
+
+
+def _request_with_query(query_string: bytes) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/mcp",
+            "raw_path": b"/mcp",
+            "query_string": query_string,
+            "headers": [],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+    )
 
 
 @pytest.mark.unit
@@ -284,6 +303,7 @@ def test_mcp_server_config_arg_attributes(
     )
     assert arg.name == name
     assert arg.http_header_key == http_header_key
+    assert arg.url_param_key is None
     assert arg.env_var == env_var
     assert arg.required == required
     assert arg.sensitive == sensitive
@@ -350,6 +370,229 @@ def test_get_mcp_config_header_case_insensitive() -> None:
 
 
 @pytest.mark.unit
+def test_get_mcp_config_from_url_param() -> None:
+    """Test resolving config from a URL query parameter."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(name="mode", url_param_key="mode", required=True)
+        ],
+    )
+
+    with patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"mode=query-value"),
+    ):
+        assert get_mcp_config(app, "mode") == "query-value"
+
+
+@pytest.mark.unit
+def test_get_mcp_config_http_header_takes_precedence_over_url_param() -> None:
+    """Test that an HTTP header takes precedence over a URL query parameter."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="mode",
+                http_header_key="X-Mode",
+                url_param_key="mode",
+                required=True,
+            )
+        ],
+    )
+
+    with patch(
+        "fastmcp_extensions.server_config.get_http_headers",
+        return_value={"X-Mode": "header-value"},
+    ), patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"mode=query-value"),
+    ):
+        assert get_mcp_config(app, "mode") == "header-value"
+
+
+@pytest.mark.unit
+def test_get_mcp_config_url_param_takes_precedence_over_env_var() -> None:
+    """Test that a URL query parameter takes precedence over an env var."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="mode",
+                url_param_key="mode",
+                env_var="TEST_MODE",
+                required=True,
+            )
+        ],
+    )
+
+    with patch.dict(os.environ, {"TEST_MODE": "env-value"}), patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"mode=query-value"),
+    ):
+        assert get_mcp_config(app, "mode") == "query-value"
+
+
+@pytest.mark.unit
+def test_get_mcp_config_url_param_case_insensitive() -> None:
+    """Test that URL query parameter matching is case-insensitive."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(name="mode", url_param_key="read-only", required=True)
+        ],
+    )
+
+    with patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"Read-Only=true"),
+    ):
+        assert get_mcp_config(app, "mode") == "true"
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        pytest.param("env-value", "env-value", id="empty-param-falls-through-to-env"),
+        pytest.param("", "default-value", id="empty-param-falls-through-to-default"),
+    ],
+)
+@pytest.mark.unit
+def test_get_mcp_config_empty_url_param_falls_through(
+    env_value: str, expected: str
+) -> None:
+    """Test that an empty URL query parameter is treated as unset."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="mode",
+                url_param_key="mode",
+                env_var="TEST_MODE",
+                default="default-value",
+                required=False,
+            )
+        ],
+    )
+
+    with patch.dict(os.environ, {"TEST_MODE": env_value}), patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"mode="),
+    ):
+        assert get_mcp_config(app, "mode") == expected
+
+
+@pytest.mark.unit
+def test_get_mcp_config_normalizes_url_param() -> None:
+    """Test that normalize_fn is applied to a URL query parameter."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="mode",
+                url_param_key="mode",
+                normalize_fn=str.upper,
+                required=True,
+            )
+        ],
+    )
+
+    with patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        return_value=_request_with_query(b"mode=query-value"),
+    ):
+        assert get_mcp_config(app, "mode") == "QUERY-VALUE"
+
+
+@pytest.mark.unit
+def test_get_mcp_config_without_http_request_falls_through_to_default() -> None:
+    """Test that a missing HTTP request falls through to the default."""
+    app = mcp_server(
+        "test-server",
+        server_config_args=[
+            MCPServerConfigArg(
+                name="mode",
+                url_param_key="mode",
+                default="default-value",
+                required=False,
+            )
+        ],
+    )
+
+    with patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        side_effect=RuntimeError("No active HTTP request found."),
+    ):
+        assert get_mcp_config(app, "mode") == "default-value"
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_standard_readonly_url_param_filters_tools_over_http() -> None:
+    """A read-only URL param filters tools in an HTTP `tools/list` response."""
+    app = mcp_server("test-server", include_standard_tool_filters=True)
+
+    @app.tool(annotations={"readOnlyHint": True})
+    def read_only_tool() -> str:
+        return "read"
+
+    @app.tool(annotations={"readOnlyHint": False})
+    def writable_tool() -> str:
+        return "write"
+
+    http_app = app.http_app(stateless_http=True)
+    transport = httpx.ASGITransport(app=http_app)
+    headers = {
+        "accept": "application/json, text/event-stream",
+        "mcp-protocol-version": "2025-06-18",
+    }
+    request_body = {
+        "jsonrpc": "2.0",
+        "id": "tools-list",
+        "method": "tools/list",
+        "params": {},
+    }
+    async with http_app.router.lifespan_context(http_app), httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        readonly_response = await client.post(
+            "/mcp?read-only=true", headers=headers, json=request_body
+        )
+        all_tools_response = await client.post(
+            "/mcp", headers=headers, json=request_body
+        )
+
+    assert readonly_response.status_code == 200
+    assert all_tools_response.status_code == 200
+    readonly_result = json.loads(
+        readonly_response.text.split("data: ", maxsplit=1)[1].splitlines()[0]
+    )
+    all_tools_result = json.loads(
+        all_tools_response.text.split("data: ", maxsplit=1)[1].splitlines()[0]
+    )
+    readonly_tools = readonly_result["result"]["tools"]
+    all_tools = all_tools_result["result"]["tools"]
+    assert [tool["name"] for tool in readonly_tools] == ["read_only_tool"]
+    assert {tool["name"] for tool in all_tools} == {
+        "read_only_tool",
+        "writable_tool",
+    }
+
+
+@pytest.mark.unit
+def test_mcp_server_config_arg_rejects_sensitive_url_param() -> None:
+    """Sensitive config args must not be read from URL query parameters."""
+    with pytest.raises(
+        ValueError,
+        match=(
+            "sensitive config args can't be read from URL query params "
+            "because URLs are commonly logged"
+        ),
+    ):
+        MCPServerConfigArg(name="secret", sensitive=True, url_param_key="x")
+
+
+@pytest.mark.unit
 def test_get_mcp_config_unknown_name_raises_key_error() -> None:
     """Test that resolving unknown config name raises KeyError."""
     app = mcp_server("test-server")
@@ -365,6 +608,7 @@ def test_get_mcp_config_required_missing_raises_value_error() -> None:
         MCPServerConfigArg(
             name="api_key",
             http_header_key="X-API-Key",
+            url_param_key="api_key",
             env_var="TEST_NONEXISTENT_VAR_12345",
             required=True,
         ),
@@ -374,7 +618,13 @@ def test_get_mcp_config_required_missing_raises_value_error() -> None:
     mock_headers = patch(
         "fastmcp_extensions.server_config.get_http_headers", return_value=None
     )
-    with mock_headers, pytest.raises(ValueError, match="Required config"):
+    mock_request = patch(
+        "fastmcp_extensions.server_config.get_http_request",
+        side_effect=RuntimeError("No active HTTP request found."),
+    )
+    with mock_headers, mock_request, pytest.raises(
+        ValueError, match=r"Required config.*URL query param 'api_key'"
+    ):
         get_mcp_config(app, "api_key")
 
 

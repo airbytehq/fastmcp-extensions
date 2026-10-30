@@ -2,8 +2,8 @@
 """MCP Server factory with built-in server info and credential resolution.
 
 This module provides a factory function to create FastMCP servers with common
-patterns built-in, including server info resources and HTTP header credential
-resolution.
+patterns built-in, including server info resources and configuration resolution
+from HTTP headers, URL query params, and environment variables.
 
 ## Key Components
 
@@ -27,7 +27,8 @@ app = mcp_server(
 
 ## Credential Resolution
 
-Define credentials that resolve from HTTP headers, environment variables, or defaults:
+Define credentials that resolve from HTTP headers, environment variables, or
+defaults. Non-sensitive config values can also be resolved from URL query params:
 
 ```py
 from fastmcp_extensions import mcp_server, MCPServerConfigArg, get_mcp_config
@@ -408,7 +409,8 @@ def mcp_server(
         tool_filters: List of tool filter functions for per-request tool filtering.
             Each filter function takes (Tool, FastMCP) and returns True to show
             the tool, False to hide it. Filters can use get_mcp_config() to access
-            request-specific configuration values from HTTP headers or env vars.
+            request-specific configuration values from HTTP headers, URL query
+            params, or env vars.
         include_standard_tool_filters: If True, automatically add standard config args
             and tool filters for readonly_mode and safe_mode. These filters use
             tool annotations (readOnlyHint, destructiveHint) to control visibility.

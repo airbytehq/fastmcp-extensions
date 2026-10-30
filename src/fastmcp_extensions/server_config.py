@@ -2,7 +2,7 @@
 """MCP Server configuration classes and resolution logic.
 
 This module provides configuration classes for MCP servers, including
-credential resolution from HTTP headers and environment variables.
+credential resolution from HTTP headers, URL query parameters, and environment variables.
 
 ## Key Components
 
@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastmcp import Context, FastMCP
-from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.dependencies import get_http_headers, get_http_request
 
 from fastmcp_extensions.tool_traits import Capability, CapabilityResolver
 
@@ -29,11 +29,13 @@ class MCPServerConfigArg:
     """Configuration argument for MCP server credential resolution.
 
     This class defines a configuration argument that can be resolved from
-    HTTP headers or environment variables, with support for sensitive values.
+    HTTP headers, URL query parameters, or environment variables, with support for sensitive values.
 
     Attributes:
         name: Unique name for this config argument (used for resolution).
         http_header_key: HTTP header name to check first (case-insensitive). Optional.
+        url_param_key: Query param name on the HTTP request URL, matched case-insensitively.
+            Checked after the header and before the env var. Optional.
         env_var: Environment variable name to check as fallback. Optional.
         default: Default value if not found. Can be a string or a callable returning a string.
         required: If True, resolution will raise an error if not found (after checking default).
@@ -49,11 +51,18 @@ class MCPServerConfigArg:
 
     name: str
     http_header_key: str | None = None
+    url_param_key: str | None = None
     env_var: str | None = None
     default: str | Callable[[], str] | None = None
     required: bool = True
     sensitive: bool = False
     normalize_fn: Callable[[str], str | None] | None = None
+
+    def __post_init__(self) -> None:
+        if self.sensitive and self.url_param_key:
+            raise ValueError(
+                "sensitive config args can't be read from URL query params because URLs are commonly logged"
+            )
 
 
 @dataclass
@@ -91,8 +100,9 @@ class MCPServerConfig:
 
         Resolution order:
         1. HTTP headers (case-insensitive)
-        2. Environment variables
-        3. Default value
+        2. URL query parameters (case-insensitive)
+        3. Environment variables
+        4. Default value
 
         Args:
             name: The name of the config argument to get.
@@ -129,7 +139,7 @@ def _get_header_value(headers: dict[str, str], header_name: str) -> str | None:
 
 
 def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
-    """Resolve a single config argument from headers or environment.
+    """Resolve a single config argument from headers, URL query params, or environment.
 
     Args:
         config_arg: The config argument to resolve.
@@ -156,6 +166,26 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
                 if normalized is not None:
                     return normalized
 
+    if config_arg.url_param_key:
+        try:
+            request = get_http_request()
+        except RuntimeError:
+            request = None
+        if request is not None:
+            url_param_key_lower = config_arg.url_param_key.lower()
+            query_value = next(
+                (
+                    value
+                    for key, value in request.query_params.multi_items()
+                    if key.lower() == url_param_key_lower and value
+                ),
+                None,
+            )
+            if query_value is not None:
+                normalized = _apply_normalize(query_value)
+                if normalized is not None:
+                    return normalized
+
     if config_arg.env_var:
         env_value = os.environ.get(config_arg.env_var)
         if env_value:
@@ -173,6 +203,8 @@ def _resolve_config_arg(config_arg: MCPServerConfigArg) -> str:
         sources: list[str] = []
         if config_arg.http_header_key:
             sources.append(f"HTTP header '{config_arg.http_header_key}'")
+        if config_arg.url_param_key:
+            sources.append(f"URL query param '{config_arg.url_param_key}'")
         if config_arg.env_var:
             sources.append(f"environment variable '{config_arg.env_var}'")
         source_str = " or ".join(sources) if sources else "no sources configured"
@@ -191,7 +223,7 @@ def get_mcp_config(ctx_or_app: Context | FastMCP, name: str) -> str:
     for use in MCP tools) or a FastMCP app instance directly.
 
     When using Context, the function accesses the app via ctx.fastmcp, which
-    ensures session-aware resolution of HTTP headers.
+    ensures session-aware resolution of HTTP headers and URL query params.
 
     Args:
         ctx_or_app: Either a FastMCP Context object (from tool/resource functions)
