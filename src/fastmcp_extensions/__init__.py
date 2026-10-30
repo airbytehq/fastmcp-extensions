@@ -61,7 +61,11 @@ from fastmcp_extensions.decorators import (
     mcp_resource,
     mcp_tool,
 )
-from fastmcp_extensions.http_server import DEFAULT_UVICORN_CONFIG, run_mcp_http_server
+from fastmcp_extensions.http_server import (
+    DEFAULT_UVICORN_CONFIG,
+    RejectInvalidUrlParamsMiddleware,
+    run_mcp_http_server,
+)
 from fastmcp_extensions.key_normalization import (
     DEFAULT_HASH_ALGORITHM,
     DEFAULT_KEY_PREFIX,
@@ -100,6 +104,8 @@ from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
+    near_miss_url_param_error,
+    validate_url_query_params,
 )
 from fastmcp_extensions.session_state import (
     DEFAULT_STATE_SECRET_ENV_VAR,
@@ -112,6 +118,8 @@ from fastmcp_extensions.session_state import (
     encode_session_state,
 )
 from fastmcp_extensions.tool_filters import (
+    URL_PARAM_READONLY_MODE,
+    URL_PARAM_READONLY_MODE_DISALLOWED_KEYS,
     ToolFilterFn,
     ToolUnavailableError,
     assert_http_trusted_execution_disabled,
@@ -142,6 +150,8 @@ __all__ = [
     "DEFAULT_STATE_TTL",
     "DEFAULT_UVICORN_CONFIG",
     "REDACTION_PLACEHOLDER",
+    "URL_PARAM_READONLY_MODE",
+    "URL_PARAM_READONLY_MODE_DISALLOWED_KEYS",
     "AuthorizationRedactionFilter",
     "Capability",
     "CapabilityResolver",
@@ -165,6 +175,7 @@ __all__ = [
     "OIDCAuthConfig",
     "PromptDef",
     "RejectEventStreamGetMiddleware",
+    "RejectInvalidUrlParamsMiddleware",
     "RequiresCapability",
     "ResourceDef",
     "SessionToken",
@@ -209,6 +220,7 @@ __all__ = [
     "mcp_server",
     "mcp_tool",
     "minted_session_token",
+    "near_miss_url_param_error",
     "redact_authorization",
     "register_landing_page",
     "register_mcp_prompts",
@@ -220,5 +232,6 @@ __all__ = [
     "session_token_from_headers",
     "tool_telemetry_properties",
     "trace_plan",
+    "validate_url_query_params",
     "wrap_client_credentials",
 ]

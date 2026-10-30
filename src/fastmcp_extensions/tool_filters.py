@@ -9,7 +9,7 @@ tool filtering use cases. These can be used individually or together via the
 
 - **Config Args**: Pre-defined MCPServerConfigArg instances for standard filters
 - **Filter Functions**: Public filter functions that can be used individually
-- **Constants**: Config names, env vars, headers, and annotation keys
+- **Constants**: Config names, env vars, headers, URL query params, and annotation keys
 
 ## Basic Usage
 
@@ -44,6 +44,7 @@ app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 
 from fastmcp import FastMCP
@@ -62,6 +63,7 @@ from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
+    near_miss_url_param_error,
 )
 from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
@@ -80,8 +82,8 @@ A tool filter function takes a Tool object and the FastMCP app,
 and returns True if the tool should be visible, False to hide it.
 
 The FastMCP app is passed so the filter can call get_mcp_config()
-to access request-specific configuration values (from HTTP headers,
-env vars, or defaults).
+to access request-specific configuration values (from HTTP headers, URL query
+params, env vars, or defaults).
 
 Example:
     ```python
@@ -178,13 +180,34 @@ HEADER_INCLUDE_MODULES = "X-MCP-Include-Modules"
 HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 """HTTP header for excluding specific tools by name."""
 
+# =============================================================================
+# Constants - URL Query Parameters
+# =============================================================================
+
+URL_PARAM_READONLY_MODE = "read-only"
+"""URL query parameter for read-only mode."""
+
+URL_PARAM_READONLY_MODE_DISALLOWED_KEYS = {
+    key: near_miss_url_param_error(key, URL_PARAM_READONLY_MODE)
+    for key in (
+        "readonly",
+        "read_only",
+        "readonly-mode",
+        "readonly_mode",
+        "read-only-mode",
+        "read_only_mode",
+        "readonlymode",
+    )
+}
+"""Unsupported near-miss spellings for the read-only URL query parameter."""
+
 # NOTE: `no_client_filesystem` and `trusted_execution` deliberately have no HTTP
-# header. They govern the backend host's filesystem/execution exposure profile,
-# which must be server-determined and never caller-controlled: a header source
-# would let a remote caller change the security footprint of the deployment.
-# The self-restricting filters above (readonly, no-destructive, module/tool
-# exclusion) keep their headers because a caller can only narrow their own
-# surface with them, never widen the host's.
+# header or URL query parameter. They govern the backend host's
+# filesystem/execution exposure profile, which must be server-determined and
+# never caller-controlled: either source would let a remote caller change the
+# security footprint of the deployment.
+# Only read-only mode also accepts a URL query parameter. The other
+# self-restricting filters remain header- and environment-controlled.
 
 # =============================================================================
 # Constants - Annotation Keys
@@ -203,6 +226,9 @@ ANNOTATION_DESTRUCTIVE_HINT = DESTRUCTIVE_HINT
 READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_READONLY_MODE,
     http_header_key=HEADER_READONLY_MODE,
+    url_param_key=URL_PARAM_READONLY_MODE,
+    disallowed_url_param_keys=URL_PARAM_READONLY_MODE_DISALLOWED_KEYS,
+    url_param_allowed_values=("true", "false", "1", "0"),
     env_var=ENV_READONLY_MODE,
     default="0",
     required=False,
@@ -210,7 +236,9 @@ READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for read-only mode.
 
 When set to "1", only tools with readOnlyHint=True annotation will be visible.
-Can be set via X-MCP-Readonly-Mode HTTP header or MCP_READONLY_MODE env var.
+Can be set via the X-MCP-Readonly-Mode header, the `?read-only=true` URL query
+param, or the MCP_READONLY_MODE env var. A request can enable read-only mode
+but cannot disable it when the server's configured env var enables it.
 """
 
 NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
@@ -223,7 +251,8 @@ NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for hiding destructive tools.
 
 When set to "1" or "true", tools with destructiveHint=True annotation will be hidden.
-Can be set via X-No-Destructive-Tools HTTP header or MCP_NO_DESTRUCTIVE_TOOLS env var.
+Can be set via the X-MCP-No-Destructive-Tools header or the
+MCP_NO_DESTRUCTIVE_TOOLS env var.
 """
 
 EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
@@ -236,7 +265,7 @@ EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding tools by module name.
 
 Comma-separated list of module names to exclude. Tools from these modules will be hidden.
-Can be set via X-MCP-Exclude-Modules HTTP header or MCP_EXCLUDE_MODULES env var.
+Can be set via the X-MCP-Exclude-Modules header or the MCP_EXCLUDE_MODULES env var.
 Mutually exclusive with include_modules.
 """
 
@@ -250,7 +279,7 @@ INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for including only specific modules.
 
 Comma-separated list of module names to include. Only tools from these modules will be visible.
-Can be set via X-MCP-Include-Modules HTTP header or MCP_INCLUDE_MODULES env var.
+Can be set via the X-MCP-Include-Modules header or the MCP_INCLUDE_MODULES env var.
 Mutually exclusive with exclude_modules.
 """
 
@@ -264,7 +293,7 @@ EXCLUDE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
 """Standard config arg for excluding specific tools by name.
 
 Comma-separated list of tool names to exclude. These tools will be hidden.
-Can be set via X-MCP-Exclude-Tools HTTP header or MCP_EXCLUDE_TOOLS env var.
+Can be set via the X-MCP-Exclude-Tools header or the MCP_EXCLUDE_TOOLS env var.
 """
 
 NO_CLIENT_FILESYSTEM_CONFIG_ARG = MCPServerConfigArg(
@@ -280,8 +309,8 @@ will be hidden. Use this in hosted/remote environments where the client has
 no local filesystem.
 
 Resolved from the `MCP_NO_CLIENT_FILESYSTEM` env var only. It has no HTTP header
-source on purpose: it governs the backend host's filesystem-exposure profile,
-which must not be caller-controllable.
+or URL query param source on purpose: it governs the backend host's
+filesystem-exposure profile, which must not be caller-controllable.
 """
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
@@ -294,8 +323,9 @@ TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
 
 Defaults to `0` (untrusted) on every transport, so a copied stdio registration
 grants no filesystem/execution capability until an operator explicitly opts in.
-Resolved from the `MCP_TRUSTED_EXECUTION` env var only, with no HTTP header
-source: the gate widens the tool surface, so it must never be caller-controlled.
+Resolved from the `MCP_TRUSTED_EXECUTION` env var only, with no HTTP header or
+URL query param source: the gate widens the tool surface, so it must never be
+caller-controlled.
 
 A host application may back this config with a different env var by supplying its
 own `MCPServerConfigArg(name="trusted_execution", env_var="...")` in
@@ -465,8 +495,9 @@ def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:
 def readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on readonly_mode config.
 
-    When readonly_mode is "1" or "true", only show tools with readOnlyHint=True.
-    When readonly_mode is "0" (default), show all tools.
+    When readonly_mode is "1" or "true", or its configured server env var is
+    truthy, only show tools with readOnlyHint=True. A request can enable
+    read-only mode but cannot disable it when the server enables it.
 
     Args:
         tool: The tool to check.
@@ -476,7 +507,18 @@ def readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
         True if the tool should be visible, False to hide it.
     """
     config_value = get_mcp_config(app, CONFIG_READONLY_MODE).lower()
-    if config_value in ("1", "true"):
+    config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+    readonly_mode_arg = next(
+        (arg for arg in config.config_args if arg.name == CONFIG_READONLY_MODE),
+        None,
+    )
+    env_var = (
+        readonly_mode_arg.env_var
+        if readonly_mode_arg is not None
+        else ENV_READONLY_MODE
+    )
+    env_value = os.environ.get(env_var) if env_var else None
+    if config_value in ("1", "true") or _is_truthy(env_value):
         return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, False))
     return True
 
@@ -602,8 +644,8 @@ def is_trusted_execution_enabled(app: FastMCP) -> bool:
     """Return whether trusted execution is enabled via server configuration.
 
     Reads the `trusted_execution` config, which resolves from the server
-    environment only (there is deliberately no HTTP-header source: the gate
-    *widens* the tool surface, so it must never be caller-controlled). Defaults
+    environment only (there are deliberately no HTTP-header or URL query-param
+    sources: the gate *widens* the tool surface, so it must never be caller-controlled). Defaults
     to `False` when unset.
     """
     return _is_truthy(get_mcp_config(app, CONFIG_TRUSTED_EXECUTION))

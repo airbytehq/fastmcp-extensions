@@ -13,7 +13,7 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 5. 🧩 **MCP Apps UI support without per-server wiring** - Link a tool to a UI resource with `app=AppConfig(...)`, opt into the standard filters, and the library hides it from clients that cannot render MCP Apps UI (detected via the standard `_meta.ui` marker). `run_mcp_http_server()` carries the client's extension declaration through stateless HTTP automatically. See [MCP Apps UI support](#mcp-apps-ui-support).
 6. 🛡️ **Capability gating, safe in local _and_ hosted deploys** - The standard `capability_filter` hides tools whose built-in or deployment-defined `required_capabilities` are unavailable. Custom capability resolvers fail closed and cannot override built-in capabilities; the filesystem gate is forced off under HTTP regardless of configuration. Call `assert_http_trusted_execution_disabled()` at HTTP startup to fail loudly on an unsafe configuration.
 7. 🧵 **Deferred registration, solved** - `@mcp_tool` / `@mcp_prompt` / `@mcp_resource` tag tools, prompts, and resources into a registry (auto-detecting the domain from the file stem), and the domain-filtered `register_*` functions register them in one call — organize by domain without fighting import order.
-8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and credential resolution from HTTP headers or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
+8. 🏭 **A server factory with fewer moving parts** - `mcp_server()` hands you a FastMCP instance that already has a server-info resource, optional asset discovery, and config resolution from HTTP headers, non-sensitive URL query params, or env vars via `get_mcp_config` — typed pieces instead of hand-wired boilerplate.
 9. 🖥️ **One codebase, two front-ends** - `cli_app()` is the CLI counterpart of `mcp_server()`: shared tool functions and the same telemetry sinks can power both surfaces. Write a tool once; call it from the command line and expose it over MCP.
 10. 📖 **Auto-generated docs for every tool** - A Markdown docs generator (Docusaurus- and pdoc-compatible) renders your tool surface from the source of truth, giving every tool its own URL anchor to share with stakeholders. Documenting and announcing changes stops being a manual step.
 11. 📈 **Telemetry that's free until you want it** - Sentry, Segment, and structured-log sinks record timing, success, and error type across both MCP and CLI paths. Sentry and Segment are no-ops unless you supply their keys, so the telemetry wiring can ship in the base template.
@@ -521,6 +521,19 @@ def list_items() -> list[str]:
     return ["item1", "item2"]
 ```
 
+Read-only mode accepts an HTTP header or a case-insensitive URL query parameter,
+with the header taking precedence:
+
+| Filter | Header | URL query parameter | Environment variable |
+| --- | --- | --- | --- |
+| Read-only | `X-MCP-Readonly-Mode` | `?read-only=true` | `MCP_READONLY_MODE` |
+
+For clients that cannot send custom headers, use
+`https://host/mcp?read-only=true`.
+
+Near-miss read-only parameter names and invalid values are rejected with HTTP 400.
+Other query parameters are ignored.
+
 Filters compose with logical **AND**, so each filter can only narrow the visible
 tool set. Tools requiring `Capability.CLIENT_FILESYSTEM` remain hidden unless
 trusted execution is enabled for a local stdio server. The gate is always forced
@@ -533,8 +546,8 @@ filtered tool raises `ToolUnavailableError`, a `ValueError` subclass.
 Use `capability_resolvers` for deployment-defined capabilities. A resolver
 receives only the server `app`; read deployment configuration through
 `get_mcp_config`. These config args are environment-only because they omit
-`http_header_key`, so callers cannot widen the tool surface by supplying a
-request header:
+`http_header_key` and `url_param_key`, so callers cannot widen the tool surface
+by supplying a request header or URL query param:
 
 ```python
 from fastmcp import FastMCP
@@ -574,11 +587,12 @@ def search_docs(query: str) -> str:
     return query
 ```
 
-Header/env precedence is declared independently on each `MCPServerConfigArg`:
-when both are provided, `get_mcp_config` checks that arg's HTTP header before
-its environment variable. Omitting `http_header_key` makes that arg
-environment-only. Missing resolvers and resolver exceptions leave a custom
-capability unavailable; exceptions are logged by type without their message.
+Header/query/env precedence is declared independently on each
+`MCPServerConfigArg`: `get_mcp_config` checks the HTTP header, then the URL
+query param, then the environment variable. Omitting both `http_header_key` and
+`url_param_key` makes that arg environment-only. Missing resolvers and resolver
+exceptions leave a custom capability unavailable; exceptions are logged by
+type without their message.
 
 ## Telemetry and Tracing
 
@@ -632,7 +646,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 - `mcp_server` - Create a FastMCP instance with a built-in server info resource, optional asset discovery, credential resolution, capability resolvers, and tool filtering.
 - `MCPServerConfigArg` - Configuration for credential resolution and other server settings.
-- `get_mcp_config` - Get a credential from HTTP headers or environment variables.
+- `get_mcp_config` - Get a config value from HTTP headers, URL query params, environment variables, or defaults.
 
 ### CLI
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Unit tests for the generic trusted-execution master gate and header cleanup."""
+"""Unit tests for the trusted-execution gate and caller-controlled filters."""
 
 import os
 from unittest.mock import MagicMock, patch
@@ -28,6 +28,7 @@ from fastmcp_extensions.tool_filters import (
     NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
     READONLY_MODE_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
+    URL_PARAM_READONLY_MODE,
     module_filter,
     trusted_execution_filter,
 )
@@ -125,6 +126,7 @@ def test_footprint_config_args_have_no_http_header(
 ) -> None:
     """Configs that change the host's exposure profile must not be caller-set."""
     assert config_arg.http_header_key is None
+    assert config_arg.url_param_key is None
 
 
 # =============================================================================
@@ -133,22 +135,37 @@ def test_footprint_config_args_have_no_http_header(
 
 
 @pytest.mark.parametrize(
-    "config_arg,expected_header",
+    "config_arg,expected_header,expected_url_param",
     [
-        pytest.param(READONLY_MODE_CONFIG_ARG, HEADER_READONLY_MODE, id="readonly"),
+        pytest.param(
+            READONLY_MODE_CONFIG_ARG,
+            HEADER_READONLY_MODE,
+            URL_PARAM_READONLY_MODE,
+            id="readonly",
+        ),
         pytest.param(
             NO_DESTRUCTIVE_TOOLS_CONFIG_ARG,
             HEADER_NO_DESTRUCTIVE_TOOLS,
+            None,
             id="no_destructive",
         ),
         pytest.param(
-            EXCLUDE_MODULES_CONFIG_ARG, HEADER_EXCLUDE_MODULES, id="exclude_modules"
+            EXCLUDE_MODULES_CONFIG_ARG,
+            HEADER_EXCLUDE_MODULES,
+            None,
+            id="exclude_modules",
         ),
         pytest.param(
-            INCLUDE_MODULES_CONFIG_ARG, HEADER_INCLUDE_MODULES, id="include_modules"
+            INCLUDE_MODULES_CONFIG_ARG,
+            HEADER_INCLUDE_MODULES,
+            None,
+            id="include_modules",
         ),
         pytest.param(
-            EXCLUDE_TOOLS_CONFIG_ARG, HEADER_EXCLUDE_TOOLS, id="exclude_tools"
+            EXCLUDE_TOOLS_CONFIG_ARG,
+            HEADER_EXCLUDE_TOOLS,
+            None,
+            id="exclude_tools",
         ),
     ],
 )
@@ -156,9 +173,11 @@ def test_footprint_config_args_have_no_http_header(
 def test_self_restriction_headers_preserved(
     config_arg: MCPServerConfigArg,
     expected_header: str,
+    expected_url_param: str | None,
 ) -> None:
-    """Caller self-restriction filters keep their HTTP header source."""
+    """Only read-only mode adds a URL param to caller self-restriction filters."""
     assert config_arg.http_header_key == expected_header
+    assert config_arg.url_param_key == expected_url_param
 
 
 @pytest.mark.unit

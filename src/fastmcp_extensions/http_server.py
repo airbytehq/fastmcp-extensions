@@ -14,20 +14,26 @@ through its `_lifespan_proxy` reference counting.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import parse_qsl
 
 import fastmcp
 import uvicorn
 from fastmcp import FastMCP
+from starlette.responses import JSONResponse
 
 from fastmcp_extensions.capability_tokens import (
     CapabilityTokenMiddleware,
     RejectEventStreamGetMiddleware,
 )
+from fastmcp_extensions.server_config import (
+    MCPServerConfigArg,
+    validate_url_query_params,
+)
 
 if TYPE_CHECKING:
-    from starlette.types import ASGIApp
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 DEFAULT_UVICORN_CONFIG: Mapping[str, Any] = {
@@ -35,6 +41,47 @@ DEFAULT_UVICORN_CONFIG: Mapping[str, Any] = {
     "lifespan": "on",
     "ws": "websockets-sansio",
 }
+
+
+class RejectInvalidUrlParamsMiddleware:
+    """Reject invalid or unsupported URL query parameters on HTTP requests."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        config_args: Iterable[MCPServerConfigArg],
+    ) -> None:
+        self.app = app
+        self.config_args = tuple(config_args)
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        query_string = scope.get("query_string", b"")
+        query_params = parse_qsl(
+            query_string.decode("latin-1"),
+            keep_blank_values=True,
+        )
+        error = validate_url_query_params(query_params, self.config_args)
+        if error is not None:
+            response = JSONResponse(
+                {
+                    "error": "invalid_request",
+                    "error_description": error,
+                },
+                status_code=400,
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 def run_mcp_http_server(
@@ -86,6 +133,11 @@ def run_mcp_http_server(
     resolved_path = path if path is not None else fastmcp.settings.streamable_http_path
     if apply_stateless_layers:
         app = RejectEventStreamGetMiddleware(app, path=resolved_path)
+
+    server_config = getattr(server, "x_mcp_server_config", None)
+    config_args = getattr(server_config, "config_args", None)
+    if config_args:
+        app = RejectInvalidUrlParamsMiddleware(app, config_args)
 
     config = dict(DEFAULT_UVICORN_CONFIG)
     config.update(uvicorn_config or {})
