@@ -531,6 +531,9 @@ with the header taking precedence:
 For clients that cannot send custom headers, use
 `https://host/mcp?read-only=true`.
 
+Near-miss read-only parameter names and invalid values are rejected with HTTP 400.
+Other query parameters are ignored.
+
 Filters compose with logical **AND**, so each filter can only narrow the visible
 tool set. Tools requiring `Capability.CLIENT_FILESYSTEM` remain hidden unless
 trusted execution is enabled for a local stdio server. The gate is always forced

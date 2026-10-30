@@ -63,6 +63,7 @@ from fastmcp_extensions.server_config import (
     MCPServerConfig,
     MCPServerConfigArg,
     get_mcp_config,
+    near_miss_url_param_error,
 )
 from fastmcp_extensions.tool_traits import Capability, get_tool_traits
 
@@ -186,6 +187,20 @@ HEADER_EXCLUDE_TOOLS = "X-MCP-Exclude-Tools"
 URL_PARAM_READONLY_MODE = "read-only"
 """URL query parameter for read-only mode."""
 
+URL_PARAM_READONLY_MODE_DISALLOWED_KEYS = {
+    key: near_miss_url_param_error(key, URL_PARAM_READONLY_MODE)
+    for key in (
+        "readonly",
+        "read_only",
+        "readonly-mode",
+        "readonly_mode",
+        "read-only-mode",
+        "read_only_mode",
+        "readonlymode",
+    )
+}
+"""Unsupported near-miss spellings for the read-only URL query parameter."""
+
 # NOTE: `no_client_filesystem` and `trusted_execution` deliberately have no HTTP
 # header or URL query parameter. They govern the backend host's
 # filesystem/execution exposure profile, which must be server-determined and
@@ -212,6 +227,8 @@ READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_READONLY_MODE,
     http_header_key=HEADER_READONLY_MODE,
     url_param_key=URL_PARAM_READONLY_MODE,
+    disallowed_url_param_keys=URL_PARAM_READONLY_MODE_DISALLOWED_KEYS,
+    url_param_allowed_values=("true", "false", "1", "0"),
     env_var=ENV_READONLY_MODE,
     default="0",
     required=False,

@@ -14,7 +14,7 @@ credential resolution from HTTP headers, URL query parameters, and environment v
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,6 +47,10 @@ class MCPServerConfigArg:
             as it may contain sensitive credentials.
         url_param_key: Query param name on the HTTP request URL, matched case-insensitively.
             Checked after the header and before the env var. Optional.
+        disallowed_url_param_keys: Case-insensitive URL query parameter names that return
+            their mapped error message. Requires `url_param_key`.
+        url_param_allowed_values: Optional values accepted for `url_param_key`, compared
+            case-insensitively. Empty values remain unset.
     """
 
     name: str
@@ -57,12 +61,16 @@ class MCPServerConfigArg:
     sensitive: bool = False
     normalize_fn: Callable[[str], str | None] | None = None
     url_param_key: str | None = None
+    disallowed_url_param_keys: Mapping[str, str] = field(default_factory=dict)
+    url_param_allowed_values: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.sensitive and self.url_param_key:
             raise ValueError(
                 "sensitive config args can't be read from URL query params because URLs are commonly logged"
             )
+        if self.disallowed_url_param_keys and not self.url_param_key:
+            raise ValueError("disallowed URL query params require url_param_key")
 
 
 @dataclass
@@ -119,6 +127,47 @@ class MCPServerConfig:
 
         config_arg = self._config_args_by_name[name]
         return _resolve_config_arg(config_arg)
+
+
+def near_miss_url_param_error(given: str, expected: str) -> str:
+    """Return a standard error message for an unsupported URL query parameter."""
+    return (
+        f"URL query param '{given}' is not supported by the standard. "
+        f"Did you mean '{expected}'?"
+    )
+
+
+def validate_url_query_params(
+    query_params: Iterable[tuple[str, str]],
+    config_args: Iterable[MCPServerConfigArg],
+) -> str | None:
+    """Return an error message for a disallowed or invalid owned query param."""
+    args = tuple(config_args)
+    for given, value in query_params:
+        given_normalized = given.casefold()
+        for config_arg in args:
+            for disallowed_key, message in config_arg.disallowed_url_param_keys.items():
+                if given_normalized == disallowed_key.casefold():
+                    return message
+
+            if (
+                config_arg.url_param_key is None
+                or given_normalized != config_arg.url_param_key.casefold()
+                or not value
+                or config_arg.url_param_allowed_values is None
+            ):
+                continue
+
+            allowed_values = config_arg.url_param_allowed_values
+            if value.casefold() not in {
+                allowed_value.casefold() for allowed_value in allowed_values
+            }:
+                return (
+                    f"Invalid value for URL query param "
+                    f"'{config_arg.url_param_key}'. Use one of: "
+                    f"{', '.join(allowed_values)}."
+                )
+    return None
 
 
 def _get_header_value(headers: dict[str, str], header_name: str) -> str | None:

@@ -3,14 +3,20 @@
 
 from typing import Any
 
+import httpx
 import pytest
 from fastmcp import FastMCP
+from starlette.responses import Response
 
 import fastmcp_extensions.http_server as http_server
 from fastmcp_extensions import (
     CapabilityTokenMiddleware,
+    MCPServerConfigArg,
     RejectEventStreamGetMiddleware,
+    RejectInvalidUrlParamsMiddleware,
+    mcp_server,
 )
+from fastmcp_extensions.tool_filters import READONLY_MODE_CONFIG_ARG
 
 
 @pytest.mark.unit
@@ -190,3 +196,74 @@ def test_run_mcp_http_server_scopes_sse_rejection_to_resolved_path(
 
     assert isinstance(captured["app"], RejectEventStreamGetMiddleware)
     assert captured["app"].path == "/custom"
+
+
+@pytest.mark.unit
+def test_run_mcp_http_server_wraps_configured_url_param_middleware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = mcp_server(
+        "test",
+        server_config_args=[MCPServerConfigArg(name="mode", url_param_key="mode")],
+    )
+    built_app = object()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(server, "http_app", lambda **_: built_app)
+    monkeypatch.setattr(
+        http_server.uvicorn,
+        "run",
+        lambda app, **kwargs: captured.update(app=app, **kwargs),
+    )
+
+    http_server.run_mcp_http_server(
+        server,
+        transport="streamable-http",
+        stateless_http=True,
+    )
+
+    assert isinstance(captured["app"], RejectInvalidUrlParamsMiddleware)
+    assert isinstance(captured["app"].app, RejectEventStreamGetMiddleware)
+    assert isinstance(
+        captured["app"].app.app,
+        CapabilityTokenMiddleware,
+    )
+    assert captured["app"].app.app.app is built_app
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_reject_invalid_url_params_middleware_http_responses() -> None:
+    async def okay_app(scope: Any, receive: Any, send: Any) -> None:
+        await Response(content="ok")(scope, receive, send)
+
+    middleware = RejectInvalidUrlParamsMiddleware(
+        okay_app,
+        [READONLY_MODE_CONFIG_ARG],
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=middleware),
+        base_url="http://testserver",
+    ) as client:
+        near_miss_response = await client.get("/mcp?readonly=true")
+        invalid_value_response = await client.get("/mcp?read-only=maybe")
+        valid_response = await client.get("/mcp?read-only=true&utm_source=x")
+
+    assert near_miss_response.status_code == 400
+    assert near_miss_response.json() == {
+        "error": "invalid_request",
+        "error_description": (
+            "URL query param 'readonly' is not supported by the standard. "
+            "Did you mean 'read-only'?"
+        ),
+    }
+    assert invalid_value_response.status_code == 400
+    assert invalid_value_response.json() == {
+        "error": "invalid_request",
+        "error_description": (
+            "Invalid value for URL query param 'read-only'. "
+            "Use one of: true, false, 1, 0."
+        ),
+    }
+    assert valid_response.status_code == 200
+    assert valid_response.text == "ok"

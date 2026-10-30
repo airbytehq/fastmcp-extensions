@@ -21,6 +21,8 @@ from fastmcp_extensions import (
     ToolCallTelemetryMiddleware,
     get_mcp_config,
     mcp_server,
+    near_miss_url_param_error,
+    validate_url_query_params,
 )
 from fastmcp_extensions._middleware import ToolFilterMiddleware
 from fastmcp_extensions._telemetry import resolve_version
@@ -28,6 +30,7 @@ from fastmcp_extensions.server import _derive_package_name, _distribution_name
 from fastmcp_extensions.tool_filters import (
     ENV_READONLY_MODE,
     HEADER_READONLY_MODE,
+    READONLY_MODE_CONFIG_ARG,
     _parse_csv_config,
     no_client_filesystem_filter,
 )
@@ -317,6 +320,82 @@ def test_mcp_server_config_arg_preserves_positional_env_var() -> None:
 
     assert arg.env_var == "ENV_N"
     assert arg.url_param_key is None
+
+
+@pytest.mark.unit
+def test_mcp_server_config_arg_requires_url_param_key_for_disallowed_keys() -> None:
+    with pytest.raises(
+        ValueError,
+        match="disallowed URL query params require url_param_key",
+    ):
+        MCPServerConfigArg(
+            name="mode",
+            disallowed_url_param_keys={"readonly": "unsupported"},
+        )
+
+
+@pytest.mark.unit
+def test_validate_url_query_params_rejects_readonly_near_misses() -> None:
+    assert near_miss_url_param_error("readonly", "read-only") == (
+        "URL query param 'readonly' is not supported by the standard. "
+        "Did you mean 'read-only'?"
+    )
+    assert validate_url_query_params(
+        [("readonly", "true")], [READONLY_MODE_CONFIG_ARG]
+    ) == (
+        "URL query param 'readonly' is not supported by the standard. "
+        "Did you mean 'read-only'?"
+    )
+    assert validate_url_query_params(
+        [("READ_ONLY", "1")], [READONLY_MODE_CONFIG_ARG]
+    ) == (
+        "URL query param 'read_only' is not supported by the standard. "
+        "Did you mean 'read-only'?"
+    )
+
+
+@pytest.mark.unit
+def test_validate_url_query_params_rejects_invalid_readonly_values() -> None:
+    assert validate_url_query_params(
+        [("read-only", "yes")], [READONLY_MODE_CONFIG_ARG]
+    ) == (
+        "Invalid value for URL query param 'read-only'. Use one of: true, false, 1, 0."
+    )
+
+
+@pytest.mark.parametrize("value", ["TRUE", "0", ""])
+@pytest.mark.unit
+def test_validate_url_query_params_accepts_allowed_readonly_values(
+    value: str,
+) -> None:
+    assert (
+        validate_url_query_params([("read-only", value)], [READONLY_MODE_CONFIG_ARG])
+        is None
+    )
+
+
+@pytest.mark.unit
+def test_validate_url_query_params_ignores_unrelated_params() -> None:
+    assert (
+        validate_url_query_params(
+            [("utm_source", "x"), ("foo", "bar")],
+            [READONLY_MODE_CONFIG_ARG],
+        )
+        is None
+    )
+
+
+@pytest.mark.unit
+def test_validate_url_query_params_uses_custom_disallowed_key_message() -> None:
+    custom_arg = MCPServerConfigArg(
+        name="custom",
+        url_param_key="custom-mode",
+        disallowed_url_param_keys={"mode": "Custom unsupported query parameter."},
+    )
+
+    assert validate_url_query_params([("MODE", "anything")], [custom_arg]) == (
+        "Custom unsupported query parameter."
+    )
 
 
 @pytest.mark.unit
