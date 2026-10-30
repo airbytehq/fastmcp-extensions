@@ -26,6 +26,8 @@ from fastmcp_extensions._middleware import ToolFilterMiddleware
 from fastmcp_extensions._telemetry import resolve_version
 from fastmcp_extensions.server import _derive_package_name, _distribution_name
 from fastmcp_extensions.tool_filters import (
+    ENV_READONLY_MODE,
+    HEADER_READONLY_MODE,
     _parse_csv_config,
     no_client_filesystem_filter,
 )
@@ -536,8 +538,11 @@ def test_get_mcp_config_without_http_request_falls_through_to_default() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_standard_readonly_url_param_filters_tools_over_http() -> None:
-    """A read-only URL param filters tools in an HTTP `tools/list` response."""
+async def test_readonly_mode_is_server_enforced_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTP request values cannot disable read-only mode set by the server."""
+    monkeypatch.delenv(ENV_READONLY_MODE, raising=False)
     app = mcp_server("test-server", include_standard_tool_filters=True)
 
     @app.tool(annotations={"readOnlyHint": True})
@@ -569,22 +574,31 @@ async def test_standard_readonly_url_param_filters_tools_over_http() -> None:
         all_tools_response = await client.post(
             "/mcp", headers=headers, json=request_body
         )
+        monkeypatch.setenv(ENV_READONLY_MODE, "1")
+        query_disable_response = await client.post(
+            "/mcp?read-only=0", headers=headers, json=request_body
+        )
+        header_disable_response = await client.post(
+            "/mcp",
+            headers={**headers, HEADER_READONLY_MODE: "0"},
+            json=request_body,
+        )
 
     assert readonly_response.status_code == 200
     assert all_tools_response.status_code == 200
-    readonly_result = json.loads(
-        readonly_response.text.split("data: ", maxsplit=1)[1].splitlines()[0]
-    )
-    all_tools_result = json.loads(
-        all_tools_response.text.split("data: ", maxsplit=1)[1].splitlines()[0]
-    )
-    readonly_tools = readonly_result["result"]["tools"]
-    all_tools = all_tools_result["result"]["tools"]
-    assert [tool["name"] for tool in readonly_tools] == ["read_only_tool"]
-    assert {tool["name"] for tool in all_tools} == {
-        "read_only_tool",
-        "writable_tool",
-    }
+    assert query_disable_response.status_code == 200
+    assert header_disable_response.status_code == 200
+
+    def tool_names(response: httpx.Response) -> set[str]:
+        result = json.loads(
+            response.text.split("data: ", maxsplit=1)[1].splitlines()[0]
+        )
+        return {tool["name"] for tool in result["result"]["tools"]}
+
+    assert tool_names(readonly_response) == {"read_only_tool"}
+    assert tool_names(all_tools_response) == {"read_only_tool", "writable_tool"}
+    assert tool_names(query_disable_response) == {"read_only_tool"}
+    assert tool_names(header_disable_response) == {"read_only_tool"}
 
 
 @pytest.mark.unit

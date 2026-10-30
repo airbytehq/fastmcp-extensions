@@ -44,6 +44,7 @@ app.add_middleware(ToolFilterMiddleware(app, tool_filter=readonly_mode_filter))
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 
 from fastmcp import FastMCP
@@ -219,7 +220,8 @@ READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
 
 When set to "1", only tools with readOnlyHint=True annotation will be visible.
 Can be set via the X-MCP-Readonly-Mode header, the `?read-only=true` URL query
-param, or the MCP_READONLY_MODE env var.
+param, or the MCP_READONLY_MODE env var. A request can enable read-only mode
+but cannot disable it when the server's configured env var enables it.
 """
 
 NO_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
@@ -476,8 +478,9 @@ def interactive_ui_filter(tool: Tool, _app: FastMCP) -> bool:
 def readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on readonly_mode config.
 
-    When readonly_mode is "1" or "true", only show tools with readOnlyHint=True.
-    When readonly_mode is "0" (default), show all tools.
+    When readonly_mode is "1" or "true", or its configured server env var is
+    truthy, only show tools with readOnlyHint=True. A request can enable
+    read-only mode but cannot disable it when the server enables it.
 
     Args:
         tool: The tool to check.
@@ -487,7 +490,18 @@ def readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
         True if the tool should be visible, False to hide it.
     """
     config_value = get_mcp_config(app, CONFIG_READONLY_MODE).lower()
-    if config_value in ("1", "true"):
+    config: MCPServerConfig = app.x_mcp_server_config  # ty: ignore[unresolved-attribute]  # FastMCP does not declare extension configuration attributes.
+    readonly_mode_arg = next(
+        (arg for arg in config.config_args if arg.name == CONFIG_READONLY_MODE),
+        None,
+    )
+    env_var = (
+        readonly_mode_arg.env_var
+        if readonly_mode_arg is not None
+        else ENV_READONLY_MODE
+    )
+    env_value = os.environ.get(env_var) if env_var else None
+    if config_value in ("1", "true") or _is_truthy(env_value):
         return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, False))
     return True
 
