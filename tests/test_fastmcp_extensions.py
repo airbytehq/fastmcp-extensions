@@ -492,6 +492,120 @@ async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
     _clear_registrations()
 
 
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_title_is_registered_and_mirrored_to_annotations() -> None:
+    """The title is present in both the MCP tool and legacy annotations."""
+    _clear_registrations()
+
+    @mcp_tool(title="Do a thing", read_only=True, idempotent=True)
+    def titled_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("titled_tool")
+    assert tool is not None
+    assert tool.title == "Do a thing"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "Do a thing"
+    assert tool.annotations.read_only_hint is True
+    assert tool.annotations.destructive_hint is False
+    assert tool.annotations.idempotent_hint is True
+    assert tool.annotations.open_world_hint is False
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert dumped["title"] == "Do a thing"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_without_title_uses_default_title() -> None:
+    """A title is derived from the function name when no title is provided."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def untitled_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("untitled_tool")
+    assert tool is not None
+    assert tool.title == "Untitled tool"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "Untitled tool"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_default_title_is_sent_in_wire_json() -> None:
+    """The name-derived title is included in the MCP tool JSON."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def list_saved_recipes() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("list_saved_recipes")
+    assert tool is not None
+    assert tool.title == "List saved recipes"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "List saved recipes"
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert dumped["title"] == "List saved recipes"
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_title_validation() -> None:
+    """Titles must be non-empty and agree with any annotation override."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="mcp_tool: title must be a non-empty string"):
+        mcp_tool(title="   ")
+
+    with pytest.raises(ValueError, match=r"title 'A'.*title 'B'"):
+        mcp_tool(title="A", annotations={"title": "B"})
+
+    @mcp_tool(title="A", annotations={"title": "A"})
+    def matching_title_tool() -> str:
+        return "ok"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_annotation_title_sets_top_level_title() -> None:
+    """An annotation-only title also populates the top-level tool title."""
+    _clear_registrations()
+
+    @mcp_tool(annotations={"title": "Annotation title"})
+    def annotation_title_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("annotation_title_tool")
+    assert tool is not None
+    assert tool.title == "Annotation title"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "Annotation title"
+
+    _clear_registrations()
+
+
 @pytest.mark.unit
 def test_mcp_tool_interactive_ui_requires_app() -> None:
     """`interactive_ui=True` without `app=` is a configuration error."""

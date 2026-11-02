@@ -28,6 +28,7 @@ from fastmcp_extensions.annotations import (
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
+    TOOL_TITLE_KEY,
     TOOL_TRACING_KEY,
     TOOL_UI_OPTIONAL_KEY,
     UI_META_KEY,
@@ -99,6 +100,12 @@ def _split_annotations(
         key: value for key, value in annotations.items() if key not in standard_keys
     }
     return (ToolAnnotations(**standard) if standard else None, extras)
+
+
+def _default_tool_title(name: str) -> str:
+    """Derive a sentence-case title from a registered tool name."""
+    title = name.replace("_", " ")
+    return title[:1].upper() + title[1:]
 
 
 def _constant(value: Any) -> Callable[[], Any]:
@@ -415,6 +422,7 @@ def register_mcp_tools(
         registration_annotations = dict(annotations)
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
+        tool_title = registration_annotations.pop(TOOL_TITLE_KEY, None)
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
         ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
@@ -447,6 +455,15 @@ def register_mcp_tools(
         if exclude_args:
             callable_fn = _exclude_parameters(callable_fn, exclude_args)
 
+        registered_tool_name = (
+            getattr(callable_fn, "__name__", None) or callable_fn.__class__.__name__
+        )
+        if tool_title is None:
+            tool_title = registration_annotations.get("title")
+        if tool_title is None:
+            tool_title = _default_tool_title(registered_tool_name)
+        registration_annotations["title"] = tool_title
+
         standard_annotations, extras = _split_annotations(registration_annotations)
         if extras:
             raise ValueError(
@@ -458,6 +475,7 @@ def register_mcp_tools(
             )
         app.tool(
             callable_fn,
+            title=tool_title,
             annotations=standard_annotations,
             meta=tool_meta or None,
             app=tool_app,

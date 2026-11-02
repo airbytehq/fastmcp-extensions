@@ -691,7 +691,7 @@ cmd = "python bin/measure_mcp_tool_list.py"
 
 ### Decorators
 
-- `@mcp_tool(read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, annotations, required_capabilities, extra_help_text, tracing)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
+- `@mcp_tool(title, read_only, destructive, idempotent, open_world, requires_client_filesystem, interactive_ui, with_state, meta, app, annotations, required_capabilities, extra_help_text, tracing)` - Tag a tool for deferred registration; the domain comes from the defining module's file stem
 - `@mcp_prompt(name, description)` - Tag a prompt for deferred registration
 - `@mcp_resource(uri, description, mime_type)` - Tag a resource for deferred registration
 - `@mcp_provider(interactive_ui, annotations, required_capabilities)` - Tag a provider factory for deferred tool registration (`interactive_ui` is accepted but has no effect; provider tools are gated via their own `_meta.ui` marker and inherit `required_capabilities`).
