@@ -492,6 +492,96 @@ async def test_register_mcp_tools_routes_annotations_and_meta() -> None:
     _clear_registrations()
 
 
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_title_is_registered_and_mirrored_to_annotations() -> None:
+    """The title is present in both the MCP tool and legacy annotations."""
+    _clear_registrations()
+
+    @mcp_tool(title="Do a thing", read_only=True, idempotent=True)
+    def titled_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("titled_tool")
+    assert tool is not None
+    assert tool.title == "Do a thing"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "Do a thing"
+    assert tool.annotations.read_only_hint is True
+    assert tool.annotations.destructive_hint is False
+    assert tool.annotations.idempotent_hint is True
+    assert tool.annotations.open_world_hint is False
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert dumped["title"] == "Do a thing"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_without_title_has_no_title_fields() -> None:
+    """Titles remain unset when `mcp_tool` is called without a title."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def untitled_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("untitled_tool")
+    assert tool is not None
+    assert tool.title is None
+    assert tool.annotations is not None
+    assert tool.annotations.title is None
+
+    _clear_registrations()
+
+
+@pytest.mark.unit
+def test_mcp_tool_title_validation() -> None:
+    """Titles must be non-empty and agree with any annotation override."""
+    _clear_registrations()
+
+    with pytest.raises(ValueError, match="mcp_tool: title must be a non-empty string"):
+        mcp_tool(title="   ")
+
+    with pytest.raises(ValueError, match=r"title 'A'.*title 'B'"):
+        mcp_tool(title="A", annotations={"title": "B"})
+
+    @mcp_tool(title="A", annotations={"title": "A"})
+    def matching_title_tool() -> str:
+        return "ok"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_annotation_title_without_kwarg_is_unchanged() -> None:
+    """Annotation-only titles do not populate the top-level tool title."""
+    _clear_registrations()
+
+    @mcp_tool(annotations={"title": "Annotation title"})
+    def annotation_title_tool() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("annotation_title_tool")
+    assert tool is not None
+    assert tool.title is None
+    assert tool.annotations is not None
+    assert tool.annotations.title == "Annotation title"
+
+    _clear_registrations()
+
+
 @pytest.mark.unit
 def test_mcp_tool_interactive_ui_requires_app() -> None:
     """`interactive_ui=True` without `app=` is a configuration error."""

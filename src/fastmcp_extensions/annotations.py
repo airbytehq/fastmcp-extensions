@@ -88,6 +88,13 @@ itself becomes `tool.meta` (the wire `meta` field); the key is never sent on
 the wire.
 """
 
+TOOL_TITLE_KEY = "_fastmcp_extensions_title"
+"""Internal registration-time key carrying the tool's top-level title.
+
+Set by `@mcp_tool(title=...)` and popped at registration time — the value is
+passed to `app.tool(title=...)`; the key is never sent on the wire.
+"""
+
 TOOL_APP_KEY = "_fastmcp_extensions_app"
 """Internal registration-time key carrying the tool's `AppConfig`.
 

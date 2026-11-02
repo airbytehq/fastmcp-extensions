@@ -29,6 +29,7 @@ from fastmcp_extensions.annotations import (
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
+    TOOL_TITLE_KEY,
     TOOL_TRACING_KEY,
     TOOL_UI_OPTIONAL_KEY,
     WITH_STATE_ANNOTATION,
@@ -127,6 +128,7 @@ def _normalize_mcp_module(mcp_module: str) -> str:
 
 def mcp_tool(
     *,
+    title: str | None = None,
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
@@ -150,6 +152,10 @@ def mcp_tool(
     the tool is defined (e.g., tools in "github.py" get mcp_module "github").
 
     Args:
+        title: Optional human-readable display name, set as the MCP tool's
+            top-level `title` and mirrored into `annotations.title` for clients
+            that predate top-level titles. Use a short, verb-first action such
+            as "Rename connection" (default: None)
         read_only: If True, tool only reads without making changes (default: False)
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
@@ -192,13 +198,26 @@ def mcp_tool(
         Decorator function that tags the tool with annotations
 
     Example:
-        @mcp_tool(read_only=True, idempotent=True)
+        @mcp_tool(title="List connectors in repo", read_only=True, idempotent=True)
         def list_connectors_in_repo():
             ...
     """
     mcp_module_str = _get_caller_file_stem()
+    if title is not None and not title.strip():
+        raise ValueError("mcp_tool: title must be a non-empty string")
     if annotations:
         _validate_annotation_keys(annotations, "mcp_tool")  # canonicalized below
+
+    canonical_annotations = {
+        _canonical_annotation_key(k): v for k, v in (annotations or {}).items()
+    }
+    if title is not None and "title" in canonical_annotations:
+        annotation_title = canonical_annotations["title"]
+        if annotation_title != title:
+            raise ValueError(
+                f"mcp_tool: title {title!r} conflicts with "
+                f"annotations title {annotation_title!r}"
+            )
 
     annotations_dict: dict[str, Any] = {
         ANNOTATION_MCP_MODULE: mcp_module_str,
@@ -207,9 +226,10 @@ def mcp_tool(
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
     }
-    annotations_dict.update(
-        {_canonical_annotation_key(k): v for k, v in (annotations or {}).items()}
-    )
+    annotations_dict.update(canonical_annotations)
+    if title is not None:
+        annotations_dict[TOOL_TITLE_KEY] = title
+        annotations_dict["title"] = title
     annotations = annotations_dict
     if isinstance(interactive_ui, str) and interactive_ui != "optional":
         raise ValueError(

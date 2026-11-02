@@ -28,6 +28,7 @@ from fastmcp_extensions.annotations import (
     TOOL_EXTRA_HELP_KEY,
     TOOL_META_KEY,
     TOOL_REQUIRES_KEY,
+    TOOL_TITLE_KEY,
     TOOL_TRACING_KEY,
     TOOL_UI_OPTIONAL_KEY,
     UI_META_KEY,
@@ -415,6 +416,7 @@ def register_mcp_tools(
         registration_annotations = dict(annotations)
         state_type = registration_annotations.pop(WITH_STATE_ANNOTATION, None)
         tool_meta = dict(registration_annotations.pop(TOOL_META_KEY, None) or {})
+        tool_title = registration_annotations.pop(TOOL_TITLE_KEY, None)
         tool_app = registration_annotations.pop(TOOL_APP_KEY, None)
         extra_help_factory = registration_annotations.pop(TOOL_EXTRA_HELP_KEY, None)
         ui_optional = bool(registration_annotations.pop(TOOL_UI_OPTIONAL_KEY, False))
@@ -458,6 +460,7 @@ def register_mcp_tools(
             )
         app.tool(
             callable_fn,
+            title=tool_title,
             annotations=standard_annotations,
             meta=tool_meta or None,
             app=tool_app,
