@@ -152,10 +152,12 @@ def mcp_tool(
     the tool is defined (e.g., tools in "github.py" get mcp_module "github").
 
     Args:
-        title: Optional human-readable display name, set as the MCP tool's
-            top-level `title` and mirrored into `annotations.title` for clients
-            that predate top-level titles. Use a short, verb-first action such
-            as "Rename connection" (default: None)
+        title: Optional human-readable display name. If omitted, it is derived
+            from the tool name in sentence case (e.g. `rename_connection`
+            becomes `Rename connection`). Pass a title when the derived name
+            reads poorly, such as for acronyms or proper nouns. The resolved
+            title is set as the MCP tool's top-level `title` and mirrored into
+            `annotations.title` for clients that predate top-level titles.
         read_only: If True, tool only reads without making changes (default: False)
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)

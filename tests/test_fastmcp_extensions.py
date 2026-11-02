@@ -522,8 +522,8 @@ async def test_mcp_tool_title_is_registered_and_mirrored_to_annotations() -> Non
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_mcp_tool_without_title_has_no_title_fields() -> None:
-    """Titles remain unset when `mcp_tool` is called without a title."""
+async def test_mcp_tool_without_title_uses_default_title() -> None:
+    """A title is derived from the function name when no title is provided."""
     _clear_registrations()
 
     @mcp_tool()
@@ -535,9 +535,33 @@ async def test_mcp_tool_without_title_has_no_title_fields() -> None:
 
     tool = await app.get_tool("untitled_tool")
     assert tool is not None
-    assert tool.title is None
+    assert tool.title == "Untitled tool"
     assert tool.annotations is not None
-    assert tool.annotations.title is None
+    assert tool.annotations.title == "Untitled tool"
+
+    _clear_registrations()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_mcp_tool_default_title_is_sent_in_wire_json() -> None:
+    """The name-derived title is included in the MCP tool JSON."""
+    _clear_registrations()
+
+    @mcp_tool()
+    def list_saved_recipes() -> str:
+        return "ok"
+
+    app = FastMCP("test")
+    register_mcp_tools(app, mcp_module="test_fastmcp_extensions")
+
+    tool = await app.get_tool("list_saved_recipes")
+    assert tool is not None
+    assert tool.title == "List saved recipes"
+    assert tool.annotations is not None
+    assert tool.annotations.title == "List saved recipes"
+    dumped = tool.to_mcp_tool().model_dump(by_alias=True, exclude_none=True)
+    assert dumped["title"] == "List saved recipes"
 
     _clear_registrations()
 
@@ -562,8 +586,8 @@ def test_mcp_tool_title_validation() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_mcp_tool_annotation_title_without_kwarg_is_unchanged() -> None:
-    """Annotation-only titles do not populate the top-level tool title."""
+async def test_mcp_tool_annotation_title_sets_top_level_title() -> None:
+    """An annotation-only title also populates the top-level tool title."""
     _clear_registrations()
 
     @mcp_tool(annotations={"title": "Annotation title"})
@@ -575,7 +599,7 @@ async def test_mcp_tool_annotation_title_without_kwarg_is_unchanged() -> None:
 
     tool = await app.get_tool("annotation_title_tool")
     assert tool is not None
-    assert tool.title is None
+    assert tool.title == "Annotation title"
     assert tool.annotations is not None
     assert tool.annotations.title == "Annotation title"
 

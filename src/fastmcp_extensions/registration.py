@@ -102,6 +102,12 @@ def _split_annotations(
     return (ToolAnnotations(**standard) if standard else None, extras)
 
 
+def _default_tool_title(name: str) -> str:
+    """Derive a sentence-case title from a registered tool name."""
+    title = name.replace("_", " ")
+    return title[:1].upper() + title[1:]
+
+
 def _constant(value: Any) -> Callable[[], Any]:
     """Return a zero-argument dependency factory yielding `value`."""
 
@@ -448,6 +454,15 @@ def register_mcp_tools(
             callable_fn = prepare_stateful_tool(callable_fn, state_type, app)
         if exclude_args:
             callable_fn = _exclude_parameters(callable_fn, exclude_args)
+
+        registered_tool_name = (
+            getattr(callable_fn, "__name__", None) or callable_fn.__class__.__name__
+        )
+        if tool_title is None:
+            tool_title = registration_annotations.get("title")
+        if tool_title is None:
+            tool_title = _default_tool_title(registered_tool_name)
+        registration_annotations["title"] = tool_title
 
         standard_annotations, extras = _split_annotations(registration_annotations)
         if extras:
