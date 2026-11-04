@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
 import json
 import os
 import sys
@@ -41,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp import Client
 
+from fastmcp_extensions.utils._app_import import import_app
 from fastmcp_extensions.utils._http import find_free_port, wait_for_server
 
 if TYPE_CHECKING:
@@ -134,17 +134,6 @@ async def run_http_tool_test(
         pass
 
 
-def _import_app(app_path: str) -> FastMCP:
-    """Import an app from a module:attribute path."""
-    if ":" not in app_path:
-        msg = f"Invalid app path '{app_path}'. Expected format: 'module.path:attribute'"
-        raise ValueError(msg)
-
-    module_path, attr_name = app_path.rsplit(":", 1)
-    module = importlib.import_module(module_path)
-    return getattr(module, attr_name)
-
-
 def main() -> None:
     """Main entry point for the MCP tool testing CLI."""
     parser = argparse.ArgumentParser(
@@ -177,7 +166,7 @@ def main() -> None:
 
     cli_args = parser.parse_args()
 
-    app = _import_app(cli_args.app)
+    app = import_app(cli_args.app)
 
     if cli_args.http:
         # HTTP transport mode
