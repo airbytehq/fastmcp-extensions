@@ -175,6 +175,7 @@ app = mcp_server(
 | `other_spans` | `None` | `(span) -> attributes` for spans the layer did not stamp. Returns the complete attribute set to keep, or `None` to drop the span. A kept span's name, kind, timing, and parent are exported unchanged, so return `None` for spans whose name may carry data, such as a SQL statement or a client-chosen prompt name. The hook sees every unstamped span in the process, so set it on only one app per process. |
 | `arg_key` | `None` | 32-byte secret for argument hashes, or a callable returning it. |
 | `arg_default` | `TraceArg.HASH` | How `str`, `int`, `float`, `UUID`, and `list[str]` arguments without a marker are recorded. `VALUE` is treated as `HASH`. |
+| `arg_rules` | `{}` | Ordered mapping of argument-name globs to `TraceArg` modes or their string values. A `tool_glob:arg_glob` key scopes a rule to matching tools. |
 
 Attributes from `attributes`, `shared_properties`, a per-tool callable, or
 `add_trace_attributes()` are written under the prefix and bounded: strings are
@@ -256,6 +257,11 @@ def query(
 ) -> list[dict]:
     return []
 ```
+
+`ToolTracingConfig.arg_rules` is an ordered mapping; the first matching
+argument-name glob wins, and `tool_glob:arg_glob` scopes a rule to a tool.
+Rules override the secret-name heuristic and inferred types, but explicit
+markers and pydantic secret types take precedence.
 
 | Mode | Record | Default for |
 | ---- | ------ | ----------- |

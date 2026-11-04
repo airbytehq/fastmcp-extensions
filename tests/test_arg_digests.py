@@ -154,6 +154,145 @@ def test_classification_table(caplog: pytest.LogCaptureFixture) -> None:
         assert mistyped["text"].describe() == plan
 
 
+def _rule_source_tool(
+    marker: Annotated[str, TraceArg.OMIT],
+    secret: SecretStr,
+    config_secret_name: str,
+    api_key: str,
+    flag: bool,
+    text: str,
+    payload: dict,
+    limit: int,
+    clash: Annotated[str, TraceArg.OMIT, TraceArg.VALUE],
+) -> None: ...
+
+
+def _unresolvable_return_tool(
+    x: Annotated[str, TraceArg.OMIT],
+    y: int,
+) -> None: ...
+
+
+_unresolvable_return_tool.__annotations__["return"] = "NotDefinedAnywhere"
+
+
+def test_argument_rules_match_globs_and_first_match_wins() -> None:
+    """Rules match arg globs globally or scoped by tool name, in insertion order."""
+    scoped = ArgTracer(P, rules={"rule_*:te*": "fingerprint"})
+    assert (
+        scoped.classes("rule_tool", _rule_source_tool, ["text"])["text"].describe()
+        == "fingerprint"
+    )
+    other_tool = scoped.classes("other_tool", _rule_source_tool, ["text"])["text"]
+    assert (other_tool.describe(), other_tool.source) == ("hash", "default")
+
+    first = ArgTracer(
+        P, rules={"te*": "omit", "rule_tool:te*": TraceArg.FINGERPRINT}
+    ).classes("rule_tool", _rule_source_tool, ["text"])["text"]
+    assert (first.describe(), first.source) == ("omit", "rule:te*")
+
+
+def test_argument_rule_precedence_and_sources() -> None:
+    """Markers and secret types win, while rules override name and type inference."""
+    classes = ArgTracer(
+        P,
+        rules={
+            "marker": "hash",
+            "secret": "fingerprint",
+            "config_secret_name": "fingerprint",
+            "flag": "value",
+            "limit": "value",
+        },
+    ).classes(
+        "rule_tool",
+        _rule_source_tool,
+        [
+            "marker",
+            "secret",
+            "config_secret_name",
+            "api_key",
+            "flag",
+            "text",
+            "payload",
+            "limit",
+            "clash",
+        ],
+    )
+
+    assert (classes["marker"].describe(), classes["marker"].source) == (
+        "omit",
+        "marker",
+    )
+    assert (classes["secret"].describe(), classes["secret"].source) == (
+        "omit",
+        "secret_type",
+    )
+    assert (
+        classes["config_secret_name"].describe(),
+        classes["config_secret_name"].source,
+    ) == ("fingerprint", "rule:config_secret_name")
+    assert (classes["api_key"].describe(), classes["api_key"].source) == (
+        "presence",
+        "secret_name",
+    )
+    assert (classes["flag"].describe(), classes["flag"].source) == (
+        "value allowed=[false,true]",
+        "rule:flag",
+    )
+    assert (classes["limit"].describe(), classes["limit"].source) == (
+        "value int",
+        "rule:limit",
+    )
+    assert (classes["text"].describe(), classes["text"].source) == (
+        "hash",
+        "default",
+    )
+    assert (classes["payload"].describe(), classes["payload"].source) == (
+        "presence",
+        "complex",
+    )
+    assert (classes["clash"].describe(), classes["clash"].source) == (
+        "presence",
+        "error",
+    )
+
+
+def test_unresolvable_type_hints_ignore_argument_rules() -> None:
+    """Arguments stay presence-only when type-hint resolution fails."""
+    classes = ArgTracer(P, rules={"x": "fingerprint"}).classes(
+        "unresolvable_return",
+        _unresolvable_return_tool,
+        ["x", "y"],
+    )
+
+    assert (classes["x"].describe(), classes["x"].source) == ("presence", "error")
+    assert classes["x"].mode is not TraceArg.FINGERPRINT
+
+
+def test_unresolvable_type_hints_without_rules_are_presence_only() -> None:
+    """Every argument gets the error fallback when hints cannot be resolved."""
+    classes = ArgTracer(P).classes(
+        "unresolvable_return",
+        _unresolvable_return_tool,
+        ["x", "y"],
+    )
+
+    assert {name: (cls.describe(), cls.source) for name, cls in classes.items()} == {
+        "x": ("presence", "error"),
+        "y": ("presence", "error"),
+    }
+
+
+def test_invalid_argument_rule_is_dropped_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An invalid mode warns and leaves the argument to existing inference."""
+    tracer = ArgTracer(P, rules={"text": "raw"})
+    text = tracer.classes("rule_tool", _rule_source_tool, ["text"])["text"]
+    assert (text.describe(), text.source) == ("hash", "default")
+    assert "`arg_rules` value for 'text' is not a `TraceArg`" in caplog.text
+
+
 def test_golden_vector() -> None:
     """`digest`, `similarity`, and the scope id stay byte-compatible with the lifted engine."""
     # The prefix feeds the hash labels; this one has hashes already in use.

@@ -20,7 +20,8 @@ Baseline [FastMCP](https://github.com/jlowin/fastmcp) is the protocol engine: it
 12. 🌐 **Browser-friendly landing page** - A registrable landing page so a browser `GET` on your MCP HTTP endpoint returns something human-readable instead of an error.
 13. 🧪 **Test and debug tooling** - `call_mcp_tool` / `run_tool_test` / `run_http_tool_test` exercise tools with JSON args over stdio and HTTP, and tool-list measurement catches context-window truncation before it bites an agent.
 14. 🔭 **Tracing behind an allowlist** - `TelemetryConfig(tool_tracing=True)` exports one OpenTelemetry span per tool call with its outcome, error category, client, and argument and result shape. Every span is rebuilt from an allowlist before export, so results and exception messages stay in the process. A value leaves only for an argument recorded as `VALUE` and for the opt-in `intent` text. See [Tool-Call Tracing](https://github.com/airbytehq/fastmcp-extensions/blob/main/docs/TELEMETRY.md).
-15. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
+15. 🧭 **Argument tracing rules by name** - `ToolTracingConfig(arg_rules=...)` applies ordered argument-name globs, optionally scoped as `"tool_glob:arg_glob"`, so policies can live in configuration instead of tool signatures.
+16. 🧱 **A buffer against major-version churn** - Servers build against this library's API, not FastMCP's internals, so a FastMCP major bump lands here first. Through the 2.x→3.x transition this library supported both lines during the overlap and the servers on top needed little or no rework; it now targets FastMCP 4.x, having absorbed the 3.x→4.x move the same way.
 
 ## Upgrading to 0.x (FastMCP 4)
 

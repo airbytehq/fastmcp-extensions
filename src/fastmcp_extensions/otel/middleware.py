@@ -377,6 +377,7 @@ class ToolCallOtelMiddleware(Middleware):
         self.args = ArgTracer(
             self.prefix,
             default=config.arg_default,
+            rules=config.arg_rules,
             key=config.arg_key,
             skip=(INTENT_ARG,) if config.capture_intent else (),
         )
@@ -827,7 +828,9 @@ def arg_trace_attributes(
     )
 
 
-async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
+async def trace_plan(
+    app: FastMCP, *, include_sources: bool = False
+) -> dict[str, dict[str, Any]]:
     """Return what tracing records for each tool of `app`, for snapshot tests.
 
     A snapshot of the result in a server's test suite makes every change to
@@ -839,7 +842,9 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
         A dict keyed by tool name, sorted. Each value holds the tool's
         contract `fingerprint`, its `schema_chars`, and `args`: how each
         argument is recorded (for example `hash`, `value int`, or
-        `omit`). `args` is empty for a tool with `tracing=False`.
+        `omit`). `args` is empty for a tool with `tracing=False`. When
+        `include_sources` is true, each entry also has `arg_sources`, naming
+        the rule or inference that classified each argument.
     """
     tracer = next(
         (m.args for m in app.middleware if isinstance(m, ToolCallOtelMiddleware)),
@@ -855,11 +860,14 @@ async def trace_plan(app: FastMCP) -> dict[str, dict[str, Any]]:
             if get_tool_traits(app, tool.name).tracing is not False
             else {}
         )
-        plan[tool.name] = {
+        entry: dict[str, Any] = {
             "fingerprint": fingerprint,
             "schema_chars": schema_chars,
             "args": {name: cls.describe() for name, cls in classes.items()},
         }
+        if include_sources:
+            entry["arg_sources"] = {name: cls.source for name, cls in classes.items()}
+        plan[tool.name] = entry
     return dict(sorted(plan.items()))
 
 

@@ -959,7 +959,11 @@ async def test_per_tool_tracing_option() -> None:
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_isolated_tools")
 async def test_trace_plan() -> None:
-    config = ToolTracingConfig(arg_default=TraceArg.FINGERPRINT, capture_intent=True)
+    config = ToolTracingConfig(
+        arg_default=TraceArg.FINGERPRINT,
+        arg_rules={"search:query": "fingerprint"},
+        capture_intent=True,
+    )
     app = mcp_server("plan", telemetry=TelemetryConfig(tool_tracing=config))
 
     @app.tool
@@ -981,6 +985,7 @@ async def test_trace_plan() -> None:
 
     register_mcp_tools(app, mcp_module=__name__, exclude_args=["api_key"])
     plan = await trace_plan(app)
+    plan_with_sources = await trace_plan(app, include_sources=True)
     assert list(plan) == ["fetch", "search", "untraced"]
     assert {name: entry["args"] for name, entry in plan.items()} == {
         "fetch": {"limit": "value int", "url": "fingerprint"},
@@ -991,7 +996,23 @@ async def test_trace_plan() -> None:
         },
         "untraced": {},
     }
+    assert {name: entry["args"] for name, entry in plan_with_sources.items()} == {
+        name: entry["args"] for name, entry in plan.items()
+    }
+    assert plan_with_sources["search"]["arg_sources"] == {
+        "mode": "closed_set",
+        "note": "marker",
+        "query": "rule:search:query",
+    }
+    assert plan_with_sources["fetch"]["arg_sources"]["url"] == "default"
+    assert plan_with_sources["untraced"]["arg_sources"] == {}
     assert set(plan["fetch"]) == {"args", "fingerprint", "schema_chars"}
+    assert set(plan_with_sources["fetch"]) == {
+        "args",
+        "arg_sources",
+        "fingerprint",
+        "schema_chars",
+    }
     # A marker is not a description, so it must not reach the published schema.
     schema = (await app.get_tool("search")).parameters["properties"]["note"]
     assert schema == {"type": "string"}

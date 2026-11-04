@@ -104,6 +104,10 @@ class ToolTracingConfig:
         arg_default: How `str`, `int`, `float`, `UUID`, and `list[str]`
             arguments without a `TraceArg` marker are recorded. `VALUE` is
             treated as `HASH`, so a raw value is never a default.
+        arg_rules: Ordered argument-name glob rules for tracing. A key of the
+            form `"tool_glob:arg_glob"` also scopes a rule to a tool name.
+            Rules override the secret-name heuristic and inferred types, but
+            not `TraceArg` markers or secret types.
     """
 
     exporter: Literal["otlp", "console"] | SpanExporter = "otlp"
@@ -120,3 +124,4 @@ class ToolTracingConfig:
     other_spans: Callable[[ReadableSpan], Mapping[str, object] | None] | None = None
     arg_key: bytes | Callable[[], bytes | None] | None = field(default=None, repr=False)
     arg_default: TraceArg = TraceArg.HASH
+    arg_rules: Mapping[str, TraceArg | str] = field(default_factory=dict)
