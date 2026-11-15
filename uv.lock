@@ -616,6 +616,7 @@ wheels = [
 name = "fastmcp-extensions"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
@@ -660,6 +661,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.0,<5.0" },
     { name = "cyclopts", marker = "extra == 'cli'", specifier = ">=4.0.0,<5.0" },
     { name = "cyclopts", marker = "extra == 'dev'", specifier = ">=4.0.0,<5.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.25.1" },

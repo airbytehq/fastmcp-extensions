@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "anyio>=4.0,<5.0",  # transitive dep of fastmcp; declared because we also import it directly
     "fastmcp>=4.0.9,<5.0",
     "httpx",  # transitive dep of fastmcp; declared because we also import it directly
     "mcp>=2.0,<3.0",  # transitive dep of fastmcp; declared because we also import it directly
